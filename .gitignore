@@ -1,0 +1,36 @@
+# ========== 依赖 & 构建产物 ==========
+**/node_modules/
+**/dist/
+**/.next/
+**/build/
+**/coverage/
+**/*.tsbuildinfo
+
+# ========== 环境变量（永远不上传，只留 .example）==========
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+!**/.env.local.example
+
+# ========== 日志 ==========
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# ========== IDE / OS ==========
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ========== Claude Code 本地会话（非项目内容）==========
+.claude/
+
+# ========== 项目里不属于当前 TMS 的历史目录（如需保留可删掉下面几行）==========
+automotive-transportation-management-system/
+api/
+readme1.md
+开发日志.md

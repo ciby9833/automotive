@@ -1,0 +1,148 @@
+import { Permission } from '../enums/permission.enum';
+import { Role } from '../enums/role.enum';
+
+// 角色→功能权限 硬编码矩阵。这一期不做"可配置角色"，
+// 硬编码有三个好处：(1) 可 git diff 审计权限变更；(2) 编译期能查漏；(3) 无 DB 查询开销。
+// 未来若切换成可配置(P2)：把这里换成从 DB 读取的 loadRolePermissions(role) 即可，
+// PermissionsGuard 无需改动。
+
+const {
+  YARD_VIEW_BOARD,
+  YARD_ASSIGN_SLOT,
+  YARD_RELEASE_SLOT,
+  YARD_MOVE_VEHICLE,
+  YARD_VIEW_VIN_INVENTORY,
+  SETUP_YARD_CRUD,
+  SETUP_SLOT_CRUD,
+  SETUP_SLOT_IMPORT,
+  SETUP_SLOT_DELETE,
+  ORDER_VIEW,
+  ORDER_CREATE,
+  WAYBILL_VIEW,
+  WAYBILL_CREATE,
+  WAYBILL_SCAN,
+  PARTNER_CARRIER_VIEW,
+  PARTNER_CARRIER_CRUD,
+  PARTNER_CUSTOMER_VIEW,
+  PARTNER_CUSTOMER_CRUD,
+  PARTNER_INVITE,
+  FINANCE_VIEW,
+  FINANCE_CONFIRM,
+  FINANCE_SEND_BILL,
+  FINANCE_CREATE,
+  SETUP_USER_CRUD,
+  SETUP_USER_MEMBERSHIP,
+  ORG_VIEW,
+  TRACKING_VIEW,
+  INBOUND_IMPORT,
+  INBOUND_VIEW,
+  INBOUND_SCAN,
+  INBOUND_BATCH_MANAGE,
+  PICKUP_SCAN,
+  PICKUP_VIEW,
+  OUTBOUND_IMPORT,
+  OUTBOUND_VIEW,
+  OUTBOUND_PLAN,
+} = Permission;
+// ORG_CRUD 只在 HQ_ALL 里通过 Object.values 引用，不用单独解构
+
+const YARD_OPS = [
+  YARD_VIEW_BOARD,
+  YARD_ASSIGN_SLOT,
+  YARD_RELEASE_SLOT,
+  YARD_MOVE_VEHICLE,
+  YARD_VIEW_VIN_INVENTORY,
+];
+
+const HQ_ALL: Permission[] = Object.values(Permission);
+
+export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
+  // 总部管理员：全权限
+  [Role.HQ_ADMIN]: HQ_ALL,
+
+  // 机构管理员：本机构内几乎全权限，但没有 ORG_CRUD(不能建/改机构树，那是 HQ 的事)
+  [Role.ORG_ADMIN]: [
+    ...YARD_OPS,
+    SETUP_YARD_CRUD,
+    SETUP_SLOT_CRUD,
+    SETUP_SLOT_IMPORT,
+    SETUP_SLOT_DELETE,
+    ORDER_VIEW,
+    ORDER_CREATE,
+    WAYBILL_VIEW,
+    WAYBILL_CREATE,
+    WAYBILL_SCAN,
+    PARTNER_CARRIER_VIEW,
+    PARTNER_CARRIER_CRUD,
+    PARTNER_CUSTOMER_VIEW,
+    PARTNER_CUSTOMER_CRUD,
+    PARTNER_INVITE,
+    FINANCE_VIEW,
+    FINANCE_CONFIRM,
+    FINANCE_SEND_BILL,
+    FINANCE_CREATE,
+    SETUP_USER_CRUD,
+    SETUP_USER_MEMBERSHIP,
+    ORG_VIEW,
+    TRACKING_VIEW,
+    INBOUND_IMPORT,
+    INBOUND_VIEW,
+    INBOUND_SCAN,
+    INBOUND_BATCH_MANAGE,
+    PICKUP_VIEW,
+    OUTBOUND_IMPORT,
+    OUTBOUND_VIEW,
+    OUTBOUND_PLAN,
+  ],
+
+  // 场地业务员：日常运营 + 扫码 + 入库扫码 + 建批次
+  [Role.YARD_STAFF]: [
+    ...YARD_OPS,
+    WAYBILL_VIEW,
+    WAYBILL_SCAN,
+    ORG_VIEW,
+    TRACKING_VIEW,
+    INBOUND_VIEW,
+    INBOUND_SCAN,
+    INBOUND_BATCH_MANAGE,
+    PICKUP_VIEW,
+    OUTBOUND_VIEW,
+    OUTBOUND_PLAN,
+  ],
+
+  // 客户：只看自己订单+运单+账单，可确认账单
+  [Role.CUSTOMER]: [
+    ORDER_VIEW,
+    WAYBILL_VIEW,
+    FINANCE_VIEW,
+    FINANCE_CONFIRM,
+    PARTNER_CUSTOMER_VIEW,
+    YARD_VIEW_VIN_INVENTORY,
+    TRACKING_VIEW,
+    INBOUND_VIEW,
+    PICKUP_VIEW,
+    OUTBOUND_VIEW,
+  ],
+
+  // 承运商业务员：分给自己家的运单 + 提货记录
+  [Role.CARRIER_STAFF]: [
+    WAYBILL_VIEW,
+    WAYBILL_SCAN,
+    PARTNER_CARRIER_VIEW,
+    TRACKING_VIEW,
+    PICKUP_VIEW,
+  ],
+
+  // 承运商司机：分给自己的运单 + 港口扫码提货
+  [Role.CARRIER_DRIVER]: [
+    WAYBILL_VIEW,
+    WAYBILL_SCAN,
+    TRACKING_VIEW,
+    PICKUP_SCAN,
+    PICKUP_VIEW,
+  ],
+};
+
+export function permissionsForRole(role: Role): Permission[] {
+  return ROLE_PERMISSIONS[role] ?? [];
+}

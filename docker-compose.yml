@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: tms
+      POSTGRES_PASSWORD: tms
+      POSTGRES_DB: tms
+    ports:
+      - "5442:5432"
+    volumes:
+      - tms_postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: tmsadmin
+      MINIO_ROOT_PASSWORD: tmsadmin123
+    ports:
+      - "19000:9000"
+      - "19001:9001"
+    volumes:
+      - tms_minio_data:/data
+
+volumes:
+  tms_postgres_data:
+  tms_minio_data:

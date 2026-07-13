@@ -1,0 +1,212 @@
+/* ========== 应用外壳布局 ========== */
+/* 固定 100vh，只让内容区滚动，其他部分永不动 */
+
+:root {
+  --app-bg: #f1f5f9;
+  --app-surface: #ffffff;
+  --app-sidebar-bg: #0f172a;
+  --app-sidebar-text: #e2e8f0;
+  --app-border: #e2e8f0;
+  --app-text: #0f172a;
+  --app-muted: #64748b;
+  --app-primary: #2563eb;
+  --app-primary-soft: #eff6ff;
+  --app-primary-text: #1d4ed8;
+  --app-header-height: 56px;
+  --app-sidebar-width: 220px;
+  --app-sidebar-collapsed-width: 64px;
+  --app-radius-sm: 6px;
+  --app-radius-md: 8px;
+}
+
+.app-shell {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  background: var(--app-bg);
+}
+
+.app-sidebar {
+  flex-shrink: 0;
+  width: var(--app-sidebar-width);
+  height: 100vh;
+  background: var(--app-sidebar-bg);
+  color: var(--app-sidebar-text);
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.2s ease;
+  box-shadow: 1px 0 0 rgba(0, 0, 0, 0.02);
+}
+.app-shell.is-collapsed .app-sidebar {
+  width: var(--app-sidebar-collapsed-width);
+}
+
+.app-sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.app-sidebar-brand {
+  height: var(--app-header-height);
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  color: #f8fafc;
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* antd Menu 深色主题里再补一点微调 */
+.app-sidebar-inner .ant-menu-inline .ant-menu-item,
+.app-sidebar-inner .ant-menu-inline .ant-menu-submenu-title {
+  margin: 4px 8px;
+  width: calc(100% - 16px);
+  border-radius: var(--app-radius-sm);
+}
+.app-sidebar-inner .ant-menu-item-selected {
+  background-color: var(--app-primary) !important;
+}
+
+.app-main {
+  min-width: 0;
+  flex: 1;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-header {
+  flex-shrink: 0;
+  height: var(--app-header-height);
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+}
+.app-header-spacer {
+  flex: 1;
+}
+.app-header-user {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: var(--app-radius-sm);
+  transition: background 0.15s;
+}
+.app-header-user:hover {
+  background: var(--app-bg);
+}
+.header-user-name {
+  font-size: 13px;
+  color: var(--app-text);
+}
+.header-user-role {
+  font-size: 12px;
+}
+
+.workspace-tabs {
+  flex-shrink: 0;
+  background: var(--app-surface);
+  padding: 0 12px;
+  border-bottom: 1px solid var(--app-border);
+}
+.workspace-tabs .ant-tabs-nav {
+  margin: 0 !important;
+}
+.workspace-tabs .ant-tabs-tab {
+  border: 1px solid transparent !important;
+  border-radius: 4px 4px 0 0 !important;
+  background: transparent !important;
+  padding: 6px 12px !important;
+  font-size: 12px !important;
+  color: var(--app-muted) !important;
+}
+.workspace-tabs .ant-tabs-tab-active {
+  background: var(--app-primary-soft) !important;
+  color: var(--app-primary-text) !important;
+  border-color: transparent !important;
+}
+.workspace-tabs .ant-tabs-tab .anticon-close {
+  margin-left: 6px;
+  font-size: 10px;
+}
+.workspace-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.app-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--app-bg);
+}
+.app-content-inner {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+}
+.workspace-page {
+  height: 100%;
+  overflow: auto;
+  padding: 20px;
+}
+.workspace-page.is-hidden {
+  display: none;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* ========== 让 PageHeader 更统一 ========== */
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.page-header-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #0f172a;
+}
+.page-header-subtitle {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--app-muted);
+}
+.page-header-left {
+  min-width: 0;
+}
+.page-header-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ========== 卡片、表格微调 ========== */
+
+.app-content .ant-card {
+  border-radius: var(--app-radius-md);
+  border-color: var(--app-border);
+}
+.app-content .ant-table-thead > tr > th {
+  background: #f8fafc !important;
+  font-weight: 600 !important;
+  color: var(--app-text) !important;
+}

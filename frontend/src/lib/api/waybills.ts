@@ -1,0 +1,61 @@
+import { apiClient, unwrap } from './client';
+
+export type TransportType = 'TRANSFER' | 'REALLOCATION' | 'DELIVERY';
+export type WaybillStatus = 'NOT_ARRIVED' | 'IN_TRANSIT' | 'ARRIVED';
+export type ScanAction =
+  | 'INBOUND_ARRIVAL'
+  | 'REALLOCATION_DEPARTURE'
+  | 'REALLOCATION_ARRIVAL'
+  | 'DELIVERY_DEPARTURE'
+  | 'SIGNED';
+
+export interface WaybillVin {
+  id: string;
+  vin: string;
+  model: string | null;
+  color: string | null;
+  isSigned: boolean;
+}
+
+export interface Waybill {
+  id: string;
+  waybillCode: string;
+  organizationId: string;
+  organization?: { id: string; code: string; name: string };
+  customerWaybillCode: string | null;
+  transportType: TransportType;
+  status: WaybillStatus;
+  isLocked: boolean;
+  carrierId: string | null;
+  originYardId: string | null;
+  originText: string | null;
+  originYard?: { id: string; code: string; name: string };
+  destinationYardId: string | null;
+  destinationDealerId: string | null;
+  destinationDealer?: { id: string; dealerName: string; address: string };
+  carrier?: { id: string; name: string; shortName?: string | null };
+  vins: WaybillVin[];
+  createdAt: string;
+}
+
+export const waybillsApi = {
+  list: (params?: {
+    organizationId?: string;
+    status?: WaybillStatus;
+    originYardId?: string;
+    transportType?: TransportType;
+  }) => unwrap<Waybill[]>(apiClient.get('/waybills', { params })),
+  get: (id: string) => unwrap<Waybill>(apiClient.get(`/waybills/${id}`)),
+  lookup: (vin: string) =>
+    unwrap<{ vin: string; isSigned: boolean; waybill: Waybill }>(
+      apiClient.get(`/waybills/lookup/${vin}`),
+    ),
+  scan: (dto: {
+    vin: string;
+    action: ScanAction;
+    yardId?: string;
+    attachmentUrls?: string[];
+    vehicleCheckInfo?: Record<string, string | number>;
+    remark?: string;
+  }) => unwrap<Waybill>(apiClient.post('/waybills/scan', dto)),
+};

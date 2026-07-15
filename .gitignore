@@ -31,6 +31,6 @@ Thumbs.db
 
 # ========== 项目里不属于当前 TMS 的历史目录（如需保留可删掉下面几行）==========
 automotive-transportation-management-system/
-api/
+接口api/
 readme1.md
 开发日志.md

@@ -1,0 +1,29 @@
+# 生产环境只起 Redis + MinIO（PostgreSQL 复用系统实例，不重复起）
+# 所有端口 bind 127.0.0.1，仅内网访问；后端从 .env 里连 localhost:16379 / localhost:19000
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: tms-redis
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:16379:6379"
+    volumes:
+      - tms_redis_data:/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: tms-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:19000:9000"
+      - "127.0.0.1:19001:9001"
+    volumes:
+      - tms_minio_data:/data
+
+volumes:
+  tms_redis_data:
+  tms_minio_data:

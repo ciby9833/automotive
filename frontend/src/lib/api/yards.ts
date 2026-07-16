@@ -1,4 +1,25 @@
 import { apiClient, unwrap } from './client';
+import type { InboundOrderVinDetail } from './inbound';
+import type { Waybill } from './waybills';
+
+// VIN 全生命周期返回结构：给场地看板抽屉一次拉完整
+export interface VinLifecycle {
+  vin: string;
+  orderVin: InboundOrderVinDetail | null;
+  waybills: Waybill[];
+  events: Array<{
+    id: string;
+    createdAt: string;
+    action: string;
+    vin: string;
+    remark: string | null;
+    attachmentUrls: string[] | null;
+    vehicleCheckInfo: Record<string, unknown> | null;
+    yard?: { id: string; code: string; name: string } | null;
+    operator?: { id: string; displayName: string } | null;
+    waybill?: { id: string; waybillCode: string } | null;
+  }>;
+}
 
 export interface Yard {
   id: string;
@@ -85,4 +106,7 @@ export const yardsApi = {
     yardId?: string;
     minStayDays?: number;
   }) => unwrap<VinInventoryRow[]>(apiClient.get('/yards/inventory/vin', { params })),
+  // VIN 全生命周期：orderVin + 出库运单 + 事件流水
+  vinLifecycle: (vin: string) =>
+    unwrap<VinLifecycle>(apiClient.get(`/yards/vin/${vin}/lifecycle`)),
 };

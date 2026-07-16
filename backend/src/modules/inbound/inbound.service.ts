@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Order } from '../orders/entities/order.entity';
 import { OrderVin } from '../orders/entities/order-vin.entity';
@@ -284,6 +284,69 @@ export class InboundService {
     return this.orderVinsRepo.save(vin);
   }
 
+  // ============ 自动分配：在 zone 内挑最优空位 ============
+  // 规则：同 model+color 相邻优先（同型号同色车尽量停一起，便于装车集中）
+  //      找不到相邻则按 slotNo 升序取第一个空位
+  //      slotNo 保持前导零对齐 (如 '01' 相邻是 '02'，不是 '2')
+  private async pickAutoSlot(
+    mgr: EntityManager,
+    opts: {
+      yardId: string | undefined;
+      zoneCode: string;
+      preferModel: string | null;
+      preferColor: string | null;
+    },
+  ): Promise<YardSlot | null> {
+    const slotRepo = mgr.getRepository(YardSlot);
+
+    const vacantQb = slotRepo
+      .createQueryBuilder('s')
+      .where('s.status = :vacant', { vacant: YardSlotStatus.VACANT })
+      .andWhere('s."isLocked" = false')
+      .andWhere('s.code LIKE :prefix', { prefix: `${opts.zoneCode}-%` })
+      .orderBy('s."slotNo"', 'ASC');
+    if (opts.yardId) {
+      vacantQb.andWhere('s.yard_id = :yid', { yid: opts.yardId });
+    }
+    const vacantSlots = await vacantQb.getMany();
+    if (vacantSlots.length === 0) return null;
+
+    // 无偏好 → 直接第一个
+    if (!opts.preferModel && !opts.preferColor) return vacantSlots[0];
+
+    // 找同型号+同色的已占用位（通过 slot.currentVin 关联到 order_vin）
+    const sameStyleQb = slotRepo
+      .createQueryBuilder('s')
+      .innerJoin(OrderVin, 'ov', 'ov.vin = s."currentVin"')
+      .where('s.status = :occupied', { occupied: YardSlotStatus.OCCUPIED })
+      .andWhere('s.code LIKE :prefix', { prefix: `${opts.zoneCode}-%` });
+    if (opts.yardId) {
+      sameStyleQb.andWhere('s.yard_id = :yid', { yid: opts.yardId });
+    }
+    if (opts.preferModel) {
+      sameStyleQb.andWhere('ov.model = :m', { m: opts.preferModel });
+    }
+    if (opts.preferColor) {
+      sameStyleQb.andWhere('ov.color = :c', { c: opts.preferColor });
+    }
+    const sameStyleSlots = await sameStyleQb.getMany();
+    if (sameStyleSlots.length === 0) return vacantSlots[0];
+
+    // 相邻优先：slotNo 前后各 1，命中就返回
+    const vacantByNo = new Map(vacantSlots.map((s) => [s.slotNo, s]));
+    for (const occ of sameStyleSlots) {
+      if (!occ.slotNo) continue;
+      const num = parseInt(occ.slotNo, 10);
+      if (isNaN(num)) continue;
+      const width = occ.slotNo.length;
+      const next = String(num + 1).padStart(width, '0');
+      const prev = String(num - 1).padStart(width, '0');
+      if (vacantByNo.has(next)) return vacantByNo.get(next)!;
+      if (vacantByNo.has(prev)) return vacantByNo.get(prev)!;
+    }
+    return vacantSlots[0];
+  }
+
   // ============ 入库扫描 (场地业务员) ============
   async inboundScan(dto: InboundScanDto, user: AuthenticatedUser): Promise<OrderVin> {
     const scope = await this.scopeService.resolve(user);
@@ -320,17 +383,32 @@ export class InboundService {
         }
       }
 
-      // 找库位（目的仓非空时约束到该仓；否则按 code 全局找，选到再校验一次）
+      // 找库位：slotCode 手动指定优先，否则 zoneCode 自动分配
+      if (!dto.slotCode && !dto.zoneCode) {
+        throw new BadRequestException('必须提供 slotCode (手动) 或 zoneCode (自动)');
+      }
       const destYardId = vin.order?.destinationYardId ?? undefined;
-      const slot = await mgr.findOne(YardSlot, {
-        where: destYardId
-          ? { code: dto.slotCode, yardId: destYardId }
-          : { code: dto.slotCode },
-      });
-      if (!slot)
-        throw new NotFoundException(
-          `目的仓里未找到库位 ${dto.slotCode}`,
-        );
+      let slot: YardSlot | null;
+      if (dto.slotCode) {
+        slot = await mgr.findOne(YardSlot, {
+          where: destYardId
+            ? { code: dto.slotCode, yardId: destYardId }
+            : { code: dto.slotCode },
+        });
+        if (!slot)
+          throw new NotFoundException(`目的仓里未找到库位 ${dto.slotCode}`);
+      } else {
+        slot = await this.pickAutoSlot(mgr, {
+          yardId: destYardId,
+          zoneCode: dto.zoneCode!,
+          preferModel: vin.model ?? null,
+          preferColor: vin.color ?? null,
+        });
+        if (!slot)
+          throw new NotFoundException(
+            `区域 ${dto.zoneCode} 里没有可用空位`,
+          );
+      }
       if (slot.status === YardSlotStatus.OCCUPIED) {
         throw new BadRequestException(
           `库位 ${slot.code} 已被 ${slot.currentVin} 占用`,
@@ -367,6 +445,8 @@ export class InboundService {
       vin.arrivalPhotoUrls = dto.photoUrls;
       vin.vehicleCheckInfo = dto.vehicleCheckInfo ?? null;
       vin.arrivalRemark = dto.remark ?? null;
+      // 把关系对象也塞进去，前端拿返回值就能读 slot.code（否则要再查一次接口）
+      vin.slot = slot;
       return mgr.save(vin);
     });
   }

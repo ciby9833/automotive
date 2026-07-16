@@ -11,6 +11,7 @@ import {
   Form,
   Input,
   Modal,
+  Popconfirm,
   Row,
   Select,
   Space,
@@ -20,7 +21,7 @@ import {
   Tooltip,
   message,
 } from 'antd';
-import { CarOutlined, SwapOutlined } from '@ant-design/icons';
+import { CarOutlined, FileSearchOutlined, SwapOutlined } from '@ant-design/icons';
 import { yardsApi, Yard, YardSlot, YardStats } from '@/lib/api/yards';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -28,6 +29,8 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 import { OrgFilter } from '@/components/layout/OrgFilter';
 import { Permission, usePermission } from '@/lib/auth/permissions';
+import { VinLifecycleDrawer } from '@/components/vin/VinLifecycleDrawer';
+import { Tabs } from 'antd';
 
 // 场地看板(Operation) - 天天开的运营页面
 // 只做：可视化 / VIN 搜索 / 移位 / 占用 / 释放。绝不出现"新增库位/删除库位"入口。
@@ -38,8 +41,24 @@ function parseSlotCode(code: string): { row: string; col: string } | null {
   return m ? { row: m[1].toUpperCase(), col: m[2] } : null;
 }
 
-function slotCellColor(status: YardSlot['status']): string {
-  return status === 'OCCUPIED' ? '#16a34a' : '#0f172a';
+// 4 色状态：空 / 占用 / 长龄 / 锁定 (按行业惯例配色)
+// 长龄阈值 7 天：assignedAt 距今超 7 天的车通常需要关注（是否遗漏发运）
+const LONG_STAY_THRESHOLD_MS = 7 * 24 * 3600 * 1000;
+function slotCellColor(slot: YardSlot, nowMs: number): string {
+  if (slot.isLocked) return '#dc2626'; // red-600 锁定
+  if (slot.status === 'VACANT') return '#94a3b8'; // slate-400 空
+  // OCCUPIED
+  if (slot.assignedAt) {
+    const stayMs = nowMs - new Date(slot.assignedAt).getTime();
+    if (stayMs > LONG_STAY_THRESHOLD_MS) return '#ea580c'; // orange-600 长龄
+  }
+  return '#2563eb'; // blue-600 正常占用
+}
+
+// 从 slot code 前缀提取 zone (如 'A-01' → 'A')
+function extractZone(code: string): string {
+  const m = code.match(/^([A-Za-z0-9]+)[-_ ]/);
+  return m ? m[1].toUpperCase() : '_';
 }
 
 export default function YardBoardInner() {
@@ -60,6 +79,12 @@ export default function YardBoardInner() {
   // 场内移位：从 URL 里 select 一个源 slot，再点一个 vacant 目标一步完成
   const [moveMode, setMoveMode] = useState(false);
   const [moveFromSlotId, setMoveFromSlotId] = useState<string | null>(null);
+
+  // VIN 全生命周期抽屉：点击已占用 slot 后可打开
+  const [lifecycleVin, setLifecycleVin] = useState<string | null>(null);
+
+  // 当前区 tab 选中
+  const [activeZone, setActiveZone] = useState<string>('');
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignForm] = Form.useForm();
@@ -166,6 +191,12 @@ export default function YardBoardInner() {
     message.info(t('yards.moveModeHint'));
   };
 
+  // 源 slot 的 zone 前缀 + code（用于跨区移位时告诉用户"从 A-01 移到哪里"）
+  const moveFromSlot = useMemo(
+    () => slots.find((s) => s.id === moveFromSlotId) ?? null,
+    [slots, moveFromSlotId],
+  );
+
   const cancelMoveMode = () => {
     setMoveMode(false);
     setMoveFromSlotId(null);
@@ -206,8 +237,37 @@ export default function YardBoardInner() {
     }
   };
 
+  // 分区聚合：把 slots 按 zone 分组 + 每区统计
+  const zones = useMemo(() => {
+    const map = new Map<string, YardSlot[]>();
+    for (const s of slots) {
+      const z = extractZone(s.code);
+      if (!map.has(z)) map.set(z, []);
+      map.get(z)!.push(s);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([zone, list]) => ({
+        zone,
+        total: list.length,
+        occupied: list.filter((s) => s.status === 'OCCUPIED').length,
+        slots: list,
+      }));
+  }, [slots]);
+
+  // 默认选中第一个 zone；换场地时重置
+  useEffect(() => {
+    if (zones.length > 0 && !zones.some((z) => z.zone === activeZone)) {
+      setActiveZone(zones[0].zone);
+    } else if (zones.length === 0) {
+      setActiveZone('');
+    }
+  }, [zones, activeZone]);
+
+  // 当前区的 grid：只渲染选中 zone 的 slots，避免几千格子一次全渲染
   const grid = useMemo(() => {
-    const parsed = slots
+    const zoneSlots = zones.find((z) => z.zone === activeZone)?.slots ?? slots;
+    const parsed = zoneSlots
       .map((s) => ({ slot: s, parsed: parseSlotCode(s.code) }))
       .filter((p) => p.parsed) as Array<{ slot: YardSlot; parsed: { row: string; col: string } }>;
     if (parsed.length === 0) return null;
@@ -223,7 +283,7 @@ export default function YardBoardInner() {
       map.set(`${p.row}|${p.col}`, slot);
     }
     return { rows: rowSet, cols: colSet, map };
-  }, [slots]);
+  }, [slots, zones, activeZone]);
 
   const filteredSlots = useMemo(() => {
     if (!vinFilter.trim()) return slots;
@@ -258,7 +318,15 @@ export default function YardBoardInner() {
       {moveMode && (
         <Alert
           type="warning"
-          message={t('yards.moveModeBanner')}
+          message={
+            moveFromSlot
+              ? t('yards.moveModeBannerFrom', {
+                  from: moveFromSlot.code,
+                  vin: moveFromSlot.currentVin ?? '',
+                })
+              : t('yards.moveModeBanner')
+          }
+          description={t('yards.moveModeCrossZoneHint')}
           action={<Button size="small" onClick={cancelMoveMode}>{t('yards.moveModeCancel')}</Button>}
           style={{ marginBottom: 12 }}
         />
@@ -319,7 +387,29 @@ export default function YardBoardInner() {
 
           <Row gutter={16}>
             <Col span={16}>
-              <Card title={t('yards.gridTitle', { code: selectedYard.code })}>
+              <Card
+                title={t('yards.gridTitle', { code: selectedYard.code })}
+                extra={
+                  <Space size={12} style={{ fontSize: 12, color: '#64748b' }}>
+                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#94a3b8', borderRadius: 2, marginRight: 4 }} />{t('yards.legendVacant')}</span>
+                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#2563eb', borderRadius: 2, marginRight: 4 }} />{t('yards.legendOccupied')}</span>
+                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#ea580c', borderRadius: 2, marginRight: 4 }} />{t('yards.legendLongStay')}</span>
+                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#dc2626', borderRadius: 2, marginRight: 4 }} />{t('yards.legendLocked')}</span>
+                  </Space>
+                }
+              >
+                {zones.length > 1 && (
+                  <Tabs
+                    activeKey={activeZone}
+                    onChange={setActiveZone}
+                    size="small"
+                    style={{ marginBottom: 12 }}
+                    items={zones.map((z) => ({
+                      key: z.zone,
+                      label: `${z.zone} 区 · ${z.occupied}/${z.total}`,
+                    }))}
+                  />
+                )}
                 {slotsLoading ? (
                   <Empty description={t('yards.slotsLoading')} />
                 ) : slots.length === 0 ? (
@@ -369,7 +459,7 @@ export default function YardBoardInner() {
                                     width: 96,
                                     height: 72,
                                     borderRadius: 6,
-                                    backgroundColor: slotCellColor(slot.status),
+                                    backgroundColor: slotCellColor(slot, nowRef),
                                     color: '#fff',
                                     padding: 8,
                                     cursor: 'pointer',
@@ -461,10 +551,19 @@ export default function YardBoardInner() {
                         })}
                       </div>
                     )}
-                    <Space>
+                    <Space wrap>
+                      {selectedSlot.currentVin && (
+                        <Button
+                          type="primary"
+                          icon={<FileSearchOutlined />}
+                          onClick={() => setLifecycleVin(selectedSlot.currentVin)}
+                        >
+                          {t('yards.viewLifecycle')}
+                        </Button>
+                      )}
                       {selectedSlot.status === 'VACANT'
                         ? canAssign && (
-                            <Button type="primary" onClick={() => setAssignOpen(true)}>
+                            <Button onClick={() => setAssignOpen(true)}>
                               {t('yards.assignSlot')}
                             </Button>
                           )
@@ -480,9 +579,18 @@ export default function YardBoardInner() {
                               </Button>
                             )}
                             {canRelease && (
-                              <Button danger onClick={onReleaseSlot}>
-                                {t('yards.releaseSlot')}
-                              </Button>
+                              <Popconfirm
+                                title={t('yards.revertInboundTitle')}
+                                description={t('yards.revertInboundHint')}
+                                okText={t('yards.revertInboundOk')}
+                                cancelText={t('yards.moveModeCancel')}
+                                okButtonProps={{ danger: true }}
+                                onConfirm={onReleaseSlot}
+                              >
+                                <Button danger>
+                                  {t('yards.revertInbound')}
+                                </Button>
+                              </Popconfirm>
                             )}
                           </>
                         )}
@@ -518,6 +626,11 @@ export default function YardBoardInner() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <VinLifecycleDrawer
+        vin={lifecycleVin}
+        onClose={() => setLifecycleVin(null)}
+      />
     </div>
   );
 }

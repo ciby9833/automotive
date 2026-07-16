@@ -5,9 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
+import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { Yard } from './entities/yard.entity';
 import { YardSlot, YardSlotStatus } from './entities/yard-slot.entity';
+import { OrderVin } from '../orders/entities/order-vin.entity';
+import { WaybillVin } from '../waybills/entities/waybill-vin.entity';
+import { WaybillStatusLog } from '../tracking/entities/waybill-status-log.entity';
 import { CreateYardDto } from './dto/create-yard.dto';
 import { CreateYardSlotDto } from './dto/create-yard-slot.dto';
 import { EffectiveScope } from '../../common/scope/scope.types';
@@ -38,6 +42,13 @@ export class YardsService {
     private readonly yardsRepository: Repository<Yard>,
     @InjectRepository(YardSlot)
     private readonly slotsRepository: Repository<YardSlot>,
+    @InjectRepository(OrderVin)
+    private readonly orderVinsRepository: Repository<OrderVin>,
+    @InjectRepository(WaybillVin)
+    private readonly waybillVinsRepository: Repository<WaybillVin>,
+    @InjectRepository(WaybillStatusLog)
+    private readonly statusLogsRepository: Repository<WaybillStatusLog>,
+    private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
   ) {}
 
@@ -188,13 +199,47 @@ export class YardsService {
     return this.slotsRepository.save(slot);
   }
 
+  // 释放库位 = 撤销入库/纠错场景：车物理还在或者需要重扫，业务上"这次入库不算数"
+  // 事务里同时：
+  //   1) 清空 slot (VACANT + currentVin=null)
+  //   2) 关联的 OrderVin 回滚到 EXPECTED (清 arrivedAt / slotId / 存证)
+  //      这样入库订单里那条 VIN 又回到 "待到货"，可以重新走入库扫码
+  // 非 OrderVin 挂载的手动占用 (assignSlot 直接开的 currentVin) 只清 slot 表
+  //
+  // 注意：车真的离开场地(出库)应该走 /waybills/scan(DELIVERY_DEPARTURE)，
+  // 不走这个接口 —— 那条路径会释放 slot 但保留 arrival 记录、走财务和运单闭环
   async releaseSlot(slotId: string): Promise<YardSlot> {
-    const slot = await this.slotsRepository.findOne({ where: { id: slotId } });
-    if (!slot) throw new NotFoundException('库位不存在');
-    slot.status = YardSlotStatus.VACANT;
-    slot.currentVin = null;
-    slot.assignedAt = null;
-    return this.slotsRepository.save(slot);
+    return this.dataSource.transaction(async (mgr) => {
+      const slotRepo = mgr.getRepository(YardSlot);
+      const orderVinRepo = mgr.getRepository(OrderVin);
+      const slot = await slotRepo.findOne({ where: { id: slotId } });
+      if (!slot) throw new NotFoundException('库位不存在');
+
+      const releasedVin = slot.currentVin;
+
+      // OrderVin 回滚
+      if (releasedVin) {
+        const orderVin = await orderVinRepo.findOne({
+          where: { vin: releasedVin },
+        });
+        if (orderVin && orderVin.slotId === slotId) {
+          orderVin.arrivalStatus = OrderVinArrivalStatus.EXPECTED;
+          orderVin.arrivedAt = null;
+          orderVin.arrivedByUserId = null;
+          orderVin.slotId = null;
+          orderVin.arrivalPhotoUrls = null;
+          orderVin.vehicleCheckInfo = null;
+          orderVin.arrivalRemark = null;
+          orderVin.inboundBatchId = null;
+          await orderVinRepo.save(orderVin);
+        }
+      }
+
+      slot.status = YardSlotStatus.VACANT;
+      slot.currentVin = null;
+      slot.assignedAt = null;
+      return slotRepo.save(slot);
+    });
   }
 
   // 场内移位：一次动作从 fromSlot 移到 toSlot(必须 VACANT+未锁定)
@@ -336,5 +381,65 @@ export class YardsService {
 
   findByIdUnscoped(id: string): Promise<Yard | null> {
     return this.yardsRepository.findOne({ where: { id } });
+  }
+
+  // ============ VIN 全生命周期查询 ============
+  // 给场地看板抽屉 / VIN 详情页 / 客服追溯用：一个接口把 VIN 的所有信息拿完
+  // 数据来源：
+  //   1. OrderVin: pickup* + arrival* + 入库单关联
+  //   2. WaybillVin: 该 VIN 挂过的所有出库运单
+  //   3. WaybillStatusLog: 所有扫码/状态变更事件（时间倒序）
+  async getVinLifecycle(vin: string, scope: EffectiveScope) {
+    // OrderVin 关联入库单 + 客户 + 场地 + 提货信息
+    const orderVin = await this.orderVinsRepository.findOne({
+      where: { vin },
+      relations: {
+        order: { customer: true, destinationYard: true },
+        pickupCarrier: true,
+        pickupDriverUser: true,
+        arrivedByUser: true,
+        slot: { yard: true },
+        inboundBatch: true,
+      },
+    });
+
+    // scope 校验：内部按 org、客户按 customerId
+    if (orderVin?.order) {
+      if (scope.type === 'ORG' && !scope.orgIds.includes(orderVin.order.organizationId)) {
+        throw new NotFoundException('VIN 不存在');
+      }
+      if (scope.type === 'CUSTOMER' && orderVin.order.customerId !== scope.customerId) {
+        throw new NotFoundException('VIN 不存在');
+      }
+    }
+
+    // 出库运单（可能多次调拨或重新开单）
+    const waybillVins = await this.waybillVinsRepository.find({
+      where: { vin },
+      relations: {
+        waybill: {
+          carrier: true,
+          driver: true,
+          originYard: true,
+          destinationDealer: true,
+        },
+      },
+      order: { createdAt: 'DESC' },
+    });
+
+    // 事件流水：时间倒序
+    const events = await this.statusLogsRepository.find({
+      where: { vin },
+      relations: { operator: true, yard: true, waybill: true },
+      order: { createdAt: 'DESC' },
+      take: 200,
+    });
+
+    return {
+      vin,
+      orderVin,
+      waybills: waybillVins.map((wv) => wv.waybill).filter(Boolean),
+      events,
+    };
   }
 }

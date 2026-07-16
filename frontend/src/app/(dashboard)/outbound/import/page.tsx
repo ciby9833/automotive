@@ -71,6 +71,7 @@ export default function OutboundImportPage() {
         const result = await parseOutboundExcel(f);
         if (result.rows.length === 0) {
           setParseError(t('outbound.import.noRows'));
+          message.error(t('outbound.import.noRows'));
           return false;
         }
         setRows(result.rows);
@@ -82,8 +83,17 @@ export default function OutboundImportPage() {
           unmapped: result.unmappedHeaders,
           invalidTowTypeCount: result.invalidTowTypeCount,
         });
+        // Toast 让用户明确知道解析成功了，Alert 只是补充说明列映射
+        message.success(
+          t('outbound.import.parsedSuccess', {
+            n: result.rows.length,
+            total: result.totalReadRows,
+          }),
+        );
       } catch (err) {
-        setParseError((err as Error).message);
+        const msg = (err as Error).message;
+        setParseError(msg);
+        message.error(msg);
       }
       return false;
     },

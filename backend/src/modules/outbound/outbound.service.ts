@@ -222,7 +222,7 @@ export class OutboundService {
       .where('v.arrival_status = :arrived', {
         arrived: OrderVinArrivalStatus.ARRIVED,
       })
-      .andWhere('v.is_allocated = false')
+      .andWhere('v."isAllocated" = false')
       .andWhere('v.dealer_code IS NOT NULL')
       .orderBy('v.dealerCode', 'ASC')
       .addOrderBy('v.vin', 'ASC');

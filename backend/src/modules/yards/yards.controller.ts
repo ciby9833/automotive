@@ -149,6 +149,19 @@ export class YardsController {
 
   // ========== VIN 库存查询 ==========
 
+  // VIN 全生命周期：场地看板抽屉点击 slot / VIN 库存点车牌都调此接口
+  // 返回 orderVin + 出库运单列表 + 扫码事件流水
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF, Role.CUSTOMER)
+  @Permissions(Permission.YARD_VIEW_VIN_INVENTORY)
+  @Get('/vin/:vin/lifecycle')
+  async vinLifecycle(
+    @Param('vin') vin: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.yardsService.getVinLifecycle(vin, scope);
+  }
+
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF, Role.CUSTOMER)
   @Permissions(Permission.YARD_VIEW_VIN_INVENTORY)
   @Get('/inventory/vin')

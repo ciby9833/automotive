@@ -65,11 +65,14 @@ export interface InboundOrderVinDetail {
   pickupRemark: string | null;
   arrivedAt: string | null;
   arrivedByUser?: { id: string; displayName: string };
-  slot?: { id: string; code: string; yard?: { name: string; code: string } };
+  slot?: { id: string; code: string; yard?: { id?: string; name: string; code: string } };
   inboundBatch?: { id: string; batchCode: string };
   arrivalPhotoUrls: string[] | null;
   vehicleCheckInfo: Record<string, string | number> | null;
   arrivalRemark: string | null;
+  // 生命周期接口会带上 order 关联和 isAllocated；订单详情接口里同样的 shape 但可能不带 order
+  order?: { id: string; orderCode: string; customerOrderNo: string | null };
+  isAllocated?: boolean;
 }
 
 export interface PickupLookupResult {
@@ -104,9 +107,11 @@ export const inboundApi = {
   }) => unwrap<InboundOrderVinDetail>(apiClient.post('/pickup/scan', payload)),
   myPickups: () =>
     unwrap<InboundOrderVinDetail[]>(apiClient.get('/pickup/my')),
+  // slotCode 与 zoneCode 二选一：slotCode 手动指定 / zoneCode 系统自动挑
   inboundScan: (payload: {
     vin: string;
-    slotCode: string;
+    slotCode?: string;
+    zoneCode?: string;
     inboundBatchId?: string;
     vehicleCheckInfo?: Record<string, string | number>;
     photoUrls?: string[];

@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Space, Table, Tag, message } from 'antd';
-import { FileSearchOutlined } from '@ant-design/icons';
+import { Button, Popconfirm, Space, Table, Tag, message } from 'antd';
+import { DeleteOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { waybillsApi, Waybill } from '@/lib/api/waybills';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -26,15 +26,31 @@ export default function WaybillsPage() {
   const organizations = useOrganizations();
   const { t, locale } = useTranslation();
 
-  useEffect(() => {
+  const load = () => {
     setLoading(true);
     waybillsApi
       .list({ organizationId: orgFilter })
       .then(setWaybills)
       .catch(() => message.error(t('waybills.loadFailed')))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId, orgFilter]);
+
+  const onCancel = async (w: Waybill) => {
+    try {
+      await waybillsApi.cancel(w.id);
+      message.success(t('waybills.cancelSuccess'));
+      load();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(detail || t('waybills.cancelFailed'));
+    }
+  };
 
   return (
     <div>
@@ -131,17 +147,40 @@ export default function WaybillsPage() {
           },
           {
             title: '',
-            width: 90,
-            render: (_: unknown, r: Waybill) => (
-              <Button
-                type="link"
-                size="small"
-                icon={<FileSearchOutlined />}
-                onClick={() => setDetailWaybill(r)}
-              >
-                {t('waybills.detail.view')}
-              </Button>
-            ),
+            width: 180,
+            render: (_: unknown, r: Waybill) => {
+              const canCancel = r.status === 'NOT_ARRIVED' && !r.isLocked;
+              return (
+                <Space size={4}>
+                  <Button
+                    type="link"
+                    size="small"
+                    icon={<FileSearchOutlined />}
+                    onClick={() => setDetailWaybill(r)}
+                  >
+                    {t('waybills.detail.view')}
+                  </Button>
+                  {canCancel && (
+                    <Popconfirm
+                      title={t('waybills.cancelTitle')}
+                      description={t('waybills.cancelHint')}
+                      okText={t('waybills.cancelOk')}
+                      okButtonProps={{ danger: true }}
+                      onConfirm={() => onCancel(r)}
+                    >
+                      <Button
+                        type="link"
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                      >
+                        {t('waybills.cancel')}
+                      </Button>
+                    </Popconfirm>
+                  )}
+                </Space>
+              );
+            },
           },
         ]}
       />

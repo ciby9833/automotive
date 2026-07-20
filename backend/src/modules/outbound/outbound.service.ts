@@ -373,12 +373,17 @@ export class OutboundService {
         );
       }
 
-      // 按 dealer_code + customerId 匹配客户地址簿，绑到 waybill.destinationDealer
-      // 匹配不到不报错 (地址簿可能还没导入)，让业务员在开单页手填收件人补救
+      // 目的门店：优先前端手选 (destinationDealerId)，其次按 dealer_code 自动匹配
+      // 都空则不绑，业务员靠 recipient_name / recipient_phone 手填补救
       const dealerCode = vins[0].dealerCode;
       const customerId = vins[0].order?.customerId;
       let destDealer: CustomerAddress | null = null;
-      if (dealerCode && customerId) {
+      if (dto.destinationDealerId) {
+        destDealer = await mgr.getRepository(CustomerAddress).findOne({
+          where: { id: dto.destinationDealerId },
+        });
+        if (!destDealer) throw new NotFoundException('指定的目的门店不存在');
+      } else if (dealerCode && customerId) {
         destDealer = await mgr.getRepository(CustomerAddress).findOne({
           where: { customerId, code: dealerCode },
         });

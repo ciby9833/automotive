@@ -55,6 +55,11 @@ export class PlanWaybillDto {
   @Length(1, 60)
   customerWaybillCode?: string;
 
+  @ApiProperty({ required: false, description: '手动指定目的门店 id (覆盖 dealer_code 自动匹配)' })
+  @IsOptional()
+  @IsUUID()
+  destinationDealerId?: string;
+
   @ApiProperty({ required: false, description: '本次运单收件人（可空，默认取门店联系人）' })
   @IsOptional()
   @IsString()

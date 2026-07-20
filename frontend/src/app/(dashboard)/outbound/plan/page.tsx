@@ -61,6 +61,8 @@ function OutboundPlanInner() {
   const [submitting, setSubmitting] = useState(false);
   // 客户地址簿：按选中的 VIN 的 customerId 加载，用于展示门店信息 + 兜底填收件人
   const [customerAddresses, setCustomerAddresses] = useState<CustomerAddress[]>([]);
+  // 手动选门店：业务员可覆盖自动匹配（VIN dealer_code）指定别的门店
+  const [manualDealerId, setManualDealerId] = useState<string | undefined>();
 
   useEffect(() => {
     customersApi.list().then(setCustomers).catch(() => undefined);
@@ -130,6 +132,7 @@ function OutboundPlanInner() {
     [selected],
   );
   useEffect(() => {
+    setManualDealerId(undefined);
     if (!selectedCustomerId) {
       setCustomerAddresses([]);
       return;
@@ -140,12 +143,18 @@ function OutboundPlanInner() {
       .catch(() => setCustomerAddresses([]));
   }, [selectedCustomerId]);
 
-  // 匹配的门店：dealer_code 相同的地址簿条目
-  const matchedDealer = useMemo(() => {
+  // 匹配的门店：手动选优先，其次按 dealer_code 自动匹配
+  const autoMatchedDealer = useMemo(() => {
     const dc = selected[0]?.dealerCode;
     if (!dc) return null;
     return customerAddresses.find((a) => a.code === dc) ?? null;
   }, [selected, customerAddresses]);
+  const matchedDealer = useMemo(() => {
+    if (manualDealerId) {
+      return customerAddresses.find((a) => a.id === manualDealerId) ?? null;
+    }
+    return autoMatchedDealer;
+  }, [manualDealerId, autoMatchedDealer, customerAddresses]);
 
   const dealerOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -192,6 +201,7 @@ function OutboundPlanInner() {
         carrierId,
         towType,
         customerWaybillCode: customerWaybillCode || undefined,
+        destinationDealerId: manualDealerId || undefined,
         recipientName: recipientName || undefined,
         recipientPhone: recipientPhone || undefined,
         remark: remark || undefined,
@@ -207,6 +217,7 @@ function OutboundPlanInner() {
       setCustomerWaybillCode('');
       setRecipientName('');
       setRecipientPhone('');
+      setManualDealerId(undefined);
       setRemark('');
       reload();
     } catch (err) {
@@ -395,6 +406,28 @@ function OutboundPlanInner() {
                   <div style={{ fontWeight: 500, marginBottom: 4 }}>
                     {t('outbound.plan.destinationDealer')}
                   </div>
+                  {/* 手动选门店：默认走 auto，用户可覆盖 */}
+                  {customerAddresses.length > 0 && (
+                    <Select
+                      style={{ width: '100%', marginBottom: 8 }}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder={
+                        autoMatchedDealer
+                          ? t('outbound.plan.dealerAutoSelected', {
+                              name: autoMatchedDealer.dealerName,
+                            })
+                          : t('outbound.plan.dealerSelectPlaceholder')
+                      }
+                      value={manualDealerId}
+                      onChange={setManualDealerId}
+                      options={customerAddresses.map((a) => ({
+                        value: a.id,
+                        label: `${a.dealerName}${a.code ? ' (' + a.code + ')' : ''}${a.region ? ' · ' + a.region : ''}`,
+                      }))}
+                    />
+                  )}
                   {matchedDealer ? (
                     <div
                       style={{

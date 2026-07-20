@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -100,5 +102,17 @@ export class WaybillsController {
     const operatorYardId =
       user.role === Role.YARD_STAFF ? user.scopeYardId : null;
     return this.waybillsService.scan(dto, user.userId, operatorYardId);
+  }
+
+  // 撤销未启运的运单：释放 VIN.isAllocated 让业务员能重开
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Delete(':id')
+  async cancel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    await this.waybillsService.cancelWaybill(id, scope);
+    return { ok: true };
   }
 }

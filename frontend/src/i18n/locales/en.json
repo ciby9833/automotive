@@ -120,6 +120,12 @@
     "isLocked": "Locked",
     "vinCount": "VIN Count",
     "loadFailed": "Failed to load waybills",
+    "cancel": "Cancel",
+    "cancelTitle": "Cancel this waybill?",
+    "cancelHint": "The waybill will be deleted, VINs released back to the pool. Only unlocked NOT_ARRIVED waybills can be cancelled.",
+    "cancelOk": "Confirm cancel",
+    "cancelSuccess": "Waybill cancelled, VINs released",
+    "cancelFailed": "Cancel failed",
     "organization": "Organization",
     "detail": {
       "title": "Waybill Detail",
@@ -656,7 +662,14 @@
       "uploadFirst": "Upload Excel first",
       "success": "Imported {orderCode}, matched {matched}",
       "successWithMissing": "Done: matched {matched}, {missing} not-yet-arrived skipped",
-      "failed": "Import failed"
+      "failed": "Import failed",
+      "resultTitle": "Import result: {orderCode} · {matched} matched",
+      "resultMissing": "Not in system: {n}",
+      "resultAllocated": "Already on a waybill: {n}",
+      "resultAllocatedHint": "These VINs are locked to existing waybills — go to Waybills page and cancel them before re-importing",
+      "resultBound": "Bound to other outbound order: {n}",
+      "resultBoundHint": "These VINs belong to another un-planned outbound order — delete/merge that order first",
+      "resultGoDetail": "Open this order"
     },
     "orders": {
       "title": "Outbound Orders",
@@ -752,6 +765,8 @@
       "recipientPhonePlaceholder": "Leave blank to use dealer default phone",
       "recipientDefaultHint": "Default: {name}",
       "destinationDealer": "Destination Dealer",
+      "dealerSelectPlaceholder": "Select from address book",
+      "dealerAutoSelected": "Auto-matched: {name} (override here)",
       "dealerNotFound": "Dealer code {code} not in customer address book — please maintain it in Customers → Address Book, otherwise you must fill recipient manually",
       "remark": "Remark",
       "errMultiDealer": "Selected VINs span multiple dealers, split into separate waybills",

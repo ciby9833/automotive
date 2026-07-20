@@ -408,4 +408,51 @@ export class WaybillsService {
     if (!waybill) throw new NotFoundException('运单不存在');
     return { vin, isSigned: waybillVin.isSigned, waybill };
   }
+
+  // 撤销未启运的运单：车物理上还没走 (没启运 + 没锁定) 才允许
+  // 撤销 = 硬删 waybill + waybill_vins + 释放 OrderVin.isAllocated
+  // 场景：业务员开错单/客户改主意，需要重新分配 VIN
+  async cancelWaybill(id: string, scope: EffectiveScope): Promise<void> {
+    const waybill = await this.findByIdUnscoped(id);
+    if (!waybill) throw new NotFoundException('运单不存在');
+    // scope 校验
+    if (scope.type === 'ORG' && !scope.orgIds.includes(waybill.organizationId)) {
+      throw new ForbiddenException('无权撤销此运单');
+    }
+    if (scope.type !== 'ORG') {
+      throw new ForbiddenException('仅内部账号可撤销运单');
+    }
+    if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
+      throw new BadRequestException(
+        `运单已 ${waybill.status}，无法撤销 (车已启运/送达)`,
+      );
+    }
+    if (waybill.isLocked) {
+      throw new BadRequestException('运单已锁定，无法撤销');
+    }
+
+    await this.dataSource.transaction(async (mgr) => {
+      const waybillVinRepo = mgr.getRepository(WaybillVin);
+      const waybillRepo = mgr.getRepository(Waybill);
+      const orderVinRepo = mgr.getRepository(OrderVin);
+
+      // 拿 waybill 里所有 VIN
+      const wvs = await waybillVinRepo.find({ where: { waybillId: id } });
+      const vinCodes = wvs.map((wv) => wv.vin);
+
+      // 释放 OrderVin.isAllocated
+      if (vinCodes.length > 0) {
+        await orderVinRepo
+          .createQueryBuilder()
+          .update()
+          .set({ isAllocated: false })
+          .where('vin IN (:...vins)', { vins: vinCodes })
+          .execute();
+      }
+
+      // 删 waybill_vins + waybill (CASCADE 会自动删 vin，但显式删更清晰)
+      await waybillVinRepo.delete({ waybillId: id });
+      await waybillRepo.delete(id);
+    });
+  }
 }

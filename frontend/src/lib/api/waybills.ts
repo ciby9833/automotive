@@ -84,4 +84,6 @@ export const waybillsApi = {
     vehicleCheckInfo?: Record<string, string | number>;
     remark?: string;
   }) => unwrap<Waybill>(apiClient.post('/waybills/scan', dto)),
+  cancel: (id: string) =>
+    unwrap<{ ok: boolean }>(apiClient.delete(`/waybills/${id}`)),
 };

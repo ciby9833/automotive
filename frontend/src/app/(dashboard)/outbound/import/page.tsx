@@ -44,6 +44,15 @@ export default function OutboundImportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [rows, setRows] = useState<OutboundVinRow[]>([]);
+  // 上一次提交的结果详情：详情表展示 matched/missing/alreadyBound/alreadyAllocated 各自的 VIN
+  const [lastImportResult, setLastImportResult] = useState<{
+    orderId: string;
+    orderCode: string;
+    matched: number;
+    missing: string[];
+    alreadyBound: string[];
+    alreadyAllocated: string[];
+  } | null>(null);
   const [parseInfo, setParseInfo] = useState<{
     total: number;
     mapped: string[];
@@ -144,13 +153,24 @@ export default function OutboundImportPage() {
           }),
         );
       }
-      // 清空所有 state 防止用户误重复提交同一份数据
+      // 清空 upload state 防止用户误重复提交同一份数据
       setFile(null);
       setRows([]);
       setParseInfo(null);
       setParseError(null);
       form.resetFields();
-      router.push(`/outbound/orders/${res.orderId}`);
+      // 保留结果详情让用户看清哪些 VIN 失败；有失败时不自动跳转
+      setLastImportResult({
+        orderId: res.orderId,
+        orderCode: res.orderCode,
+        matched: res.matched,
+        missing: res.missing ?? [],
+        alreadyBound: res.alreadyBound ?? [],
+        alreadyAllocated: res.alreadyAllocated ?? [],
+      });
+      if (bound === 0 && allocated === 0 && res.missing.length === 0) {
+        router.push(`/outbound/orders/${res.orderId}`);
+      }
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
@@ -163,6 +183,89 @@ export default function OutboundImportPage() {
   return (
     <div>
       <PageHeader title={t('outbound.import.title')} />
+
+      {lastImportResult && (
+        <Alert
+          type={
+            lastImportResult.alreadyAllocated.length +
+              lastImportResult.alreadyBound.length +
+              lastImportResult.missing.length ===
+            0
+              ? 'success'
+              : 'warning'
+          }
+          showIcon
+          closable
+          onClose={() => setLastImportResult(null)}
+          style={{ marginBottom: 16 }}
+          message={t('outbound.import.resultTitle', {
+            orderCode: lastImportResult.orderCode,
+            matched: lastImportResult.matched,
+          })}
+          description={
+            <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+              {lastImportResult.missing.length > 0 && (
+                <div>
+                  <Tag color="default">
+                    {t('outbound.import.resultMissing', {
+                      n: lastImportResult.missing.length,
+                    })}
+                  </Tag>
+                  {lastImportResult.missing.slice(0, 20).map((v) => (
+                    <Tag key={v}>{v}</Tag>
+                  ))}
+                  {lastImportResult.missing.length > 20 && (
+                    <span style={{ color: '#94a3b8' }}>
+                      +{lastImportResult.missing.length - 20}
+                    </span>
+                  )}
+                </div>
+              )}
+              {lastImportResult.alreadyAllocated.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <Tag color="red">
+                    {t('outbound.import.resultAllocated', {
+                      n: lastImportResult.alreadyAllocated.length,
+                    })}
+                  </Tag>
+                  {lastImportResult.alreadyAllocated.slice(0, 20).map((v) => (
+                    <Tag key={v} color="volcano">{v}</Tag>
+                  ))}
+                  <div style={{ marginTop: 4, color: '#dc2626' }}>
+                    → {t('outbound.import.resultAllocatedHint')}
+                  </div>
+                </div>
+              )}
+              {lastImportResult.alreadyBound.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  <Tag color="orange">
+                    {t('outbound.import.resultBound', {
+                      n: lastImportResult.alreadyBound.length,
+                    })}
+                  </Tag>
+                  {lastImportResult.alreadyBound.slice(0, 20).map((v) => (
+                    <Tag key={v} color="orange">{v}</Tag>
+                  ))}
+                  <div style={{ marginTop: 4, color: '#c2410c' }}>
+                    → {t('outbound.import.resultBoundHint')}
+                  </div>
+                </div>
+              )}
+              <div style={{ marginTop: 8 }}>
+                <Button
+                  size="small"
+                  type="primary"
+                  onClick={() =>
+                    router.push(`/outbound/orders/${lastImportResult.orderId}`)
+                  }
+                >
+                  {t('outbound.import.resultGoDetail')}
+                </Button>
+              </div>
+            </div>
+          }
+        />
+      )}
 
       <Alert
         type="info"

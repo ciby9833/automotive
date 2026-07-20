@@ -63,6 +63,7 @@ export interface PlanWaybillPayload {
   vehicleId?: string;
   towType?: VehicleTowType;
   customerWaybillCode?: string;
+  destinationDealerId?: string;
   recipientName?: string;
   recipientPhone?: string;
   remark?: string;

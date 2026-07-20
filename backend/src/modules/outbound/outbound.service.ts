@@ -15,6 +15,7 @@ import { YardSlot, YardSlotStatus } from '../yards/entities/yard-slot.entity';
 import { Waybill } from '../waybills/entities/waybill.entity';
 import { WaybillVin } from '../waybills/entities/waybill-vin.entity';
 import { Carrier } from '../carriers/entities/carrier.entity';
+import { CustomerAddress } from '../customers/entities/customer-address.entity';
 import { TransportType } from '../../common/enums/order-type.enum';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { WaybillStatus } from '../../common/enums/waybill-status.enum';
@@ -74,6 +75,8 @@ export class OutboundService {
     });
     const existingMap = new Map(existing.map((e) => [e.vin, e]));
     const missing: string[] = [];
+    const alreadyBound: string[] = []; // 已绑定别的出库单未开单
+    const alreadyAllocated: string[] = []; // 已被某张 waybill 选走
     const toUpdate: Array<{ vin: OrderVin; row: (typeof uniqueVins)[number] }> =
       [];
     for (const row of uniqueVins) {
@@ -87,12 +90,31 @@ export class OutboundService {
         missing.push(row.vin);
         continue;
       }
+      // 已被开成运单 → 不能重导（这单已经进入运输流程）
+      if (found.isAllocated) {
+        alreadyAllocated.push(row.vin);
+        continue;
+      }
+      // 已绑定别的出库单（未开单）→ 拒绝，让用户先取消/修订旧单再重导，防止静默覆盖
+      if (found.outboundOrderId) {
+        alreadyBound.push(row.vin);
+        continue;
+      }
       toUpdate.push({ vin: found, row });
     }
 
     if (toUpdate.length === 0) {
+      const parts: string[] = [];
+      if (missing.length > 0)
+        parts.push(`未入库/客户不匹配 ${missing.length} 台`);
+      if (alreadyBound.length > 0)
+        parts.push(
+          `已绑定其他出库单 ${alreadyBound.length} 台 (${alreadyBound.slice(0, 3).join(',')}${alreadyBound.length > 3 ? '...' : ''})`,
+        );
+      if (alreadyAllocated.length > 0)
+        parts.push(`已开单/运输中 ${alreadyAllocated.length} 台`);
       throw new BadRequestException(
-        `导入的 ${uniqueVins.length} 个 VIN 全部不在系统中或客户不匹配，请先入库`,
+        `导入的 ${uniqueVins.length} 个 VIN 全部无法入单：${parts.join('；') || '无有效原因'}`,
       );
     }
 
@@ -114,13 +136,14 @@ export class OutboundService {
       };
       const savedOrder = await orderRepo.save(orderRepo.create(orderData));
 
-      // 现有 OrderVin 上打上出库属性 (dealer/towType/group)
-      // 不改 orderId，因为 VIN 原始入库单据要保留追溯
+      // 现有 OrderVin 上打上出库属性 (dealer/towType/group + outboundOrderId FK)
+      // 不改 orderId（入库单追溯要保留）；outboundOrderId 是出库单的硬关联
       for (const { vin, row } of toUpdate) {
         vin.dealerCode = row.dealerCode ?? null;
         vin.dealerName = row.dealerName ?? null;
         vin.towType = row.towType ?? null;
         vin.groupCode = row.groupCode ?? null;
+        vin.outboundOrderId = savedOrder.id;
       }
       await vinRepo.save(toUpdate.map((x) => x.vin));
 
@@ -129,6 +152,8 @@ export class OutboundService {
         orderCode: savedOrder.orderCode,
         matched: toUpdate.length,
         missing,
+        alreadyBound,
+        alreadyAllocated,
       };
     });
   }
@@ -183,8 +208,9 @@ export class OutboundService {
   }
 
   async getOutboundOrderDetail(id: string, scope: EffectiveScope) {
-    // 只返订单头：出库订单本身不持有 VIN (VIN 一直挂在原入库订单上)，
-    // 详情页看池子请去 /outbound/plan (那里有专门的可开单 VIN 池 + 筛选)
+    // 返回订单头 + 关联的 VIN 列表
+    // OrderVin 与出库订单是软关联：通过 (customerId + customerOrderNo + dealer_code)
+    // 因为 OrderVin.orderId 指的是入库订单，出库单不重建 VIN 记录
     const qb = this.ordersRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.customer', 'customer')
@@ -199,11 +225,23 @@ export class OutboundService {
     });
     const order = await qb.getOne();
     if (!order) throw new NotFoundException('出库订单不存在');
-    return { order };
+
+    // 关联 VIN：走 outbound_order_id FK，硬关联可靠
+    const vins = await this.orderVinsRepo
+      .createQueryBuilder('v')
+      .leftJoinAndSelect('v.order', 'origOrder')
+      .leftJoinAndSelect('v.slot', 'slot')
+      .leftJoinAndSelect('slot.yard', 'slotYard')
+      .where('v.outbound_order_id = :oid', { oid: order.id })
+      .orderBy('v.dealer_code', 'ASC')
+      .addOrderBy('v.vin', 'ASC')
+      .getMany();
+    return { order, vins };
   }
 
   // ============ 3. 可用于开单的 VIN 池 ============
   // 库存中已到仓 + 未分配 + 属于本客户的 VIN
+  // outboundOrderId 有值时，只显示该出库订单关联的 VIN (软关联 customerOrderNo)
   async listAvailableVinsForPlan(
     scope: EffectiveScope,
     filters: {
@@ -211,8 +249,20 @@ export class OutboundService {
       yardId?: string;
       dealerCode?: string;
       groupCode?: string;
+      outboundOrderId?: string;
     },
   ): Promise<OrderVin[]> {
+    // 校验 outbound 订单存在（如果传了）；实际过滤走 outbound_order_id FK
+    if (filters.outboundOrderId) {
+      const outOrder = await this.ordersRepo.findOne({
+        where: {
+          id: filters.outboundOrderId,
+          transportType: TransportType.DELIVERY,
+        },
+      });
+      if (!outOrder) throw new NotFoundException('出库订单不存在');
+    }
+
     const qb = this.orderVinsRepo
       .createQueryBuilder('v')
       .leftJoinAndSelect('v.order', 'origOrder')
@@ -226,6 +276,13 @@ export class OutboundService {
       .andWhere('v.dealer_code IS NOT NULL')
       .orderBy('v.dealerCode', 'ASC')
       .addOrderBy('v.vin', 'ASC');
+
+    // 按出库订单硬关联：走 FK，其他 filter 忽略冲突
+    if (filters.outboundOrderId) {
+      qb.andWhere('v.outbound_order_id = :__boundOid', {
+        __boundOid: filters.outboundOrderId,
+      });
+    }
 
     if (scope.type === 'ORG') {
       qb.andWhere('origOrder.organizationId IN (:...__orgIds)', {
@@ -316,6 +373,17 @@ export class OutboundService {
         );
       }
 
+      // 按 dealer_code + customerId 匹配客户地址簿，绑到 waybill.destinationDealer
+      // 匹配不到不报错 (地址簿可能还没导入)，让业务员在开单页手填收件人补救
+      const dealerCode = vins[0].dealerCode;
+      const customerId = vins[0].order?.customerId;
+      let destDealer: CustomerAddress | null = null;
+      if (dealerCode && customerId) {
+        destDealer = await mgr.getRepository(CustomerAddress).findOne({
+          where: { customerId, code: dealerCode },
+        });
+      }
+
       // 建 Waybill：类型显式化以规避 TypeORM.create 的数组重载解析
       const waybillCode = `WB${Date.now()}${randomUUID().slice(0, 4).toUpperCase()}`;
       const waybillData: Partial<Waybill> = {
@@ -327,11 +395,14 @@ export class OutboundService {
         originYardId: dto.originYardId,
         originText: yard.name,
         destinationYardId: null,
-        destinationDealerId: null,
+        destinationDealerId: destDealer?.id ?? null,
         carrierId: dto.carrierId,
         driverId: dto.driverId ?? null,
         vehicleId: dto.vehicleId ?? null,
         towType: dto.towType ?? null,
+        // 收件人：优先前端手填，其次门店联系人兜底 (方便签收电话联络)
+        recipientName: dto.recipientName ?? destDealer?.contactName ?? null,
+        recipientPhone: dto.recipientPhone ?? destDealer?.contactPhone ?? null,
         remark: dto.remark ?? undefined,
         status: WaybillStatus.NOT_ARRIVED,
       };

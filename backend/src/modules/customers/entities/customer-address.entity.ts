@@ -14,11 +14,23 @@ export class CustomerAddress extends BaseEntity {
   @Column({ name: 'customer_id' })
   customerId: string;
 
-  @Column()
-  dealerName: string;
+  // BYD 集团层级：一个 dealerGroup 下有多家 branch (如 Arista → 苏门答腊/雅加达/深圳)
+  @Column({ name: 'dealer_group', type: 'varchar', nullable: true })
+  dealerGroup: string | null;
 
   @Column()
-  address: string;
+  dealerName: string; // 相当于 BYD Excel 里的 Branch BYD
+
+  @Column()
+  address: string; // 相当于 BYD Excel 里的 Alamat
+
+  // 客户系统内的门店代码（Z2410265332 类）；导入时用于去重键
+  @Column({ type: 'varchar', nullable: true })
+  code: string | null;
+
+  // 地理大区 (GREATER JAKARTA / SUMATERA 等)，用于开单时按区聚合
+  @Column({ type: 'varchar', nullable: true })
+  region: string | null;
 
   @Column({ nullable: true })
   contactName: string;

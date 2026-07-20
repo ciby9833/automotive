@@ -21,7 +21,7 @@ import {
   Tooltip,
   message,
 } from 'antd';
-import { CarOutlined, FileSearchOutlined, SwapOutlined } from '@ant-design/icons';
+import { CarOutlined, FileSearchOutlined, ReloadOutlined, SwapOutlined } from '@ant-design/icons';
 import { yardsApi, Yard, YardSlot, YardStats } from '@/lib/api/yards';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -137,6 +137,17 @@ export default function YardBoardInner() {
     loadYards();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeOrgId, orgFilter]);
+
+  // 30 秒自动 poll slots：避免"页面开一小时看到过时的 slot"
+  // 只在有场地选中 + 没进移位模式时 poll，防抖动
+  useEffect(() => {
+    if (!selectedYardId) return;
+    const timer = setInterval(() => {
+      if (!moveMode) loadSlots(selectedYardId);
+    }, 30_000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedYardId, moveMode]);
 
   useEffect(() => {
     if (!selectedYardId) {
@@ -312,6 +323,14 @@ export default function YardBoardInner() {
               label: `${orgNameFromRecord(y, y.organizationId, organizations, locale)} · ${y.name} (${y.code})`,
             }))}
           />
+          <Button
+            icon={<ReloadOutlined />}
+            loading={slotsLoading}
+            disabled={!selectedYardId}
+            onClick={() => selectedYardId && loadSlots(selectedYardId)}
+          >
+            {t('yards.refresh')}
+          </Button>
         </Space>
       </div>
 

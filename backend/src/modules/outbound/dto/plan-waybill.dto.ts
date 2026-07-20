@@ -55,6 +55,18 @@ export class PlanWaybillDto {
   @Length(1, 60)
   customerWaybillCode?: string;
 
+  @ApiProperty({ required: false, description: '本次运单收件人（可空，默认取门店联系人）' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  recipientName?: string;
+
+  @ApiProperty({ required: false, description: '收件人电话（可空，默认取门店电话）' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  recipientPhone?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

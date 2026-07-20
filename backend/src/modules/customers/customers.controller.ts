@@ -1,8 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -17,7 +20,10 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
-import { CreateCustomerAddressDto } from './dto/create-customer-address.dto';
+import {
+  CreateCustomerAddressDto,
+  ImportCustomerAddressesDto,
+} from './dto/create-customer-address.dto';
 
 @ApiTags('customers')
 @ApiBearerAuth()
@@ -68,5 +74,39 @@ export class CustomersController {
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.customersService.addAddress(id, dto, scope);
+  }
+
+  // 批量导入 BYD 门店 Excel: 一次可导入几百条，code 相同自动 update
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Post(':id/addresses/import')
+  async importAddresses(
+    @Param('id') id: string,
+    @Body() dto: ImportCustomerAddressesDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.customersService.importAddresses(id, dto, scope);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Patch('addresses/:addressId')
+  async updateAddress(
+    @Param('addressId', ParseUUIDPipe) addressId: string,
+    @Body() dto: Partial<CreateCustomerAddressDto>,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.customersService.updateAddress(addressId, dto, scope);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Delete('addresses/:addressId')
+  async deleteAddress(
+    @Param('addressId', ParseUUIDPipe) addressId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    await this.customersService.deleteAddress(addressId, scope);
+    return { ok: true };
   }
 }

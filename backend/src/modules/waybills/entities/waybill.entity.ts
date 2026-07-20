@@ -99,6 +99,14 @@ export class Waybill extends OrgScopedEntity {
   @Column({ default: false })
   travelExpensePaid: boolean;
 
+  // 本次运单收件人 (不同于门店固定联系人：一台车实际来接货的可能是店长/仓管/临时人员)
+  // 开单时填；签收时司机对着这里的电话联系
+  @Column({ name: 'recipient_name', type: 'varchar', nullable: true })
+  recipientName: string | null;
+
+  @Column({ name: 'recipient_phone', type: 'varchar', nullable: true })
+  recipientPhone: string | null;
+
   @Column({ type: 'text', nullable: true })
   remark: string;
 

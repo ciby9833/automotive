@@ -127,11 +127,13 @@ export default function OutboundImportPage() {
         remark: values.remark,
         vins: rows,
       });
-      if (res.missing.length > 0) {
+      const bound = res.alreadyBound?.length ?? 0;
+      const allocated = res.alreadyAllocated?.length ?? 0;
+      if (res.missing.length > 0 || bound > 0 || allocated > 0) {
         message.warning(
           t('outbound.import.successWithMissing', {
             matched: res.matched,
-            missing: res.missing.length,
+            missing: res.missing.length + bound + allocated,
           }),
         );
       } else {
@@ -142,6 +144,12 @@ export default function OutboundImportPage() {
           }),
         );
       }
+      // 清空所有 state 防止用户误重复提交同一份数据
+      setFile(null);
+      setRows([]);
+      setParseInfo(null);
+      setParseError(null);
+      form.resetFields();
       router.push(`/outbound/orders/${res.orderId}`);
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
@@ -322,11 +330,11 @@ export default function OutboundImportPage() {
               type="primary"
               htmlType="submit"
               loading={submitting}
-              disabled={rows.length === 0}
+              disabled={rows.length === 0 || submitting}
             >
               {t('outbound.import.submit', { n: rows.length })}
             </Button>
-            <Button onClick={() => router.push('/outbound/orders')}>
+            <Button disabled={submitting} onClick={() => router.push('/outbound/orders')}>
               {t('common.cancel')}
             </Button>
           </Space>

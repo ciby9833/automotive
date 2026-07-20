@@ -7,6 +7,7 @@ import { YardSlot } from '../yards/entities/yard-slot.entity';
 import { Waybill } from '../waybills/entities/waybill.entity';
 import { WaybillVin } from '../waybills/entities/waybill-vin.entity';
 import { Carrier } from '../carriers/entities/carrier.entity';
+import { CustomerAddress } from '../customers/entities/customer-address.entity';
 import { OutboundService } from './outbound.service';
 import { OutboundController } from './outbound.controller';
 
@@ -20,6 +21,7 @@ import { OutboundController } from './outbound.controller';
       Waybill,
       WaybillVin,
       Carrier,
+      CustomerAddress,
     ]),
   ],
   controllers: [OutboundController],

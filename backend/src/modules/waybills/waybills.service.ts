@@ -118,6 +118,8 @@ export class WaybillsService {
       .createQueryBuilder('waybill')
       .leftJoinAndSelect('waybill.vins', 'vins')
       .leftJoinAndSelect('waybill.carrier', 'carrier')
+      .leftJoinAndSelect('waybill.driver', 'driver')
+      .leftJoinAndSelect('waybill.vehicle', 'vehicle')
       .leftJoinAndSelect('waybill.originYard', 'originYard')
       .leftJoinAndSelect('waybill.destinationDealer', 'destinationDealer')
       .leftJoinAndSelect('waybill.organization', 'organization')

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   Alert,
   Button,
@@ -19,25 +20,32 @@ import {
 import { PageHeader } from '@/components/layout/PageHeader';
 import {
   outboundApi,
+  OutboundOrderListRow,
   OutboundOrderVinDetail,
   VehicleTowType,
 } from '@/lib/api/outbound';
-import { customersApi, Customer } from '@/lib/api/customers';
+import { customersApi, Customer, CustomerAddress } from '@/lib/api/customers';
 import { yardsApi, Yard } from '@/lib/api/yards';
 import { carriersApi, Carrier } from '@/lib/api/carriers';
 import { useTranslation } from '@/i18n/useTranslation';
 
 // 出库开单：从库存里选 VIN → 分配供应商 → 生成运单
 // 业务规则：一张运单只能派往同一经销店 (后端校验，前端做同经销店过滤引导)
-export default function OutboundPlanPage() {
+function OutboundPlanInner() {
   const { t } = useTranslation();
+  const searchParams = useSearchParams();
+  const initialOrderId = searchParams.get('orderId') ?? undefined;
 
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [yards, setYards] = useState<Yard[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [outboundOrders, setOutboundOrders] = useState<OutboundOrderListRow[]>([]);
   const [available, setAvailable] = useState<OutboundOrderVinDetail[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const [outboundOrderId, setOutboundOrderId] = useState<string | undefined>(
+    initialOrderId,
+  );
   const [customerId, setCustomerId] = useState<string | undefined>();
   const [yardId, setYardId] = useState<string | undefined>();
   const [dealerCode, setDealerCode] = useState<string | undefined>();
@@ -47,19 +55,30 @@ export default function OutboundPlanPage() {
   const [carrierId, setCarrierId] = useState<string | undefined>();
   const [towType, setTowType] = useState<VehicleTowType | undefined>();
   const [customerWaybillCode, setCustomerWaybillCode] = useState('');
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
   const [remark, setRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  // 客户地址簿：按选中的 VIN 的 customerId 加载，用于展示门店信息 + 兜底填收件人
+  const [customerAddresses, setCustomerAddresses] = useState<CustomerAddress[]>([]);
 
   useEffect(() => {
     customersApi.list().then(setCustomers).catch(() => undefined);
     yardsApi.list().then(setYards).catch(() => undefined);
     carriersApi.list().then(setCarriers).catch(() => undefined);
+    outboundApi.listOrders().then(setOutboundOrders).catch(() => undefined);
   }, []);
 
   const reload = () => {
     setLoading(true);
     outboundApi
-      .listAvailable({ customerId, yardId, dealerCode, groupCode })
+      .listAvailable({
+        customerId,
+        yardId,
+        dealerCode,
+        groupCode,
+        outboundOrderId,
+      })
       .then((rows) => {
         setAvailable(rows);
         // 过滤条件变了，之前选的 VIN 可能不在新列表里 — 只保留还在的
@@ -75,7 +94,7 @@ export default function OutboundPlanPage() {
   useEffect(() => {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, yardId, dealerCode, groupCode]);
+  }, [customerId, yardId, dealerCode, groupCode, outboundOrderId]);
 
   // 从选中的 VIN 推导：经销店集合、始发仓集合
   const selected = useMemo(
@@ -104,6 +123,29 @@ export default function OutboundPlanPage() {
     if (yardSet.size === 1) return selected[0]?.slot?.yard?.id;
     return yardId;
   }, [selected, yardSet, yardId]);
+
+  // 从选中 VIN 里推导 customerId：拉该客户的地址簿，匹配 dealer_code → 展示门店信息
+  const selectedCustomerId = useMemo(
+    () => selected[0]?.order?.customerId,
+    [selected],
+  );
+  useEffect(() => {
+    if (!selectedCustomerId) {
+      setCustomerAddresses([]);
+      return;
+    }
+    customersApi
+      .get(selectedCustomerId)
+      .then((c) => setCustomerAddresses(c.addresses ?? []))
+      .catch(() => setCustomerAddresses([]));
+  }, [selectedCustomerId]);
+
+  // 匹配的门店：dealer_code 相同的地址簿条目
+  const matchedDealer = useMemo(() => {
+    const dc = selected[0]?.dealerCode;
+    if (!dc) return null;
+    return customerAddresses.find((a) => a.code === dc) ?? null;
+  }, [selected, customerAddresses]);
 
   const dealerOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -150,6 +192,8 @@ export default function OutboundPlanPage() {
         carrierId,
         towType,
         customerWaybillCode: customerWaybillCode || undefined,
+        recipientName: recipientName || undefined,
+        recipientPhone: recipientPhone || undefined,
         remark: remark || undefined,
       });
       message.success(
@@ -161,6 +205,8 @@ export default function OutboundPlanPage() {
       // 重置右侧 + 刷新可用池
       setSelectedIds([]);
       setCustomerWaybillCode('');
+      setRecipientName('');
+      setRecipientPhone('');
       setRemark('');
       reload();
     } catch (err) {
@@ -191,6 +237,30 @@ export default function OutboundPlanPage() {
           >
             <Space wrap style={{ marginBottom: 12 }}>
               <Select
+                placeholder={t('outbound.plan.filterOutboundOrder')}
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: 340 }}
+                value={outboundOrderId}
+                onChange={(v) => {
+                  setOutboundOrderId(v);
+                  // 换/清出库单时把选中 VIN 清空，避免脏数据
+                  setSelectedIds([]);
+                  // 清出库单时把其他 filter 也重置（否则用户会莫名其妙看不到自己客户的车）
+                  if (!v) {
+                    setCustomerId(undefined);
+                    setYardId(undefined);
+                    setDealerCode(undefined);
+                    setGroupCode(undefined);
+                  }
+                }}
+                options={outboundOrders.map((o) => ({
+                  value: o.id,
+                  label: `${o.orderCode}${o.customerOrderNo ? ' · ' + o.customerOrderNo : ''} · ${o.customerName}`,
+                }))}
+              />
+              <Select
                 placeholder={t('outbound.plan.filterCustomer')}
                 allowClear
                 showSearch
@@ -198,6 +268,7 @@ export default function OutboundPlanPage() {
                 style={{ width: 200 }}
                 value={customerId}
                 onChange={setCustomerId}
+                disabled={!!outboundOrderId}
                 options={customers.map((c) => ({ value: c.id, label: c.name }))}
               />
               <Select
@@ -208,6 +279,7 @@ export default function OutboundPlanPage() {
                 style={{ width: 200 }}
                 value={yardId}
                 onChange={setYardId}
+                disabled={!!outboundOrderId}
                 options={yards.map((y) => ({
                   value: y.id,
                   label: `${y.name} (${y.code})`,
@@ -221,6 +293,7 @@ export default function OutboundPlanPage() {
                 style={{ width: 220 }}
                 value={dealerCode}
                 onChange={setDealerCode}
+                disabled={!!outboundOrderId}
                 options={dealerOptions}
               />
               <Select
@@ -229,9 +302,18 @@ export default function OutboundPlanPage() {
                 style={{ width: 140 }}
                 value={groupCode}
                 onChange={setGroupCode}
+                disabled={!!outboundOrderId}
                 options={groupOptions}
               />
             </Space>
+            {outboundOrderId && (
+              <Alert
+                type="info"
+                showIcon
+                message={t('outbound.plan.lockedByOrderHint')}
+                style={{ marginBottom: 12 }}
+              />
+            )}
 
             <Table
               rowKey="id"
@@ -305,6 +387,54 @@ export default function OutboundPlanPage() {
               )}
             </div>
 
+            {/* 匹配到的门店信息：从客户地址簿按 dealer_code 反查，帮业务员核对 */}
+            {selected.length > 0 && (
+              <>
+                <Divider style={{ margin: '12px 0' }} />
+                <div style={{ fontSize: 12 }}>
+                  <div style={{ fontWeight: 500, marginBottom: 4 }}>
+                    {t('outbound.plan.destinationDealer')}
+                  </div>
+                  {matchedDealer ? (
+                    <div
+                      style={{
+                        background: '#f0fdf4',
+                        padding: 10,
+                        borderRadius: 4,
+                        border: '1px solid #bbf7d0',
+                      }}
+                    >
+                      <div style={{ fontWeight: 500 }}>
+                        {matchedDealer.dealerName}
+                      </div>
+                      <div style={{ color: '#64748b', marginTop: 2 }}>
+                        {matchedDealer.address}
+                      </div>
+                      {matchedDealer.region && (
+                        <Tag color="blue" style={{ marginTop: 4 }}>
+                          {matchedDealer.region}
+                        </Tag>
+                      )}
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        background: '#fef2f2',
+                        padding: 10,
+                        borderRadius: 4,
+                        border: '1px solid #fecaca',
+                        color: '#991b1b',
+                      }}
+                    >
+                      {t('outbound.plan.dealerNotFound', {
+                        code: selected[0]?.dealerCode ?? '',
+                      })}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+
             <Divider style={{ margin: '12px 0' }} />
 
             <Form layout="vertical">
@@ -339,6 +469,44 @@ export default function OutboundPlanPage() {
                   value={customerWaybillCode}
                   onChange={(e) => setCustomerWaybillCode(e.target.value)}
                   placeholder="e.g. BYD-WB-2026-07-001"
+                />
+              </Form.Item>
+              <Form.Item
+                label={t('outbound.plan.recipientName')}
+                extra={
+                  matchedDealer?.contactName
+                    ? t('outbound.plan.recipientDefaultHint', {
+                        name: matchedDealer.contactName,
+                      })
+                    : undefined
+                }
+              >
+                <Input
+                  value={recipientName}
+                  onChange={(e) => setRecipientName(e.target.value)}
+                  placeholder={
+                    matchedDealer?.contactName ??
+                    t('outbound.plan.recipientPlaceholder')
+                  }
+                />
+              </Form.Item>
+              <Form.Item
+                label={t('outbound.plan.recipientPhone')}
+                extra={
+                  matchedDealer?.contactPhone
+                    ? t('outbound.plan.recipientDefaultHint', {
+                        name: matchedDealer.contactPhone,
+                      })
+                    : undefined
+                }
+              >
+                <Input
+                  value={recipientPhone}
+                  onChange={(e) => setRecipientPhone(e.target.value)}
+                  placeholder={
+                    matchedDealer?.contactPhone ??
+                    t('outbound.plan.recipientPhonePlaceholder')
+                  }
                 />
               </Form.Item>
               <Form.Item label={t('outbound.plan.remark')}>
@@ -377,5 +545,14 @@ export default function OutboundPlanPage() {
         </Col>
       </Row>
     </div>
+  );
+}
+
+// useSearchParams 需要 Suspense 边界
+export default function OutboundPlanPage() {
+  return (
+    <Suspense>
+      <OutboundPlanInner />
+    </Suspense>
   );
 }

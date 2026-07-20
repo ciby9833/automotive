@@ -47,7 +47,12 @@ export interface OutboundOrderVinDetail {
   arrivalStatus: 'EXPECTED' | 'ARRIVED' | 'CANCELLED';
   isAllocated: boolean;
   slot?: { id: string; code: string; yard?: { id: string; name: string; code: string } };
-  order?: { id: string; orderCode: string; customerOrderNo: string | null };
+  order?: {
+    id: string;
+    orderCode: string;
+    customerOrderNo: string | null;
+    customerId?: string;
+  };
 }
 
 export interface PlanWaybillPayload {
@@ -58,6 +63,8 @@ export interface PlanWaybillPayload {
   vehicleId?: string;
   towType?: VehicleTowType;
   customerWaybillCode?: string;
+  recipientName?: string;
+  recipientPhone?: string;
   remark?: string;
 }
 
@@ -68,6 +75,8 @@ export const outboundApi = {
       orderCode: string;
       matched: number;
       missing: string[];
+      alreadyBound?: string[];
+      alreadyAllocated?: string[];
     }>(apiClient.post('/outbound/orders/import', payload)),
 
   listOrders: (params?: {
@@ -81,13 +90,16 @@ export const outboundApi = {
     ),
 
   orderDetail: (id: string) =>
-    unwrap<{ order: unknown }>(apiClient.get(`/outbound/orders/${id}`)),
+    unwrap<{ order: unknown; vins: OutboundOrderVinDetail[] }>(
+      apiClient.get(`/outbound/orders/${id}`),
+    ),
 
   listAvailable: (params: {
     customerId?: string;
     yardId?: string;
     dealerCode?: string;
     groupCode?: string;
+    outboundOrderId?: string;
   }) =>
     unwrap<OutboundOrderVinDetail[]>(
       apiClient.get('/outbound/plan/available', { params }),

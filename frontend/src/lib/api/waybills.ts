@@ -32,8 +32,34 @@ export interface Waybill {
   originYard?: { id: string; code: string; name: string };
   destinationYardId: string | null;
   destinationDealerId: string | null;
-  destinationDealer?: { id: string; dealerName: string; address: string };
-  carrier?: { id: string; name: string; shortName?: string | null };
+  destinationDealer?: {
+    id: string;
+    dealerName: string;
+    address: string;
+    dealerGroup?: string | null;
+    region?: string | null;
+    code?: string | null;
+    contactPhone?: string | null;
+  };
+  carrier?: {
+    id: string;
+    name: string;
+    shortName?: string | null;
+    contactPhone?: string | null;
+  };
+  driver?: {
+    id: string;
+    name: string;
+    phone: string | null;
+    licenseNo: string | null;
+  };
+  vehicle?: {
+    id: string;
+    plateNumber: string;
+    towType: string | null;
+  };
+  towType: string | null;
+  remark: string | null;
   vins: WaybillVin[];
   createdAt: string;
 }

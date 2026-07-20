@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Select, Space, Table, message } from 'antd';
+import { EnvironmentOutlined } from '@ant-design/icons';
 import { customersApi, Customer } from '@/lib/api/customers';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -11,12 +12,14 @@ import { localizedOrganizationName } from '@/i18n/organizationNames';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 import { GenerateInviteButton } from '@/components/invitations/GenerateInviteButton';
 import { OrgFilter } from '@/components/layout/OrgFilter';
+import { CustomerAddressBookDrawer } from '@/components/customers/CustomerAddressBookDrawer';
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
+  const [addressBookCustomer, setAddressBookCustomer] = useState<Customer | null>(null);
   const [form] = Form.useForm();
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const organizations = useOrganizations();
@@ -85,6 +88,19 @@ export default function CustomersPage() {
           { title: t('customers.contactName'), dataIndex: 'contactName' },
           { title: t('customers.contactPhone'), dataIndex: 'contactPhone' },
           { title: t('customers.email'), dataIndex: 'email' },
+          {
+            title: t('customers.addressBookColumn'),
+            render: (_: unknown, record: Customer) => (
+              <Button
+                type="link"
+                size="small"
+                icon={<EnvironmentOutlined />}
+                onClick={() => setAddressBookCustomer(record)}
+              >
+                {t('customers.addressBookOpen')}
+              </Button>
+            ),
+          },
           ...(canCreate
             ? [
                 {
@@ -99,6 +115,11 @@ export default function CustomersPage() {
               ]
             : []),
         ]}
+      />
+      <CustomerAddressBookDrawer
+        customerId={addressBookCustomer?.id ?? null}
+        customerName={addressBookCustomer?.name}
+        onClose={() => setAddressBookCustomer(null)}
       />
       <Modal
         title={t('customers.addCustomer')}

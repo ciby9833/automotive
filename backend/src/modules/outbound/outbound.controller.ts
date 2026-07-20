@@ -82,6 +82,7 @@ export class OutboundController {
     @Query('yardId') yardId?: string,
     @Query('dealerCode') dealerCode?: string,
     @Query('groupCode') groupCode?: string,
+    @Query('outboundOrderId') outboundOrderId?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.outboundService.listAvailableVinsForPlan(scope, {
@@ -89,6 +90,7 @@ export class OutboundController {
       yardId,
       dealerCode,
       groupCode,
+      outboundOrderId,
     });
   }
 

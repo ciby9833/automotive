@@ -139,6 +139,16 @@ export class OrderVin extends BaseEntity {
   @Column({ name: 'group_code', type: 'varchar', nullable: true })
   groupCode: string | null;
 
+  // 出库单硬关联：客户 Excel 里指定的这批车所属的出库订单
+  // 之前用 customerId + customerOrderNo 软关联，脆弱：出库单填 "123" 不会匹配到入库单 "ABC"
+  // 现在直接指向 orders(id) FK；同一 VIN 可能属于多个入库单但只属一个当前 outbound
+  @ManyToOne(() => Order, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'outbound_order_id' })
+  outboundOrder: Order | null;
+
+  @Column({ name: 'outbound_order_id', type: 'uuid', nullable: true })
+  outboundOrderId: string | null;
+
   // 是否已被某张出库运单选用(避免重复开单)
   @Column({ default: false })
   isAllocated: boolean;

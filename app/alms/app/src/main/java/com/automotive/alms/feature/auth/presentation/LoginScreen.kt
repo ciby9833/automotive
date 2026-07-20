@@ -32,8 +32,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.automotive.alms.R
 import com.automotive.alms.core.model.LoginMode
 import com.automotive.alms.core.network.ApiException
 import com.automotive.alms.core.ui.AppBackground
@@ -52,6 +54,7 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var submitting by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    val loginFailed = stringResource(R.string.login_failed)
 
     AppBackground {
         Column(
@@ -74,9 +77,9 @@ fun LoginScreen(
                     Text(text = "A", color = Color.White, style = MaterialTheme.typography.titleLarge)
                 }
                 Spacer(modifier = Modifier.height(22.dp))
-                Text(text = "ALMS", style = MaterialTheme.typography.headlineLarge)
+                Text(text = stringResource(R.string.app_name), style = MaterialTheme.typography.headlineLarge)
                 Text(
-                    text = "汽车物流移动工作台",
+                    text = stringResource(R.string.brand_subtitle),
                     modifier = Modifier.padding(top = 6.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyLarge,
@@ -92,20 +95,14 @@ fun LoginScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
-                    Text(text = "登录账号", style = MaterialTheme.typography.titleLarge)
-                    Text(
-                        text = "根据后端权限自动进入对应工作台。",
-                        modifier = Modifier.padding(top = 4.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Text(text = stringResource(R.string.login_title), style = MaterialTheme.typography.titleLarge)
 
                     Spacer(modifier = Modifier.height(18.dp))
 
                     OutlinedTextField(
                         value = username,
                         onValueChange = { username = it },
-                        label = { Text("账号") },
+                        label = { Text(stringResource(R.string.login_username)) },
                         singleLine = true,
                         shape = RoundedCornerShape(Dimens.CardRadius),
                         modifier = Modifier.fillMaxWidth(),
@@ -113,7 +110,7 @@ fun LoginScreen(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("密码") },
+                        label = { Text(stringResource(R.string.login_password)) },
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         shape = RoundedCornerShape(Dimens.CardRadius),
@@ -157,7 +154,7 @@ fun LoginScreen(
                                         submitting = false
                                         error = (throwable as? ApiException)?.message
                                             ?: throwable.localizedMessage
-                                            ?: "登录失败，请稍后重试"
+                                            ?: loginFailed
                                     }
                             }
                         },
@@ -169,7 +166,13 @@ fun LoginScreen(
                             .padding(top = 16.dp)
                             .height(52.dp),
                     ) {
-                        Text(if (submitting) "登录中" else "登录")
+                        Text(
+                            if (submitting) {
+                                stringResource(R.string.login_loading)
+                            } else {
+                                stringResource(R.string.login_button)
+                            },
+                        )
                     }
                 }
             }

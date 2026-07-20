@@ -62,7 +62,6 @@ fun AlmsApp(container: AppContainer) {
             HomeScreen(
                 sessionStore = container.sessionStore,
                 permissionManager = container.permissionManager,
-                onOpenRoute = { route -> navController.navigate(route.path) },
                 onLogout = {
                     container.authRepository.logoutLocal()
                     navController.navigate(AppRoute.Login.path) {

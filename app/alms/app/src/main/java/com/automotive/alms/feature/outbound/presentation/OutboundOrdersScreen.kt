@@ -3,15 +3,17 @@ package com.automotive.alms.feature.outbound.presentation
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.automotive.alms.R
 import com.automotive.alms.core.ui.PlaceholderBody
 import com.automotive.alms.core.ui.ScreenScaffold
 
 @Composable
 fun OutboundOrdersScreen() {
-    ScreenScaffold(title = "出库订单") { padding ->
+    ScreenScaffold(title = stringResource(R.string.outbound_orders)) { padding ->
         PlaceholderBody(
-            title = "待接入：出库订单查询",
-            description = "后续在此模块接入 /outbound/orders 和 /outbound/orders/{id}。",
+            title = stringResource(R.string.placeholder_pending),
+            description = stringResource(R.string.placeholder_outbound),
             modifier = Modifier.padding(padding),
         )
     }

@@ -50,7 +50,7 @@ class ApiClient(
                 throw parseError(response.code, raw)
             }
             val envelope = json.decodeFromString<ApiEnvelope<T>>(raw)
-            envelope.data ?: throw ApiException(response.code, envelope.code, envelope.message ?: "响应数据为空")
+            envelope.data ?: throw ApiException(response.code, envelope.code, envelope.message ?: "Empty response")
         }
     }
 
@@ -60,7 +60,7 @@ class ApiClient(
         return ApiException(
             statusCode = statusCode,
             errorCode = parsed?.code,
-            message = parsed?.message ?: raw.ifBlank { "请求失败，请稍后重试" },
+            message = parsed?.message ?: raw.ifBlank { "Request failed" },
         )
     }
 }

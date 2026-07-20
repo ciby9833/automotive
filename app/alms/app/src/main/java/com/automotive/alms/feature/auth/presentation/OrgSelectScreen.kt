@@ -18,7 +18,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.automotive.alms.R
 import com.automotive.alms.core.auth.SessionStore
 import com.automotive.alms.core.network.ApiException
 import com.automotive.alms.core.ui.AppBackground
@@ -39,9 +41,10 @@ fun OrgSelectScreen(
     val memberships = session.loginResult?.memberships.orEmpty()
     val scope = rememberCoroutineScope()
     var error by remember { mutableStateOf<String?>(null) }
+    val selectFailed = stringResource(R.string.org_select_failed)
 
     AppBackground {
-        ScreenScaffold(title = "选择机构") { padding ->
+        ScreenScaffold(title = stringResource(R.string.org_select_title)) { padding ->
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -49,8 +52,8 @@ fun OrgSelectScreen(
                     .padding(Dimens.PagePadding),
             ) {
                 HeaderPanel(
-                    title = "选择本次操作范围",
-                    subtitle = "后端会按所选机构下发完整 token。",
+                    title = stringResource(R.string.org_select_header),
+                    subtitle = stringResource(R.string.app_name),
                 )
 
                 error?.let {
@@ -71,7 +74,7 @@ fun OrgSelectScreen(
                                     runCatching { authRepository.selectOrg(membership.organizationId) }
                                         .onSuccess { onSelected() }
                                         .onFailure { throwable ->
-                                            error = (throwable as? ApiException)?.message ?: "机构选择失败"
+                                            error = (throwable as? ApiException)?.message ?: selectFailed
                                         }
                                     }
                                 },
@@ -82,7 +85,7 @@ fun OrgSelectScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text(text = membership.organizationName, style = MaterialTheme.typography.titleMedium)
                             StatusPill(
-                                text = "${membership.organizationCode} · ${membership.role}",
+                                text = membership.organizationCode,
                                 modifier = Modifier.padding(top = 8.dp),
                                 color = MaterialTheme.colorScheme.secondary,
                             )

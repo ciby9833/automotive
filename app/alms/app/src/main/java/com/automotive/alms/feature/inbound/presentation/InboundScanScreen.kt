@@ -3,15 +3,17 @@ package com.automotive.alms.feature.inbound.presentation
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import com.automotive.alms.R
 import com.automotive.alms.core.ui.PlaceholderBody
 import com.automotive.alms.core.ui.ScreenScaffold
 
 @Composable
 fun InboundScanScreen() {
-    ScreenScaffold(title = "入库扫描") { padding ->
+    ScreenScaffold(title = stringResource(R.string.inbound_scan)) { padding ->
         PlaceholderBody(
-            title = "待接入：入库扫描流程",
-            description = "后续在此模块接入场地选择、批次、VIN 扫描、库位扫描、照片上传和 /inbound/scan。",
+            title = stringResource(R.string.placeholder_pending),
+            description = stringResource(R.string.placeholder_inbound),
             modifier = Modifier.padding(padding),
         )
     }

@@ -455,4 +455,195 @@ export class WaybillsService {
       await waybillRepo.delete(id);
     });
   }
+
+  // 单台 VIN 装车：只写 WaybillVin.loadedAt+loadPhotoKeys；不动 waybill.status，不释放 slot
+  // 目的：真实 FVL 装车是逐台完成的，全部装完才在闸口整单出仓
+  async loadVin(
+    waybillId: string,
+    vin: string,
+    photoKeys: string[],
+    remark: string | undefined,
+    user: { userId: string; role: Role; scopeYardId?: string | null },
+  ): Promise<{ loadedAt: Date; loadedCount: number; totalCount: number }> {
+    const waybill = await this.findByIdUnscoped(waybillId);
+    if (!waybill) throw new NotFoundException('运单不存在');
+    this.assertCanLoad(waybill, user);
+
+    const result = await this.dataSource.transaction(async (mgr) => {
+      const waybillVinRepo = mgr.getRepository(WaybillVin);
+      const wv = await waybillVinRepo.findOne({ where: { waybillId, vin } });
+      if (!wv) throw new NotFoundException('该 VIN 不在此运单');
+      if (wv.loadedAt) {
+        throw new BadRequestException('该 VIN 已装车，请勿重复扫码');
+      }
+      wv.loadedAt = new Date();
+      wv.loadPhotoKeys = photoKeys;
+      await waybillVinRepo.save(wv);
+
+      const all = await waybillVinRepo.find({ where: { waybillId } });
+      return {
+        loadedAt: wv.loadedAt,
+        loadedCount: all.filter((v) => v.loadedAt).length,
+        totalCount: all.length,
+      };
+    });
+
+    await this.trackingService.appendLog({
+      waybillId,
+      vin,
+      action: ScanAction.DELIVERY_LOAD,
+      yardId: waybill.originYardId ?? null,
+      operatorUserId: user.userId,
+      attachmentUrls: photoKeys,
+      remark,
+    });
+
+    return result;
+  }
+
+  // 撤销单台装车：清 loadedAt + loadPhotoKeys（例如扫错车/上错车位）
+  async unloadVin(
+    waybillId: string,
+    vin: string,
+    user: { userId: string; role: Role; scopeYardId?: string | null },
+  ): Promise<{ loadedCount: number; totalCount: number }> {
+    const waybill = await this.findByIdUnscoped(waybillId);
+    if (!waybill) throw new NotFoundException('运单不存在');
+    this.assertCanLoad(waybill, user);
+
+    const result = await this.dataSource.transaction(async (mgr) => {
+      const waybillVinRepo = mgr.getRepository(WaybillVin);
+      const wv = await waybillVinRepo.findOne({ where: { waybillId, vin } });
+      if (!wv) throw new NotFoundException('该 VIN 不在此运单');
+      if (!wv.loadedAt) {
+        throw new BadRequestException('该 VIN 未装车，无需撤销');
+      }
+      wv.loadedAt = null;
+      wv.loadPhotoKeys = [];
+      await waybillVinRepo.save(wv);
+
+      const all = await waybillVinRepo.find({ where: { waybillId } });
+      return {
+        loadedCount: all.filter((v) => v.loadedAt).length,
+        totalCount: all.length,
+      };
+    });
+
+    await this.trackingService.appendLog({
+      waybillId,
+      vin,
+      action: ScanAction.DELIVERY_LOAD_UNDO,
+      yardId: waybill.originYardId ?? null,
+      operatorUserId: user.userId,
+    });
+
+    return result;
+  }
+
+  // 整单启运出闸：校验全部装完 → 释放 slot → 状态翻 IN_TRANSIT
+  async departWaybill(
+    waybillId: string,
+    gatePhotoKeys: string[] | undefined,
+    remark: string | undefined,
+    user: { userId: string; role: Role; scopeYardId?: string | null },
+  ): Promise<Waybill> {
+    const waybill = await this.findByIdUnscoped(waybillId);
+    if (!waybill) throw new NotFoundException('运单不存在');
+    this.assertCanLoad(waybill, user);
+    if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
+      throw new BadRequestException(
+        `运单已 ${waybill.status}，无法再次启运`,
+      );
+    }
+    if (waybill.transportType !== TransportType.DELIVERY) {
+      throw new BadRequestException('此接口仅用于派送运单启运');
+    }
+
+    const { updated, vins } = await this.dataSource.transaction(async (mgr) => {
+      const waybillVinRepo = mgr.getRepository(WaybillVin);
+      const waybillRepo = mgr.getRepository(Waybill);
+      const orderVinRepo = mgr.getRepository(OrderVin);
+      const slotRepo = mgr.getRepository(YardSlot);
+
+      const wvs = await waybillVinRepo.find({ where: { waybillId } });
+      if (wvs.length === 0) throw new BadRequestException('运单无 VIN');
+      const unloaded = wvs.filter((v) => !v.loadedAt);
+      if (unloaded.length > 0) {
+        throw new BadRequestException(
+          `还有 ${unloaded.length} 台未装车：${unloaded.map((v) => v.vin).join(', ')}`,
+        );
+      }
+
+      // 释放整单所有 VIN 对应的 slot
+      const orderVins = await orderVinRepo.find({
+        where: wvs.map((wv) => ({ vin: wv.vin })),
+      });
+      const slotIds = orderVins
+        .map((ov) => ov.slotId)
+        .filter((id): id is string => !!id);
+      if (slotIds.length > 0) {
+        const slots = await slotRepo.find({
+          where: slotIds.map((id) => ({ id })),
+        });
+        for (const slot of slots) {
+          slot.status = YardSlotStatus.VACANT;
+          slot.currentVin = null;
+          slot.assignedAt = null;
+        }
+        await slotRepo.save(slots);
+      }
+      for (const ov of orderVins) ov.slotId = null;
+      if (orderVins.length > 0) await orderVinRepo.save(orderVins);
+
+      const w = await waybillRepo.findOne({ where: { id: waybillId } });
+      if (!w) throw new NotFoundException('运单不存在');
+      w.status = WaybillStatus.IN_TRANSIT;
+      await waybillRepo.save(w);
+      return { updated: w, vins: wvs };
+    });
+
+    // 每台车都写一条 DELIVERY_DEPARTURE 日志，闸口合影只挂在第一台上避免存储冗余
+    for (let i = 0; i < vins.length; i += 1) {
+      await this.trackingService.appendLog({
+        waybillId,
+        vin: vins[i].vin,
+        action: ScanAction.DELIVERY_DEPARTURE,
+        yardId: waybill.originYardId ?? null,
+        operatorUserId: user.userId,
+        attachmentUrls: i === 0 ? (gatePhotoKeys ?? null) : null,
+        remark: i === 0 ? remark : undefined,
+      });
+    }
+
+    // 广播一次（消费者按 waybillId 刷新，vin 传第一台即可）
+    const representativeVin = vins[0]?.vin ?? '';
+    this.trackingGateway.emitWaybillStatusChanged({
+      waybillId,
+      vin: representativeVin,
+      status: updated.status,
+      yardId: waybill.originYardId ?? null,
+    });
+    await this.queueService.notifyWaybillStatusChanged({
+      waybillId,
+      vin: representativeVin,
+      status: updated.status,
+    });
+
+    return updated;
+  }
+
+  // 装车/启运权限：ORG_ADMIN/HQ_ADMIN 全通；YARD_STAFF 仅本人所属场地=运单始发地
+  private assertCanLoad(
+    waybill: Waybill,
+    user: { role: Role; scopeYardId?: string | null },
+  ): void {
+    if (user.role === Role.HQ_ADMIN || user.role === Role.ORG_ADMIN) return;
+    if (user.role === Role.YARD_STAFF) {
+      if (waybill.originYardId && user.scopeYardId === waybill.originYardId) {
+        return;
+      }
+      throw new ForbiddenException('仅始发场地作业员可执行装车/启运');
+    }
+    throw new ForbiddenException('无权执行装车/启运');
+  }
 }

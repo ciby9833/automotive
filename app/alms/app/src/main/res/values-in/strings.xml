@@ -17,8 +17,15 @@
     <string name="tab_waybill">Surat jalan</string>
     <string name="tab_inventory">Stok</string>
     <string name="tab_orders">Pesanan</string>
+    <string name="tab_profile">Profil</string>
     <string name="menu_settings">Pengaturan</string>
     <string name="menu_logout">Keluar</string>
+    <string name="menu_language">Bahasa</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_indonesian">Indonesia</string>
+    <string name="profile_title">Profil</string>
+    <string name="profile_account">Akun</string>
     <string name="available_modules">%1$d modul</string>
     <string name="empty_modules">Tidak ada modul</string>
     <string name="quick_actions">Aksi</string>

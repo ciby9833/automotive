@@ -15,6 +15,8 @@ export interface WaybillVin {
   model: string | null;
   color: string | null;
   isSigned: boolean;
+  loadedAt: string | null;
+  loadPhotoKeys: string[];
 }
 
 export interface Waybill {
@@ -86,4 +88,20 @@ export const waybillsApi = {
   }) => unwrap<Waybill>(apiClient.post('/waybills/scan', dto)),
   cancel: (id: string) =>
     unwrap<{ ok: boolean }>(apiClient.delete(`/waybills/${id}`)),
+  loadVin: (
+    waybillId: string,
+    vin: string,
+    payload: { photoKeys: string[]; remark?: string },
+  ) =>
+    unwrap<{ loadedAt: string; loadedCount: number; totalCount: number }>(
+      apiClient.post(`/waybills/${waybillId}/vins/${vin}/load`, payload),
+    ),
+  unloadVin: (waybillId: string, vin: string) =>
+    unwrap<{ loadedCount: number; totalCount: number }>(
+      apiClient.delete(`/waybills/${waybillId}/vins/${vin}/load`),
+    ),
+  depart: (
+    waybillId: string,
+    payload: { gatePhotoKeys?: string[]; remark?: string },
+  ) => unwrap<Waybill>(apiClient.post(`/waybills/${waybillId}/depart`, payload)),
 };

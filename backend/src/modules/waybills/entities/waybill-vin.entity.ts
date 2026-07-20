@@ -26,4 +26,13 @@ export class WaybillVin extends BaseEntity {
 
   @Column({ default: false })
   isSigned: boolean; // 派送业务签收状态
+
+  // 装车事件：始发场地作业员扫这台 VIN 上车时打点。
+  // 全部 loadedAt 都非空后，才允许 waybill 整单启运 (POST /waybills/:id/depart)
+  @Column({ name: 'loaded_at', type: 'timestamptz', nullable: true })
+  loadedAt: Date | null;
+
+  // 单台车的装车凭证：装车照 + 可选损伤复检照，与整单闸口合影分开存
+  @Column({ name: 'load_photo_keys', type: 'text', array: true, default: () => "'{}'::text[]" })
+  loadPhotoKeys: string[];
 }

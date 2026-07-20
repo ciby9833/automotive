@@ -21,9 +21,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warehouse
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -53,6 +54,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.automotive.alms.R
 import com.automotive.alms.core.auth.SessionStore
+import com.automotive.alms.core.locale.AppLanguage
+import com.automotive.alms.core.locale.AppLocaleManager
 import com.automotive.alms.core.model.Role
 import com.automotive.alms.core.navigation.AppRoute
 import com.automotive.alms.core.permission.PermissionManager
@@ -74,17 +77,7 @@ fun HomeScreen(
     val session by sessionStore.state.collectAsState()
     val user = session.loginResult?.user
     val actions = HomeActions.all.filter { permissionManager.has(it.requiredPermission) }
-    val bottomTabs = remember(actions) {
-        listOf(MainTab.Home) + actions.take(4).map {
-            MainTab.Feature(
-                route = it.route,
-                labelRes = it.titleRes,
-                icon = iconFor(it.route),
-            )
-        }
-    }
-    var selectedRoute by rememberSaveable { mutableStateOf(AppRoute.Home.path) }
-    val selectedTab = bottomTabs.firstOrNull { it.route.path == selectedRoute } ?: MainTab.Home
+    var selectedTab by rememberSaveable { mutableStateOf(MainTab.Home.key) }
 
     AppBackground {
         Scaffold(
@@ -109,10 +102,10 @@ fun HomeScreen(
             },
             bottomBar = {
                 NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-                    bottomTabs.forEach { tab ->
+                    listOf(MainTab.Home, MainTab.Profile).forEach { tab ->
                         NavigationBarItem(
-                            selected = selectedTab.route == tab.route,
-                            onClick = { selectedRoute = tab.route.path },
+                            selected = selectedTab == tab.key,
+                            onClick = { selectedTab = tab.key },
                             icon = { Icon(tab.icon, contentDescription = null) },
                             label = { Text(stringResource(tab.labelRes)) },
                         )
@@ -120,19 +113,20 @@ fun HomeScreen(
                 }
             },
         ) { padding ->
-            when (val tab = selectedTab) {
-                MainTab.Home -> HomeDashboard(
+            when (selectedTab) {
+                MainTab.Home.key -> HomeDashboard(
                     padding = padding,
                     userName = user?.displayName.orEmpty(),
                     role = user?.role,
                     actions = actions,
-                    availableTabRoutes = bottomTabs.map { it.route.path }.toSet(),
-                    onSelectRoute = { route -> selectedRoute = route.path },
                 )
 
-                is MainTab.Feature -> FeaturePlaceholder(
+                MainTab.Profile.key -> ProfileScreen(
                     padding = padding,
-                    route = tab.route,
+                    name = user?.displayName.orEmpty(),
+                    username = user?.username.orEmpty(),
+                    role = user?.role,
+                    onLogout = onLogout,
                 )
             }
         }
@@ -145,8 +139,6 @@ private fun HomeDashboard(
     userName: String,
     role: Role?,
     actions: List<HomeAction>,
-    availableTabRoutes: Set<String>,
-    onSelectRoute: (AppRoute) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 156.dp),
@@ -190,20 +182,20 @@ private fun HomeDashboard(
                 subtitle = stringResource(action.subtitleRes),
                 icon = iconFor(action.route),
                 accent = accentFor(action.route),
-                onClick = {
-                    if (availableTabRoutes.contains(action.route.path)) {
-                        onSelectRoute(action.route)
-                    }
-                },
+                enabled = false,
+                onClick = {},
             )
         }
     }
 }
 
 @Composable
-private fun FeaturePlaceholder(
+private fun ProfileScreen(
     padding: PaddingValues,
-    route: AppRoute,
+    name: String,
+    username: String,
+    role: Role?,
+    onLogout: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -211,19 +203,45 @@ private fun FeaturePlaceholder(
             .padding(padding)
             .padding(Dimens.PagePadding),
     ) {
-        Text(
-            text = stringResource(titleFor(route)),
-            style = MaterialTheme.typography.headlineSmall,
+        HeaderPanel(
+            title = name.ifBlank { stringResource(R.string.app_name) },
+            subtitle = roleLabel(role),
+            modifier = Modifier.fillMaxWidth(),
         )
         Text(
-            text = stringResource(subtitleFor(route)),
-            modifier = Modifier.padding(top = 8.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = stringResource(R.string.profile_account),
+            modifier = Modifier.padding(top = 24.dp),
+            style = MaterialTheme.typography.titleMedium,
         )
         StatusPill(
-            text = stringResource(R.string.placeholder_pending),
-            modifier = Modifier.padding(top = 18.dp),
-            color = accentFor(route),
+            text = username.ifBlank { stringResource(R.string.app_name) },
+            modifier = Modifier.padding(top = 10.dp),
+            color = MaterialTheme.colorScheme.secondary,
+        )
+        Text(
+            text = stringResource(R.string.menu_language),
+            modifier = Modifier.padding(top = 24.dp, bottom = 10.dp),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        AppLanguage.entries.forEach { language ->
+            Text(
+                text = stringResource(language.labelRes),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { AppLocaleManager.setLanguage(language) }
+                    .padding(vertical = 14.dp),
+                style = MaterialTheme.typography.bodyLarge,
+            )
+        }
+        Text(
+            text = stringResource(R.string.menu_logout),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 18.dp)
+                .clickable { onLogout() }
+                .padding(vertical = 14.dp),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodyLarge,
         )
     }
 }
@@ -265,9 +283,26 @@ private fun AvatarMenu(
                 onClick = { expanded = false },
             )
             DropdownMenuItem(
-                leadingIcon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                text = { Text(stringResource(R.string.menu_settings)) },
-                onClick = { expanded = false },
+                leadingIcon = { Icon(Icons.Filled.Language, contentDescription = null) },
+                text = {
+                    Column {
+                        Text(stringResource(R.string.menu_language))
+                        Row(modifier = Modifier.padding(top = 6.dp)) {
+                            AppLanguage.entries.forEach { language ->
+                                StatusPill(
+                                    text = stringResource(language.labelRes),
+                                    modifier = Modifier
+                                        .padding(end = 6.dp)
+                                        .clickable {
+                                            expanded = false
+                                            AppLocaleManager.setLanguage(language)
+                                        },
+                                )
+                            }
+                        }
+                    }
+                },
+                onClick = {},
             )
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.menu_logout)) },
@@ -299,7 +334,6 @@ private fun avatarText(name: String): String {
 
 private fun iconFor(route: AppRoute): ImageVector {
     return when (route) {
-        AppRoute.Home -> Icons.Filled.Home
         AppRoute.InboundScan -> Icons.Filled.Warehouse
         AppRoute.PickupScan -> Icons.Filled.QrCodeScanner
         AppRoute.WaybillList -> Icons.Filled.LocalShipping
@@ -320,44 +354,20 @@ private fun accentFor(route: AppRoute): Color {
     }
 }
 
-@StringRes
-private fun titleFor(route: AppRoute): Int {
-    return when (route) {
-        AppRoute.InboundScan -> R.string.inbound_scan
-        AppRoute.PickupScan -> R.string.pickup_scan
-        AppRoute.WaybillList -> R.string.waybills
-        AppRoute.YardInventory -> R.string.vin_inventory
-        AppRoute.OutboundOrders -> R.string.outbound_orders
-        else -> R.string.app_name
-    }
-}
-
-@StringRes
-private fun subtitleFor(route: AppRoute): Int {
-    return when (route) {
-        AppRoute.InboundScan -> R.string.placeholder_inbound
-        AppRoute.PickupScan -> R.string.placeholder_pickup
-        AppRoute.WaybillList -> R.string.placeholder_waybill
-        AppRoute.YardInventory -> R.string.placeholder_inventory
-        AppRoute.OutboundOrders -> R.string.placeholder_outbound
-        else -> R.string.brand_subtitle
-    }
-}
-
 private sealed class MainTab(
-    val route: AppRoute,
+    val key: String,
     @StringRes val labelRes: Int,
     val icon: ImageVector,
 ) {
     data object Home : MainTab(
-        route = AppRoute.Home,
+        key = "home",
         labelRes = R.string.tab_home,
         icon = Icons.Filled.Home,
     )
 
-    class Feature(
-        route: AppRoute,
-        @StringRes labelRes: Int,
-        icon: ImageVector,
-    ) : MainTab(route, labelRes, icon)
+    data object Profile : MainTab(
+        key = "profile",
+        labelRes = R.string.tab_profile,
+        icon = Icons.Filled.Person,
+    )
 }

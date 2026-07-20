@@ -17,8 +17,15 @@
     <string name="tab_waybill">运单</string>
     <string name="tab_inventory">库存</string>
     <string name="tab_orders">订单</string>
+    <string name="tab_profile">我的</string>
     <string name="menu_settings">设置</string>
     <string name="menu_logout">退出登录</string>
+    <string name="menu_language">语言</string>
+    <string name="language_english">English</string>
+    <string name="language_chinese">中文</string>
+    <string name="language_indonesian">Indonesia</string>
+    <string name="profile_title">我的</string>
+    <string name="profile_account">账号</string>
     <string name="available_modules">%1$d 个模块</string>
     <string name="empty_modules">暂无可用模块</string>
     <string name="quick_actions">操作</string>

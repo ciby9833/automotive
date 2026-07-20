@@ -20,6 +20,8 @@ import { ScopeService } from '../../common/scope/scope.service';
 import { WaybillsService } from './waybills.service';
 import { CreateWaybillDto } from './dto/create-waybill.dto';
 import { ScanDto } from './dto/scan.dto';
+import { LoadVinDto } from './dto/load-vin.dto';
+import { DepartWaybillDto } from './dto/depart-waybill.dto';
 import { WaybillStatus } from '../../common/enums/waybill-status.enum';
 import { TransportType } from '../../common/enums/order-type.enum';
 
@@ -102,6 +104,52 @@ export class WaybillsController {
     const operatorYardId =
       user.role === Role.YARD_STAFF ? user.scopeYardId : null;
     return this.waybillsService.scan(dto, user.userId, operatorYardId);
+  }
+
+  // 单台 VIN 装车 (逐台扫码+拍照，不改运单状态)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Post(':id/vins/:vin/load')
+  async loadVin(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('vin') vin: string,
+    @Body() dto: LoadVinDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.waybillsService.loadVin(id, vin, dto.photoKeys, dto.remark, {
+      userId: user.userId,
+      role: user.role,
+      scopeYardId: user.scopeYardId,
+    });
+  }
+
+  // 撤销单台 VIN 装车 (扫错车/换车位时用)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Delete(':id/vins/:vin/load')
+  async unloadVin(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('vin') vin: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.waybillsService.unloadVin(id, vin, {
+      userId: user.userId,
+      role: user.role,
+      scopeYardId: user.scopeYardId,
+    });
+  }
+
+  // 整单启运出闸：全部装完后一次性触发状态翻转 + slot 释放
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Post(':id/depart')
+  async depart(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DepartWaybillDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.waybillsService.departWaybill(id, dto.gatePhotoKeys, dto.remark, {
+      userId: user.userId,
+      role: user.role,
+      scopeYardId: user.scopeYardId,
+    });
   }
 
   // 撤销未启运的运单：释放 VIN.isAllocated 让业务员能重开

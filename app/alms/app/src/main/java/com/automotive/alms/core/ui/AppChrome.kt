@@ -72,15 +72,17 @@ fun ActionModuleCard(
     icon: ImageVector,
     accent: Color,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    Card(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(Dimens.CardRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
+    val colors = CardDefaults.cardColors(
+        containerColor = if (enabled) {
+            MaterialTheme.colorScheme.surface
+        } else {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)
+        },
+    )
+    val content: @Composable () -> Unit = {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -102,11 +104,29 @@ fun ActionModuleCard(
                 Text(text = title, style = MaterialTheme.typography.titleMedium)
                 Text(
                     text = subtitle,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (enabled) 1f else 0.72f),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
         }
+    }
+    if (enabled) {
+        Card(
+            onClick = onClick,
+            modifier = modifier,
+            shape = RoundedCornerShape(Dimens.CardRadius),
+            colors = colors,
+            elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+            content = { content() },
+        )
+    } else {
+        Card(
+            modifier = modifier,
+            shape = RoundedCornerShape(Dimens.CardRadius),
+            colors = colors,
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            content = { content() },
+        )
     }
 }
 

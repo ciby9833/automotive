@@ -19,7 +19,6 @@ import {
   Statistic,
   Table,
   Tag,
-  Tooltip,
   message,
 } from 'antd';
 import {
@@ -411,6 +410,7 @@ export function InboundOrderDetail({ id }: { id: string }) {
             { title: 'Color', dataIndex: 'color', render: (v) => v ?? '-' },
             {
               title: t('inbound.detail.vinStatus'),
+              width: 200,
               render: (_: unknown, r: InboundOrderVinDetail) => {
                 const tag = (
                   <Tag color={STATUS_COLORS[r.arrivalStatus]}>
@@ -418,18 +418,18 @@ export function InboundOrderDetail({ id }: { id: string }) {
                   </Tag>
                 );
                 if (r.arrivalStatus !== 'CANCELLED') return tag;
-                // 已取消 VIN 显示审计信息 tooltip：谁 / 何时取消
-                const hint = [
-                  r.cancelledByUser?.displayName
-                    ? t('inbound.detail.cancelledByLabel', {
-                        by: r.cancelledByUser.displayName,
-                      })
-                    : null,
-                  r.cancelledAt ? new Date(r.cancelledAt).toLocaleString() : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ');
-                return hint ? <Tooltip title={hint}>{tag}</Tooltip> : tag;
+                // 已取消 VIN 直接把审计信息展示在下面，避免 hover 才可见
+                return (
+                  <div>
+                    {tag}
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                      {r.cancelledByUser?.displayName ?? '-'}
+                      {r.cancelledAt
+                        ? ` · ${new Date(r.cancelledAt).toLocaleString()}`
+                        : ''}
+                    </div>
+                  </div>
+                );
               },
             },
             {

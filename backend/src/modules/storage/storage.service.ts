@@ -51,10 +51,30 @@ export class StorageService implements OnModuleInit {
     await this.client.putObject(this.bucket, key, buffer, buffer.length, {
       'Content-Type': mimeType,
     });
-    return { key, url: await this.getUrl(key) };
+    return { key, url: this.getUrl(key) };
   }
 
-  async getUrl(key: string): Promise<string> {
-    return this.client.presignedGetObject(this.bucket, key, 24 * 60 * 60);
+  // 返回后端相对 URL 而非 MinIO 直连签名 URL
+  // 原因：生产环境 MinIO 绑 127.0.0.1，浏览器直连不通；改由后端流转发，nginx 反代天然生效
+  // 前端拿到相对路径后拼上 API baseURL 塞进 <img src>
+  getUrl(key: string): string {
+    return `/storage/preview/${encodeURIComponent(key)}`;
+  }
+
+  // 流式下载单个对象：给 /storage/preview/:key 用；同时返回内容类型 + 大小以便设 header
+  async getObjectStream(key: string): Promise<{
+    stream: NodeJS.ReadableStream;
+    size: number;
+    contentType: string;
+  }> {
+    const stat = await this.client.statObject(this.bucket, key);
+    const stream = await this.client.getObject(this.bucket, key);
+    return {
+      stream,
+      size: stat.size,
+      contentType:
+        (stat.metaData as Record<string, string> | undefined)?.['content-type'] ??
+        'application/octet-stream',
+    };
   }
 }

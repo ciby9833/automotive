@@ -10,7 +10,6 @@ import {
   Space,
   Table,
   Tag,
-  Tooltip,
   message,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -164,18 +163,16 @@ export default function InboundOrdersPage() {
             title: t('inbound.orders.status'),
             render: (_: unknown, r: InboundOrderListRow) => {
               if (r.status === 'CANCELLED') {
-                const hint = [
-                  r.cancelledByUserName
-                    ? t('inbound.orders.cancelledBy', { by: r.cancelledByUserName })
-                    : null,
-                  r.cancelledAt ? new Date(r.cancelledAt).toLocaleString() : null,
-                ]
-                  .filter(Boolean)
-                  .join(' · ');
                 return (
-                  <Tooltip title={hint || undefined}>
+                  <div>
                     <Tag color="red">{t('inbound.orders.cancelled')}</Tag>
-                  </Tooltip>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                      {r.cancelledByUserName ?? '-'}
+                      {r.cancelledAt
+                        ? ` · ${new Date(r.cancelledAt).toLocaleString()}`
+                        : ''}
+                    </div>
+                  </div>
                 );
               }
               if (r.total === 0) return <Tag>{t('inbound.orders.empty')}</Tag>;

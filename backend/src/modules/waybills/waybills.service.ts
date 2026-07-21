@@ -21,6 +21,8 @@ import {
 } from '../../common/enums/waybill-status.enum';
 import { TrackingService } from '../tracking/tracking.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
+import { AuditService } from '../tracking/audit.service';
+import { OperationType } from '../../common/enums/operation-type.enum';
 import { QueueService } from '../queue/queue.service';
 import { EmailService } from '../email/email.service';
 import { EffectiveScope } from '../../common/scope/scope.types';
@@ -66,6 +68,7 @@ export class WaybillsService {
     private readonly queueService: QueueService,
     private readonly emailService: EmailService,
     private readonly scopeService: ScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   // Waybill 有多种 scope 维度：内部按 org 树、CARRIER 按 carrierId、
@@ -412,7 +415,11 @@ export class WaybillsService {
   // 撤销未启运的运单：车物理上还没走 (没启运 + 没锁定) 才允许
   // 撤销 = 硬删 waybill + waybill_vins + 释放 OrderVin.isAllocated
   // 场景：业务员开错单/客户改主意，需要重新分配 VIN
-  async cancelWaybill(id: string, scope: EffectiveScope): Promise<void> {
+  async cancelWaybill(
+    id: string,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<void> {
     const waybill = await this.findByIdUnscoped(id);
     if (!waybill) throw new NotFoundException('运单不存在');
     // scope 校验
@@ -431,7 +438,7 @@ export class WaybillsService {
       throw new BadRequestException('运单已锁定，无法撤销');
     }
 
-    await this.dataSource.transaction(async (mgr) => {
+    const releasedVins = await this.dataSource.transaction(async (mgr) => {
       const waybillVinRepo = mgr.getRepository(WaybillVin);
       const waybillRepo = mgr.getRepository(Waybill);
       const orderVinRepo = mgr.getRepository(OrderVin);
@@ -453,7 +460,21 @@ export class WaybillsService {
       // 删 waybill_vins + waybill (CASCADE 会自动删 vin，但显式删更清晰)
       await waybillVinRepo.delete({ waybillId: id });
       await waybillRepo.delete(id);
+      return vinCodes;
     });
+
+    // 每台车都记一条撤销运单事件，方便按 VIN 查轨迹
+    for (const vin of releasedVins) {
+      await this.audit.log({
+        operationType: OperationType.WAYBILL_CANCEL,
+        vin,
+        operatorUserId,
+        payload: {
+          waybillId: id,
+          waybillCode: waybill.waybillCode,
+        },
+      });
+    }
   }
 
   // 单台 VIN 装车：只写 WaybillVin.loadedAt+loadPhotoKeys；不动 waybill.status，不释放 slot

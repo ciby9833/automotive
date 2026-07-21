@@ -1,0 +1,31 @@
+// 所有可写入 operation_logs 的业务节点。集中管理避免各服务分散字符串
+export enum OperationType {
+  // 入库订单层
+  INBOUND_ORDER_IMPORT = 'INBOUND_ORDER_IMPORT',
+  INBOUND_ORDER_REACTIVATE = 'INBOUND_ORDER_REACTIVATE',
+  INBOUND_ORDER_CANCEL = 'INBOUND_ORDER_CANCEL',
+
+  // 入库 VIN 层
+  INBOUND_VIN_EDIT = 'INBOUND_VIN_EDIT',
+  INBOUND_VIN_CANCEL = 'INBOUND_VIN_CANCEL',
+
+  // 提货/入库扫描
+  PICKUP_SCAN = 'PICKUP_SCAN',
+  INBOUND_SCAN = 'INBOUND_SCAN',
+  INBOUND_UNDO = 'INBOUND_UNDO',
+  // 未在订单里的 VIN 到仓 = 场地扫码时临时登记 + 挂到"散车"单
+  INBOUND_UNEXPECTED = 'INBOUND_UNEXPECTED',
+
+  // 场地操作
+  YARD_MOVE = 'YARD_MOVE',
+
+  // 出库订单层
+  OUTBOUND_ORDER_IMPORT = 'OUTBOUND_ORDER_IMPORT',
+  OUTBOUND_ORDER_CANCEL = 'OUTBOUND_ORDER_CANCEL',
+
+  // 运单层 (waybill scan 事件另有 waybill_status_logs，此处只记 waybill 生命周期动作)
+  WAYBILL_PLAN = 'WAYBILL_PLAN',
+  WAYBILL_CANCEL = 'WAYBILL_CANCEL',
+  // 承运商填司机/车辆 (常在开单后由 CARRIER_STAFF 补录)
+  WAYBILL_ASSIGN = 'WAYBILL_ASSIGN',
+}

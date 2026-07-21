@@ -17,6 +17,8 @@ import { CreateYardSlotDto } from './dto/create-yard-slot.dto';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
+import { AuditService } from '../tracking/audit.service';
+import { OperationType } from '../../common/enums/operation-type.enum';
 
 // VIN 库存查询返回结构（联表 order_vins 拿车型/颜色，未挂订单的 VIN 用 null）
 export interface VinInventoryRow {
@@ -50,6 +52,7 @@ export class YardsService {
     private readonly statusLogsRepository: Repository<WaybillStatusLog>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   findAll(scope: EffectiveScope, narrowToOrgId?: string): Promise<Yard[]> {
@@ -208,14 +211,15 @@ export class YardsService {
   //
   // 注意：车真的离开场地(出库)应该走 /waybills/scan(DELIVERY_DEPARTURE)，
   // 不走这个接口 —— 那条路径会释放 slot 但保留 arrival 记录、走财务和运单闭环
-  async releaseSlot(slotId: string): Promise<YardSlot> {
-    return this.dataSource.transaction(async (mgr) => {
+  async releaseSlot(slotId: string, operatorUserId?: string): Promise<YardSlot> {
+    const result = await this.dataSource.transaction(async (mgr) => {
       const slotRepo = mgr.getRepository(YardSlot);
       const orderVinRepo = mgr.getRepository(OrderVin);
       const slot = await slotRepo.findOne({ where: { id: slotId } });
       if (!slot) throw new NotFoundException('库位不存在');
 
       const releasedVin = slot.currentVin;
+      let affectedOrderId: string | null = null;
 
       // OrderVin 回滚
       if (releasedVin) {
@@ -223,6 +227,7 @@ export class YardsService {
           where: { vin: releasedVin },
         });
         if (orderVin && orderVin.slotId === slotId) {
+          affectedOrderId = orderVin.orderId;
           orderVin.arrivalStatus = OrderVinArrivalStatus.EXPECTED;
           orderVin.arrivedAt = null;
           orderVin.arrivedByUserId = null;
@@ -238,14 +243,27 @@ export class YardsService {
       slot.status = YardSlotStatus.VACANT;
       slot.currentVin = null;
       slot.assignedAt = null;
-      return slotRepo.save(slot);
+      const saved = await slotRepo.save(slot);
+      return { saved, releasedVin, affectedOrderId, slotCode: slot.code };
     });
+
+    if (result.releasedVin) {
+      await this.audit.log({
+        operationType: OperationType.INBOUND_UNDO,
+        orderId: result.affectedOrderId,
+        vin: result.releasedVin,
+        operatorUserId,
+        payload: { slotCode: result.slotCode },
+      });
+    }
+    return result.saved;
   }
 
   // 场内移位：一次动作从 fromSlot 移到 toSlot(必须 VACANT+未锁定)
   async moveSlot(
     fromSlotId: string,
     toSlotId: string,
+    operatorUserId?: string,
   ): Promise<{ from: YardSlot; to: YardSlot }> {
     if (fromSlotId === toSlotId) {
       throw new BadRequestException('源库位与目标库位相同');
@@ -280,6 +298,16 @@ export class YardsService {
       this.slotsRepository.save(from),
       this.slotsRepository.save(to),
     ]);
+    await this.audit.log({
+      operationType: OperationType.YARD_MOVE,
+      vin,
+      operatorUserId,
+      payload: {
+        fromSlotCode: from.code,
+        toSlotCode: to.code,
+        yardId: from.yardId,
+      },
+    });
     return { from: savedFrom, to: savedTo };
   }
 

@@ -135,16 +135,26 @@ export class YardsController {
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
   @Permissions(Permission.YARD_RELEASE_SLOT)
   @Patch('slots/:slotId/release')
-  releaseSlot(@Param('slotId', ParseUUIDPipe) slotId: string) {
-    return this.yardsService.releaseSlot(slotId);
+  releaseSlot(
+    @Param('slotId', ParseUUIDPipe) slotId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.yardsService.releaseSlot(slotId, user.userId);
   }
 
   // 场内移位：一步完成源→目标
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
   @Permissions(Permission.YARD_MOVE_VEHICLE)
   @Post('slots/move')
-  moveSlot(@Body() dto: MoveSlotDto) {
-    return this.yardsService.moveSlot(dto.fromSlotId, dto.toSlotId);
+  moveSlot(
+    @Body() dto: MoveSlotDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.yardsService.moveSlot(
+      dto.fromSlotId,
+      dto.toSlotId,
+      user.userId,
+    );
   }
 
   // ========== VIN 库存查询 ==========

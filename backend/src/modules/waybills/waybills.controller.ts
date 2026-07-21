@@ -160,7 +160,7 @@ export class WaybillsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    await this.waybillsService.cancelWaybill(id, scope);
+    await this.waybillsService.cancelWaybill(id, scope, user.userId);
     return { ok: true };
   }
 }

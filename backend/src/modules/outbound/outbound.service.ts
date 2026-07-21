@@ -21,6 +21,9 @@ import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum'
 import { WaybillStatus } from '../../common/enums/waybill-status.enum';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
+import { AuditService } from '../tracking/audit.service';
+import { OperationType } from '../../common/enums/operation-type.enum';
+import { OrderStatus } from '../../common/enums/order-status.enum';
 import { ImportOutboundOrderDto } from './dto/import-outbound-order.dto';
 import { PlanWaybillDto } from './dto/plan-waybill.dto';
 
@@ -40,6 +43,7 @@ export class OutboundService {
     private readonly carrierRepo: Repository<Carrier>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   // ============ 1. Excel 导入 ============
@@ -48,6 +52,7 @@ export class OutboundService {
   async importOutboundOrder(
     dto: ImportOutboundOrderDto,
     scope: EffectiveScope,
+    operatorUserId?: string,
   ): Promise<{
     orderId: string;
     orderCode: string;
@@ -118,7 +123,7 @@ export class OutboundService {
       );
     }
 
-    return this.dataSource.transaction(async (mgr) => {
+    const result = await this.dataSource.transaction(async (mgr) => {
       const orderCode = `OUT-${Date.now()}${randomUUID().slice(0, 4).toUpperCase()}`;
       const orderRepo = mgr.getRepository(Order);
       const vinRepo = mgr.getRepository(OrderVin);
@@ -156,6 +161,20 @@ export class OutboundService {
         alreadyAllocated,
       };
     });
+
+    await this.audit.log({
+      operationType: OperationType.OUTBOUND_ORDER_IMPORT,
+      orderId: result.orderId,
+      operatorUserId,
+      payload: {
+        orderCode: result.orderCode,
+        matched: result.matched,
+        missingCount: missing.length,
+        alreadyBoundCount: alreadyBound.length,
+        alreadyAllocatedCount: alreadyAllocated.length,
+      },
+    });
+    return result;
   }
 
   // ============ 2. 出库订单列表 ============
@@ -165,7 +184,7 @@ export class OutboundService {
       customerId?: string;
       customerOrderNo?: string;
       organizationId?: string;
-      status?: 'ALL' | 'PENDING' | 'COMPLETED';
+      status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
     },
   ) {
     const qb = this.ordersRepo
@@ -173,6 +192,7 @@ export class OutboundService {
       .leftJoinAndSelect('order.customer', 'customer')
       .leftJoinAndSelect('order.destinationYard', 'yard')
       .leftJoinAndSelect('order.organization', 'organization')
+      .leftJoinAndSelect('order.cancelledByUser', 'cancelledByUser')
       .where('order.transportType = :type', { type: TransportType.DELIVERY })
       .orderBy('order.createdAt', 'DESC');
     this.scopeService.applyScopeToQuery(qb, 'order', scope, {
@@ -187,14 +207,17 @@ export class OutboundService {
         cno: `%${filters.customerOrderNo}%`,
       });
     }
+    // 默认排除 CANCELLED；status=CANCELLED 时只查已取消，同入库列表逻辑
+    if (filters.status === 'CANCELLED') {
+      qb.andWhere('order.status = :cancelled', {
+        cancelled: OrderStatus.CANCELLED,
+      });
+    } else {
+      qb.andWhere('order.status = :active', { active: OrderStatus.ACTIVE });
+    }
     const orders = await qb.getMany();
     if (orders.length === 0) return [];
 
-    // 出库订单进度：按客户订单号 + dealerCode 关联 VIN
-    // 但 OrderVin.orderId 是入库订单 id，不是出库订单 id — 出库不重建 VIN
-    // 用 customerOrderNo 做匹配：客户发货 Excel 里的 customerOrderNo 就是我们的桥
-    // 简化统计：按 dealer_code + 时间窗关联比较复杂，第一版直接算"每单绑定的 waybill_vin 数"
-    // 这里返回 order 头，进度先靠详情页展开算
     return orders.map((o) => ({
       id: o.id,
       orderCode: o.orderCode,
@@ -204,6 +227,9 @@ export class OutboundService {
       organizationId: o.organizationId,
       organizationName: o.organization?.name ?? '-',
       createdAt: o.createdAt,
+      status: o.status,
+      cancelledAt: o.cancelledAt,
+      cancelledByUserName: o.cancelledByUser?.displayName ?? null,
     }));
   }
 
@@ -216,6 +242,7 @@ export class OutboundService {
       .leftJoinAndSelect('order.customer', 'customer')
       .leftJoinAndSelect('order.destinationYard', 'yard')
       .leftJoinAndSelect('order.organization', 'organization')
+      .leftJoinAndSelect('order.cancelledByUser', 'cancelledByUser')
       .where('order.id = :id', { id })
       .andWhere('order.transportType = :type', {
         type: TransportType.DELIVERY,
@@ -311,7 +338,11 @@ export class OutboundService {
   }
 
   // ============ 4. 开单：生成 Waybill ============
-  async planWaybill(dto: PlanWaybillDto, scope: EffectiveScope): Promise<Waybill> {
+  async planWaybill(
+    dto: PlanWaybillDto,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<Waybill> {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('仅内部账号可开单');
     }
@@ -326,7 +357,7 @@ export class OutboundService {
     });
     if (!carrier) throw new NotFoundException('承运商不存在');
 
-    return this.dataSource.transaction(async (mgr) => {
+    const { savedWaybill, plannedVins } = await this.dataSource.transaction(async (mgr) => {
       const vinRepo = mgr.getRepository(OrderVin);
       const waybillRepo = mgr.getRepository(Waybill);
       const waybillVinRepo = mgr.getRepository(WaybillVin);
@@ -430,8 +461,98 @@ export class OutboundService {
       // 释放 slot 不在这里做：车物理上还在场地，等启运扫码时才真离开
       void slotRepo;
 
-      return savedWaybill;
+      return { savedWaybill, plannedVins: vins };
     });
+
+    // 事务外为每台车打一条审计日志，追溯时按 vin 也能查到"开单事件"
+    for (const v of plannedVins) {
+      await this.audit.log({
+        operationType: OperationType.WAYBILL_PLAN,
+        orderId: v.outboundOrderId ?? null,
+        vin: v.vin,
+        operatorUserId,
+        payload: {
+          waybillId: savedWaybill.id,
+          waybillCode: savedWaybill.waybillCode,
+          carrierId: dto.carrierId,
+        },
+      });
+    }
+    return savedWaybill;
   }
 
+  // ============ 4. 出库订单软取消 ============
+  // 只允许 ACTIVE 且未开单的出库单取消。
+  // 保留 Order 壳 + Order status=CANCELLED + 释放 VIN 出库属性 (isAllocated=false, outboundOrderId=null)
+  // 审计日志里 snapshot 保留 VIN 列表方便追溯
+  async cancelOutboundOrder(
+    orderId: string,
+    scope: EffectiveScope,
+    operatorUserId: string,
+  ): Promise<void> {
+    const order = await this.ordersRepo.findOne({
+      where: { id: orderId, transportType: TransportType.DELIVERY },
+    });
+    if (!order) throw new NotFoundException('出库订单不存在');
+    if (scope.type === 'ORG' && !scope.orgIds.includes(order.organizationId)) {
+      throw new ForbiddenException('无权取消此出库订单');
+    }
+    if (scope.type !== 'ORG') {
+      throw new ForbiddenException('仅内部账号可取消出库单');
+    }
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('出库单已取消');
+    }
+
+    // 已开成运单的 VIN 阻塞：先撤运单
+    const boundVins = await this.orderVinsRepo.find({
+      where: { outboundOrderId: orderId },
+    });
+    const inWaybill = boundVins.filter((v) => v.isAllocated);
+    if (inWaybill.length > 0) {
+      throw new BadRequestException(
+        `订单里有 ${inWaybill.length} 台车已开成运单，请先撤销运单 (${inWaybill
+          .slice(0, 3)
+          .map((v) => v.vin)
+          .join(', ')}${inWaybill.length > 3 ? '…' : ''})`,
+      );
+    }
+
+    const vinSnapshot = boundVins.map((v) => ({
+      vin: v.vin,
+      brand: v.brand,
+      model: v.model,
+      color: v.color,
+      dealerCode: v.dealerCode,
+      dealerName: v.dealerName,
+    }));
+
+    const now = new Date();
+    await this.dataSource.transaction(async (mgr) => {
+      // VIN 释放出库属性 (回到"未分配"池)。dealer/tow/group 保留以备重新导入时参考
+      await mgr
+        .getRepository(OrderVin)
+        .createQueryBuilder()
+        .update()
+        .set({ outboundOrderId: null, isAllocated: false })
+        .where('outbound_order_id = :orderId', { orderId })
+        .execute();
+      await mgr.getRepository(Order).update(order.id, {
+        status: OrderStatus.CANCELLED,
+        cancelledAt: now,
+        cancelledByUserId: operatorUserId,
+      });
+    });
+
+    await this.audit.log({
+      operationType: OperationType.OUTBOUND_ORDER_CANCEL,
+      orderId,
+      operatorUserId,
+      payload: {
+        orderCode: order.orderCode,
+        vinCount: boundVins.length,
+        vinSnapshot,
+      },
+    });
+  }
 }

@@ -7,6 +7,7 @@ import { WaybillVin } from '../waybills/entities/waybill-vin.entity';
 import { WaybillStatusLog } from '../tracking/entities/waybill-status-log.entity';
 import { YardsService } from './yards.service';
 import { YardsController } from './yards.controller';
+import { TrackingModule } from '../tracking/tracking.module';
 
 // VIN 生命周期查询要跨表：OrderVin (pickup+arrival) / WaybillVin (出库运单) / WaybillStatusLog (扫码事件)
 // 都用 mgr.getRepository 走同实体，不额外注入 repo
@@ -19,6 +20,7 @@ import { YardsController } from './yards.controller';
       WaybillVin,
       WaybillStatusLog,
     ]),
+    TrackingModule,
   ],
   controllers: [YardsController],
   providers: [YardsService],

@@ -324,14 +324,43 @@
     "SIGNED": "Ditandatangani"
   },
   "tracking": {
-    "title": "Pelacakan VIN",
+    "title": "Pelacakan Siklus Hidup",
+    "hint": "Masukkan VIN atau UUID order untuk melihat lini masa semua tindakan — dengan operator, waktu, dan bukti unggah.",
+    "byVin": "Per VIN",
+    "byOrder": "Per Order",
     "placeholder": "Masukkan VIN untuk mencari",
+    "placeholderVin": "Scan atau input VIN",
+    "placeholderOrder": "Masukkan UUID order",
     "search": "Cari",
     "time": "Waktu",
     "action": "Aksi",
     "yard": "Yard",
     "remark": "Catatan",
-    "notFound": "Catatan pelacakan untuk VIN ini tidak ditemukan"
+    "empty": "Masukkan VIN atau order id untuk mulai",
+    "noResult": "Tidak ada catatan",
+    "notFound": "Tidak ditemukan catatan",
+    "type": {
+      "INBOUND_ORDER_IMPORT": "Order inbound diimpor",
+      "INBOUND_ORDER_REACTIVATE": "Order inbound diimpor ulang",
+      "INBOUND_ORDER_CANCEL": "Order inbound dibatalkan",
+      "INBOUND_VIN_EDIT": "Info VIN diubah",
+      "INBOUND_VIN_CANCEL": "VIN dibatalkan",
+      "PICKUP_SCAN": "Scan pickup",
+      "INBOUND_SCAN": "Scan inbound",
+      "INBOUND_UNDO": "Inbound dibatalkan",
+      "YARD_MOVE": "Pindah slot",
+      "OUTBOUND_ORDER_IMPORT": "Order outbound diimpor",
+      "OUTBOUND_ORDER_CANCEL": "Order outbound dibatalkan",
+      "WAYBILL_PLAN": "SJ dibuat",
+      "WAYBILL_CANCEL": "SJ dibatalkan",
+      "INBOUND_ARRIVAL": "Scan kedatangan",
+      "REALLOCATION_DEPARTURE": "Berangkat realokasi",
+      "REALLOCATION_ARRIVAL": "Tiba realokasi",
+      "DELIVERY_LOAD": "Dimuat",
+      "DELIVERY_LOAD_UNDO": "Muat dibatalkan",
+      "DELIVERY_DEPARTURE": "Berangkat",
+      "SIGNED": "Diterima"
+    }
   },
   "users": {
     "title": "Manajemen Pengguna",
@@ -729,7 +758,12 @@
       "customerOrderNo": "No. Order Pelanggan",
       "customer": "Pelanggan",
       "originYard": "Yard Asal",
-      "createdAt": "Dibuat"
+      "createdAt": "Dibuat",
+      "status": "Status",
+      "statusActive": "Berjalan",
+      "statusCancelled": "Dibatalkan",
+      "filterAll": "Semua",
+      "filterCancelled": "Dibatalkan"
     },
     "detail": {
       "title": "Detail Order Outbound",
@@ -754,7 +788,15 @@
       "planStatus": "Status SJ",
       "notArrived": "Belum tiba",
       "planned": "Sudah SJ",
-      "awaitingPlan": "Menunggu SJ"
+      "awaitingPlan": "Menunggu SJ",
+      "cancel": "Batalkan order",
+      "cancelTitle": "Batalkan order outbound ini?",
+      "cancelHint": "{n} unit. Order akan dibatalkan (shell dipertahankan, ditandai Dibatalkan), VIN dilepas kembali ke pool. Batalkan SJ dulu bila perlu.",
+      "cancelOk": "Konfirmasi batalkan",
+      "cancelFailed": "Gagal membatalkan",
+      "cancelledBanner": "Order outbound ini telah dibatalkan",
+      "cancelledBy": "Dibatalkan oleh {by}",
+      "cancelledHint": "Shell dipertahankan untuk audit. Bila perlu, impor ulang Excel outbound baru."
     },
     "departure": {
       "title": "Keberangkatan Outbound",

@@ -4,20 +4,24 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
+  Alert,
   Button,
   Card,
   Col,
   Descriptions,
+  Popconfirm,
   Row,
+  Space,
   Statistic,
   Table,
   Tag,
   message,
 } from 'antd';
-import { PartitionOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PartitionOutlined } from '@ant-design/icons';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { outboundApi, OutboundOrderVinDetail } from '@/lib/api/outbound';
 import { useTranslation } from '@/i18n/useTranslation';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 // 出库订单详情：订单头 + 关联 VIN 表 + 4 项统计 + 去开单按钮
 // VIN 关联规则：软关联 (客户 + customerOrderNo + dealer_code)，因 OrderVin.orderId 挂的是入库单
@@ -27,6 +31,9 @@ interface OrderHead {
   customerOrderNo: string | null;
   createdAt: string;
   remark: string | null;
+  status: 'ACTIVE' | 'CANCELLED';
+  cancelledAt: string | null;
+  cancelledByUser?: { id: string; displayName: string } | null;
   customer?: { id: string; name: string };
   destinationYard?: { id: string; name: string; code: string };
   organization?: { id: string; name: string; code: string };
@@ -34,11 +41,12 @@ interface OrderHead {
 
 export function OutboundOrderDetail({ id }: { id: string }) {
   const { t } = useTranslation();
+  const canImport = usePermission(Permission.OUTBOUND_IMPORT);
   const [order, setOrder] = useState<OrderHead | null>(null);
   const [vins, setVins] = useState<OutboundOrderVinDetail[]>([]);
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  const load = () => {
     if (!id) return;
     setLoading(true);
     outboundApi
@@ -49,12 +57,27 @@ export function OutboundOrderDetail({ id }: { id: string }) {
       })
       .catch(() => message.error(t('outbound.detail.loadFailed')))
       .finally(() => setLoading(false));
-  }, [id, t]);
+  };
+  useEffect(load, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const total = vins.length;
   const arrived = vins.filter((v) => v.arrivalStatus === 'ARRIVED').length;
   const allocated = vins.filter((v) => v.isAllocated).length;
   const pendingPlan = arrived - allocated;
+  const isCancelled = order?.status === 'CANCELLED';
+  const canCancel = canImport && !isCancelled && allocated === 0;
+
+  const onCancel = async () => {
+    try {
+      await outboundApi.cancelOrder(id);
+      message.success(t('outbound.detail.cancelOk'));
+      load();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(detail || t('outbound.detail.cancelFailed'));
+    }
+  };
 
   if (!order && !loading) return null;
 
@@ -63,13 +86,54 @@ export function OutboundOrderDetail({ id }: { id: string }) {
       <PageHeader
         title={`${t('outbound.detail.title')}: ${order?.orderCode ?? ''}`}
         actions={
-          <Link href={`/outbound/plan?orderId=${id}`}>
-            <Button type="primary" icon={<PartitionOutlined />}>
-              {t('outbound.detail.goToPlan')}
-            </Button>
-          </Link>
+          <Space>
+            {!isCancelled && (
+              <Link href={`/outbound/plan?orderId=${id}`}>
+                <Button type="primary" icon={<PartitionOutlined />}>
+                  {t('outbound.detail.goToPlan')}
+                </Button>
+              </Link>
+            )}
+            {canCancel && (
+              <Popconfirm
+                title={t('outbound.detail.cancelTitle')}
+                description={t('outbound.detail.cancelHint', { n: total })}
+                okText={t('outbound.detail.cancelOk')}
+                okButtonProps={{ danger: true }}
+                onConfirm={onCancel}
+              >
+                <Button danger icon={<DeleteOutlined />}>
+                  {t('outbound.detail.cancel')}
+                </Button>
+              </Popconfirm>
+            )}
+          </Space>
         }
       />
+
+      {isCancelled && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={t('outbound.detail.cancelledBanner')}
+          description={
+            <div style={{ fontSize: 13 }}>
+              {order?.cancelledByUser?.displayName
+                ? t('outbound.detail.cancelledBy', {
+                    by: order.cancelledByUser.displayName,
+                  })
+                : ''}
+              {order?.cancelledAt
+                ? ` · ${new Date(order.cancelledAt).toLocaleString()}`
+                : ''}
+              <div style={{ marginTop: 4, color: '#94a3b8' }}>
+                {t('outbound.detail.cancelledHint')}
+              </div>
+            </div>
+          }
+        />
+      )}
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>

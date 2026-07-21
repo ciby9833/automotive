@@ -22,6 +22,8 @@ export interface ImportOutboundOrderPayload {
   vins: OutboundVinRow[];
 }
 
+export type OutboundOrderStatus = 'ACTIVE' | 'CANCELLED';
+
 export interface OutboundOrderListRow {
   id: string;
   orderCode: string;
@@ -31,6 +33,9 @@ export interface OutboundOrderListRow {
   organizationId: string;
   organizationName: string;
   createdAt: string;
+  status: OutboundOrderStatus;
+  cancelledAt: string | null;
+  cancelledByUserName: string | null;
 }
 
 export interface OutboundOrderVinDetail {
@@ -84,7 +89,7 @@ export const outboundApi = {
     customerId?: string;
     customerOrderNo?: string;
     organizationId?: string;
-    status?: 'ALL' | 'PENDING' | 'COMPLETED';
+    status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
   }) =>
     unwrap<OutboundOrderListRow[]>(
       apiClient.get('/outbound/orders', { params }),
@@ -110,4 +115,8 @@ export const outboundApi = {
     unwrap<{ id: string; waybillCode: string }>(
       apiClient.post('/outbound/plan', payload),
     ),
+
+  // DELETE 语义：软取消出库单 (Order 打 CANCELLED + 释放 VIN 出库属性；数据保留供追溯)
+  cancelOrder: (id: string) =>
+    unwrap<{ ok: boolean }>(apiClient.delete(`/outbound/orders/${id}`)),
 };

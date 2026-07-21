@@ -324,14 +324,43 @@
     "SIGNED": "签收"
   },
   "tracking": {
-    "title": "车架号轨迹跟踪",
+    "title": "全生命周期轨迹跟踪",
+    "hint": "输入 VIN 或订单 ID (UUID)，按时间线查看该车辆/订单的所有操作节点，含操作人、时间、上传凭证等",
+    "byVin": "按 VIN",
+    "byOrder": "按订单",
     "placeholder": "输入VIN查询",
+    "placeholderVin": "扫或输入 VIN 车架号",
+    "placeholderOrder": "输入订单 UUID",
     "search": "查询",
     "time": "时间",
     "action": "操作",
     "yard": "场地",
     "remark": "备注",
-    "notFound": "未找到该VIN的轨迹记录"
+    "empty": "输入 VIN 或订单 ID 开始查询",
+    "noResult": "没有轨迹记录",
+    "notFound": "未找到轨迹记录",
+    "type": {
+      "INBOUND_ORDER_IMPORT": "入库单导入",
+      "INBOUND_ORDER_REACTIVATE": "入库单重新导入",
+      "INBOUND_ORDER_CANCEL": "入库单取消",
+      "INBOUND_VIN_EDIT": "VIN 信息编辑",
+      "INBOUND_VIN_CANCEL": "VIN 取消",
+      "PICKUP_SCAN": "供应商提货",
+      "INBOUND_SCAN": "场地入库扫码",
+      "INBOUND_UNDO": "撤销入库",
+      "YARD_MOVE": "场内移位",
+      "OUTBOUND_ORDER_IMPORT": "出库单导入",
+      "OUTBOUND_ORDER_CANCEL": "出库单取消",
+      "WAYBILL_PLAN": "开单",
+      "WAYBILL_CANCEL": "运单撤销",
+      "INBOUND_ARRIVAL": "到达扫码",
+      "REALLOCATION_DEPARTURE": "调拨启运",
+      "REALLOCATION_ARRIVAL": "调拨到达",
+      "DELIVERY_LOAD": "装车",
+      "DELIVERY_LOAD_UNDO": "撤销装车",
+      "DELIVERY_DEPARTURE": "启运出闸",
+      "SIGNED": "签收"
+    }
   },
   "users": {
     "title": "用户管理",
@@ -729,7 +758,12 @@
       "customerOrderNo": "客户订单号",
       "customer": "客户",
       "originYard": "始发仓",
-      "createdAt": "创建时间"
+      "createdAt": "创建时间",
+      "status": "状态",
+      "statusActive": "进行中",
+      "statusCancelled": "已取消",
+      "filterAll": "全部",
+      "filterCancelled": "已取消"
     },
     "detail": {
       "title": "出库订单详情",
@@ -754,7 +788,15 @@
       "planStatus": "开单状态",
       "notArrived": "未到仓",
       "planned": "已开单",
-      "awaitingPlan": "待开单"
+      "awaitingPlan": "待开单",
+      "cancel": "取消整单",
+      "cancelTitle": "取消这张出库单？",
+      "cancelHint": "共 {n} 台车。订单会被软取消（保留壳，标记为「已取消」），VIN 释放回车池。已开成运单的车请先撤销运单。",
+      "cancelOk": "确认取消",
+      "cancelFailed": "取消失败",
+      "cancelledBanner": "此出库单已取消",
+      "cancelledBy": "取消人：{by}",
+      "cancelledHint": "订单壳保留可审计。若需要，请新导入一份出库 Excel。"
     },
     "departure": {
       "title": "出库启运",

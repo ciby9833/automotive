@@ -7,10 +7,12 @@ import { Yard } from '../yards/entities/yard.entity';
 import { YardSlot } from '../yards/entities/yard-slot.entity';
 import { InboundService } from './inbound.service';
 import { InboundController } from './inbound.controller';
+import { TrackingModule } from '../tracking/tracking.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Order, OrderVin, InboundBatch, Yard, YardSlot]),
+    TrackingModule,
   ],
   controllers: [InboundController],
   providers: [InboundService],

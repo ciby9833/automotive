@@ -47,7 +47,7 @@ export class InboundController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.inboundService.importInboundOrder(dto, scope);
+    return this.inboundService.importInboundOrder(dto, scope, user.userId);
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF, Role.CUSTOMER)
@@ -98,7 +98,13 @@ export class InboundController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.inboundService.updateOrderVin(orderId, vinId, dto, scope);
+    return this.inboundService.updateOrderVin(
+      orderId,
+      vinId,
+      dto,
+      scope,
+      user.userId,
+    );
   }
 
   // 单条 VIN 软取消 (数据保留，只切 arrivalStatus=CANCELLED + 记录操作人)
@@ -143,7 +149,12 @@ export class InboundController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.inboundService.reactivateInboundOrder(id, dto.vins, scope);
+    return this.inboundService.reactivateInboundOrder(
+      id,
+      dto.vins,
+      scope,
+      user.userId,
+    );
   }
 
   // ============ 供应商司机：提货扫描 ============

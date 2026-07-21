@@ -21,12 +21,15 @@ import { OrderStatus } from '../../common/enums/order-status.enum';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
+import { AuditService } from '../tracking/audit.service';
+import { OperationType } from '../../common/enums/operation-type.enum';
 import { Role } from '../../common/enums/role.enum';
 import type { AuthenticatedUser } from '../auth/auth.types';
 import {
   ImportInboundOrderDto,
   ImportInboundVinRow,
 } from './dto/import-inbound-order.dto';
+import { RegisterUnexpectedVinDto } from './dto/register-unexpected-vin.dto';
 import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
 
@@ -46,6 +49,7 @@ export class InboundService {
     private readonly slotRepo: Repository<YardSlot>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   // ============ Excel 导入 ============
@@ -53,6 +57,7 @@ export class InboundService {
   async importInboundOrder(
     dto: ImportInboundOrderDto,
     scope: EffectiveScope,
+    operatorUserId?: string,
   ): Promise<{ orderId: string; orderCode: string; created: number; skipped: number }> {
     // 目的仓必须在 scope 里
     const yard = await this.yardRepo.findOne({
@@ -83,7 +88,7 @@ export class InboundService {
       );
     }
 
-    return this.dataSource.transaction(async (mgr) => {
+    const result = await this.dataSource.transaction(async (mgr) => {
       const orderCode = `IN-${Date.now()}${randomUUID().slice(0, 4).toUpperCase()}`;
       const orderRepo = mgr.getRepository(Order);
       const vinRepo = mgr.getRepository(OrderVin);
@@ -121,6 +126,20 @@ export class InboundService {
         skipped: uniqueVins.length - vinEntities.length,
       };
     });
+
+    await this.audit.log({
+      operationType: OperationType.INBOUND_ORDER_IMPORT,
+      orderId: result.orderId,
+      operatorUserId,
+      payload: {
+        orderCode: result.orderCode,
+        created: result.created,
+        skipped: result.skipped,
+        customerId: dto.customerId,
+        destinationYardId: dto.destinationYardId,
+      },
+    });
+    return result;
   }
 
   // ============ 入库订单列表/详情 ============
@@ -340,7 +359,20 @@ export class InboundService {
     vin.pickupLocation = dto.location ?? vin.order?.originText ?? null;
     vin.pickupPhotoUrls = dto.photoUrls ?? null;
     vin.pickupRemark = dto.remark ?? null;
-    return this.orderVinsRepo.save(vin);
+    const saved = await this.orderVinsRepo.save(vin);
+    await this.audit.log({
+      operationType: OperationType.PICKUP_SCAN,
+      orderId: vin.orderId,
+      vin: vin.vin,
+      operatorUserId: user.userId,
+      payload: {
+        location: vin.pickupLocation,
+        carrierId: user.carrierId,
+        photoKeys: dto.photoUrls ?? null,
+        remark: dto.remark ?? null,
+      },
+    });
+    return saved;
   }
 
   // ============ 自动分配：在 zone 内挑最优空位 ============
@@ -413,7 +445,7 @@ export class InboundService {
       throw new ForbiddenException('入库扫描仅内部场地业务员可执行');
     }
 
-    return this.dataSource.transaction(async (mgr) => {
+    const saved = await this.dataSource.transaction(async (mgr) => {
       const vin = await mgr.findOne(OrderVin, {
         where: { vin: dto.vin },
         relations: { order: true },
@@ -508,6 +540,180 @@ export class InboundService {
       vin.slot = slot;
       return mgr.save(vin);
     });
+
+    await this.audit.log({
+      operationType: OperationType.INBOUND_SCAN,
+      orderId: saved.orderId,
+      vin: saved.vin,
+      operatorUserId: user.userId,
+      payload: {
+        slotCode: saved.slot?.code ?? null,
+        yardId: saved.slot?.yardId ?? null,
+        photoKeys: dto.photoUrls,
+        vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
+        remark: dto.remark ?? null,
+      },
+    });
+    return saved;
+  }
+
+  // ============ 异常入库：VIN 不在任何订单里但车到了 ============
+  // 场景：客户漏发 Excel、或司机误送、或临时补车
+  // 策略：给该客户 + 该场地维护一张长期的"散车"订单，把未登记 VIN 挂进去后立刻走入库扫描
+  // 单张散车订单 code = INBOUND-STRAY-{customerId 前 8}-{yardId 前 8}，同天同客户同场地复用
+  async registerUnexpectedVinAndScan(
+    dto: RegisterUnexpectedVinDto,
+    user: AuthenticatedUser,
+  ): Promise<OrderVin> {
+    const scope = await this.scopeService.resolve(user);
+    if (scope.type !== 'ORG') {
+      throw new ForbiddenException('入库扫描仅内部场地业务员可执行');
+    }
+
+    // 已存在同 VIN 直接拒绝，让业务员走标准入库扫描
+    const existing = await this.orderVinsRepo.findOne({ where: { vin: dto.vin } });
+    if (existing) {
+      throw new BadRequestException(
+        `VIN ${dto.vin} 已在系统里 (订单 ${existing.orderId})，请走标准入库扫描`,
+      );
+    }
+
+    // 目的仓：slotCode 反查 或 场地作业员的 scopeYardId
+    let yardId: string | undefined;
+    if (dto.slotCode) {
+      const slot = await this.slotRepo.findOne({ where: { code: dto.slotCode } });
+      if (!slot) throw new NotFoundException(`库位 ${dto.slotCode} 不存在`);
+      yardId = slot.yardId;
+    } else if (scope.role === Role.YARD_STAFF && scope.scopeYardId) {
+      yardId = scope.scopeYardId;
+    }
+    if (!yardId) {
+      throw new BadRequestException(
+        '无法确定目的场地：请指定 slotCode 或以场地业务员身份登录',
+      );
+    }
+    const yard = await this.yardRepo.findOne({ where: { id: yardId } });
+    if (!yard) throw new NotFoundException('目的场地不存在');
+    this.scopeService.assertOrgWritable(scope, yard.organizationId);
+
+    // 找/建散车订单
+    const strayOrderCode = `INBOUND-STRAY-${dto.customerId.slice(0, 8)}-${yardId.slice(0, 8)}`;
+    let strayOrder = await this.ordersRepo.findOne({
+      where: {
+        orderCode: strayOrderCode,
+        customerId: dto.customerId,
+        destinationYardId: yardId,
+        transportType: TransportType.TRANSFER,
+      },
+    });
+    if (!strayOrder) {
+      const data: Partial<Order> = {
+        orderCode: strayOrderCode,
+        customerOrderNo: null,
+        organizationId: yard.organizationId,
+        customerId: dto.customerId,
+        transportType: TransportType.TRANSFER,
+        destinationYardId: yardId,
+        originText: '异常入库 / 散车',
+        remark: '场地扫码时补录的未登记 VIN 会自动挂到此订单',
+      };
+      strayOrder = await this.ordersRepo.save(this.ordersRepo.create(data));
+    }
+
+    // 事务：建 VIN + 走入库分配 + 落存证
+    const saved = await this.dataSource.transaction(async (mgr) => {
+      const vinRepo = mgr.getRepository(OrderVin);
+      const slotRepo = mgr.getRepository(YardSlot);
+
+      // 建 EXPECTED VIN
+      const vinEntity = vinRepo.create({
+        orderId: strayOrder!.id,
+        vin: dto.vin,
+        brand: dto.brand ?? null,
+        model: dto.model ?? null,
+        color: dto.color ?? null,
+        vehicleType: dto.vehicleType ?? null,
+        motorNo: dto.motorNo ?? null,
+        arrivalStatus: OrderVinArrivalStatus.EXPECTED,
+      } as Partial<OrderVin>);
+      const vin = await vinRepo.save(vinEntity);
+
+      // 找库位：slotCode > zoneCode，与 inboundScan 语义一致
+      if (!dto.slotCode && !dto.zoneCode) {
+        throw new BadRequestException(
+          '必须提供 slotCode (手动) 或 zoneCode (自动)',
+        );
+      }
+      let slot: YardSlot | null;
+      if (dto.slotCode) {
+        slot = await slotRepo.findOne({
+          where: { code: dto.slotCode, yardId },
+        });
+        if (!slot) throw new NotFoundException(`库位 ${dto.slotCode} 不存在`);
+      } else {
+        slot = await this.pickAutoSlot(mgr, {
+          yardId,
+          zoneCode: dto.zoneCode!,
+          preferModel: vin.model ?? null,
+          preferColor: vin.color ?? null,
+        });
+        if (!slot)
+          throw new NotFoundException(`区域 ${dto.zoneCode} 里没有可用空位`);
+      }
+      if (slot.status === YardSlotStatus.OCCUPIED) {
+        throw new BadRequestException(
+          `库位 ${slot.code} 已被 ${slot.currentVin} 占用`,
+        );
+      }
+      if (slot.isLocked) {
+        throw new BadRequestException(`库位 ${slot.code} 已锁定`);
+      }
+
+      // 校验批次
+      if (dto.inboundBatchId) {
+        const batch = await mgr.findOne(InboundBatch, {
+          where: { id: dto.inboundBatchId },
+        });
+        if (!batch) throw new NotFoundException('批次不存在');
+        if (batch.yardId !== slot.yardId) {
+          throw new BadRequestException('批次所属场地与库位不匹配');
+        }
+      }
+
+      slot.status = YardSlotStatus.OCCUPIED;
+      slot.currentVin = vin.vin;
+      slot.assignedAt = new Date();
+      await slotRepo.save(slot);
+
+      vin.arrivalStatus = OrderVinArrivalStatus.ARRIVED;
+      vin.arrivedAt = new Date();
+      vin.arrivedByUserId = user.userId;
+      vin.slotId = slot.id;
+      vin.inboundBatchId = dto.inboundBatchId ?? null;
+      vin.arrivalPhotoUrls = dto.photoUrls;
+      vin.vehicleCheckInfo = dto.vehicleCheckInfo ?? null;
+      vin.arrivalRemark = dto.remark ?? null;
+      vin.slot = slot;
+      return vinRepo.save(vin);
+    });
+
+    await this.audit.log({
+      operationType: OperationType.INBOUND_UNEXPECTED,
+      orderId: strayOrder.id,
+      vin: saved.vin,
+      operatorUserId: user.userId,
+      payload: {
+        strayOrderCode,
+        customerId: dto.customerId,
+        slotCode: saved.slot?.code ?? null,
+        brand: dto.brand ?? null,
+        model: dto.model ?? null,
+        color: dto.color ?? null,
+        motorNo: dto.motorNo ?? null,
+        remark: dto.remark ?? null,
+      },
+    });
+    return saved;
   }
 
   // ============ 批次管理 ============
@@ -623,6 +829,7 @@ export class InboundService {
       dealerName: string;
     }>,
     scope: EffectiveScope,
+    operatorUserId?: string,
   ): Promise<OrderVin> {
     await this.assertOrderInScope(orderId, scope);
     const vin = await this.orderVinsRepo.findOne({
@@ -632,8 +839,21 @@ export class InboundService {
     if (vin.arrivalStatus !== OrderVinArrivalStatus.EXPECTED) {
       throw new BadRequestException('已提货/已到仓/已取消的 VIN 不能编辑');
     }
+    // 快照 before/after 便于回溯 (只记 patch 里改动的字段)
+    const before: Record<string, unknown> = {};
+    for (const key of Object.keys(patch)) {
+      before[key] = (vin as unknown as Record<string, unknown>)[key];
+    }
     Object.assign(vin, patch);
-    return this.orderVinsRepo.save(vin);
+    const saved = await this.orderVinsRepo.save(vin);
+    await this.audit.log({
+      operationType: OperationType.INBOUND_VIN_EDIT,
+      orderId,
+      vin: vin.vin,
+      operatorUserId,
+      payload: { before, after: patch },
+    });
+    return saved;
   }
 
   // 单条 VIN 软取消：不硬删，只标 arrivalStatus=CANCELLED + 记录操作人
@@ -662,6 +882,13 @@ export class InboundService {
       arrivalStatus: OrderVinArrivalStatus.CANCELLED,
       cancelledAt: new Date(),
       cancelledByUserId: operatorUserId,
+    });
+    await this.audit.log({
+      operationType: OperationType.INBOUND_VIN_CANCEL,
+      orderId,
+      vin: vin.vin,
+      operatorUserId,
+      payload: { previousStatus: vin.arrivalStatus },
     });
   }
 
@@ -717,6 +944,21 @@ export class InboundService {
         cancelledByUserId: operatorUserId,
       });
     });
+    await this.audit.log({
+      operationType: OperationType.INBOUND_ORDER_CANCEL,
+      orderId,
+      operatorUserId,
+      payload: {
+        orderCode: order.orderCode,
+        vinSnapshot: vins.map((v) => ({
+          vin: v.vin,
+          brand: v.brand,
+          model: v.model,
+          color: v.color,
+          prevArrivalStatus: v.arrivalStatus,
+        })),
+      },
+    });
   }
 
   // 重新导入 VIN 到已取消的订单：清 cancel 标记 + status=ACTIVE + 追加 VINs
@@ -725,6 +967,7 @@ export class InboundService {
     orderId: string,
     vins: ImportInboundVinRow[],
     scope: EffectiveScope,
+    operatorUserId?: string,
   ): Promise<{
     orderId: string;
     orderCode: string;
@@ -773,6 +1016,16 @@ export class InboundService {
       await vinRepo.save(vinRepo.create(vinDatas));
     });
 
+    await this.audit.log({
+      operationType: OperationType.INBOUND_ORDER_REACTIVATE,
+      orderId: order.id,
+      operatorUserId,
+      payload: {
+        orderCode: order.orderCode,
+        created: toInsert.length,
+        skipped: uniqueVins.length - toInsert.length,
+      },
+    });
     return {
       orderId: order.id,
       orderCode: order.orderCode,

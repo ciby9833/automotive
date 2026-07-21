@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -40,7 +41,7 @@ export class OutboundController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.outboundService.importOutboundOrder(dto, scope);
+    return this.outboundService.importOutboundOrder(dto, scope, user.userId);
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
@@ -51,7 +52,7 @@ export class OutboundController {
     @Query('customerId') customerId?: string,
     @Query('customerOrderNo') customerOrderNo?: string,
     @Query('organizationId') organizationId?: string,
-    @Query('status') status?: 'ALL' | 'PENDING' | 'COMPLETED',
+    @Query('status') status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED',
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.outboundService.listOutboundOrders(scope, {
@@ -102,7 +103,19 @@ export class OutboundController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.outboundService.planWaybill(dto, scope);
+    return this.outboundService.planWaybill(dto, scope, user.userId);
   }
 
+  // 出库单软取消 (仅 ACTIVE + 无运单)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.OUTBOUND_IMPORT)
+  @Delete('orders/:id')
+  async cancelOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    await this.outboundService.cancelOutboundOrder(id, scope, user.userId);
+    return { ok: true };
+  }
 }

@@ -10,6 +10,7 @@ import { Carrier } from '../carriers/entities/carrier.entity';
 import { CustomerAddress } from '../customers/entities/customer-address.entity';
 import { OutboundService } from './outbound.service';
 import { OutboundController } from './outbound.controller';
+import { TrackingModule } from '../tracking/tracking.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { OutboundController } from './outbound.controller';
       Carrier,
       CustomerAddress,
     ]),
+    TrackingModule,
   ],
   controllers: [OutboundController],
   providers: [OutboundService],

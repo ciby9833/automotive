@@ -324,14 +324,43 @@
     "SIGNED": "Signed"
   },
   "tracking": {
-    "title": "VIN Tracking",
+    "title": "Full-lifecycle Tracking",
+    "hint": "Enter a VIN or order UUID to view a timeline of every operation node — with operator, timestamp, and any uploaded evidence.",
+    "byVin": "By VIN",
+    "byOrder": "By Order",
     "placeholder": "Enter VIN to search",
+    "placeholderVin": "Scan or enter VIN",
+    "placeholderOrder": "Enter order UUID",
     "search": "Search",
     "time": "Time",
     "action": "Action",
     "yard": "Yard",
     "remark": "Remark",
-    "notFound": "No tracking records found for this VIN"
+    "empty": "Enter a VIN or order id to start",
+    "noResult": "No tracking records",
+    "notFound": "No tracking records found",
+    "type": {
+      "INBOUND_ORDER_IMPORT": "Inbound order imported",
+      "INBOUND_ORDER_REACTIVATE": "Inbound order reimported",
+      "INBOUND_ORDER_CANCEL": "Inbound order cancelled",
+      "INBOUND_VIN_EDIT": "VIN info edited",
+      "INBOUND_VIN_CANCEL": "VIN cancelled",
+      "PICKUP_SCAN": "Pickup scan",
+      "INBOUND_SCAN": "Inbound scan",
+      "INBOUND_UNDO": "Inbound undone",
+      "YARD_MOVE": "Yard move",
+      "OUTBOUND_ORDER_IMPORT": "Outbound order imported",
+      "OUTBOUND_ORDER_CANCEL": "Outbound order cancelled",
+      "WAYBILL_PLAN": "Waybill planned",
+      "WAYBILL_CANCEL": "Waybill cancelled",
+      "INBOUND_ARRIVAL": "Arrival scan",
+      "REALLOCATION_DEPARTURE": "Reallocation depart",
+      "REALLOCATION_ARRIVAL": "Reallocation arrive",
+      "DELIVERY_LOAD": "Loaded",
+      "DELIVERY_LOAD_UNDO": "Load undone",
+      "DELIVERY_DEPARTURE": "Departed",
+      "SIGNED": "Signed"
+    }
   },
   "users": {
     "title": "User Management",
@@ -729,7 +758,12 @@
       "customerOrderNo": "Customer Order #",
       "customer": "Customer",
       "originYard": "Origin Yard",
-      "createdAt": "Created"
+      "createdAt": "Created",
+      "status": "Status",
+      "statusActive": "Active",
+      "statusCancelled": "Cancelled",
+      "filterAll": "All",
+      "filterCancelled": "Cancelled"
     },
     "detail": {
       "title": "Outbound Order",
@@ -754,7 +788,15 @@
       "planStatus": "Plan Status",
       "notArrived": "Not arrived",
       "planned": "Planned",
-      "awaitingPlan": "Awaiting plan"
+      "awaitingPlan": "Awaiting plan",
+      "cancel": "Cancel order",
+      "cancelTitle": "Cancel this outbound order?",
+      "cancelHint": "{n} vehicles. The order will be soft-cancelled (shell kept, marked Cancelled), VINs released back to pool. Undo any planned waybills first.",
+      "cancelOk": "Confirm cancel",
+      "cancelFailed": "Cancel failed",
+      "cancelledBanner": "This outbound order has been cancelled",
+      "cancelledBy": "Cancelled by {by}",
+      "cancelledHint": "Shell kept for audit. If needed, import a fresh outbound Excel."
     },
     "departure": {
       "title": "Outbound Departure",

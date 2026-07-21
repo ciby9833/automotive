@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Button, Input, Space, Table, message } from 'antd';
+import { Button, Input, Segmented, Space, Table, Tag, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { outboundApi, OutboundOrderListRow } from '@/lib/api/outbound';
@@ -23,6 +23,9 @@ export default function OutboundOrdersPage() {
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState('');
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
+  const [status, setStatus] = useState<
+    'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED'
+  >('ALL');
 
   useEffect(() => {
     setLoading(true);
@@ -30,11 +33,12 @@ export default function OutboundOrdersPage() {
       .listOrders({
         customerOrderNo: q || undefined,
         organizationId: orgFilter || undefined,
+        status,
       })
       .then(setRows)
       .catch(() => message.error(t('outbound.orders.loadFailed')))
       .finally(() => setLoading(false));
-  }, [activeOrgId, orgFilter, q, t]);
+  }, [activeOrgId, orgFilter, q, status, t]);
 
   return (
     <div>
@@ -43,6 +47,16 @@ export default function OutboundOrdersPage() {
         toolbar={
           <Space wrap>
             <OrgFilter value={orgFilter} onChange={setOrgFilter} />
+            <Segmented
+              value={status}
+              onChange={(v) =>
+                setStatus(v as 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED')
+              }
+              options={[
+                { label: t('outbound.orders.filterAll'), value: 'ALL' },
+                { label: t('outbound.orders.filterCancelled'), value: 'CANCELLED' },
+              ]}
+            />
             <Input.Search
               placeholder={t('outbound.orders.searchCustomerOrderNo')}
               allowClear
@@ -96,6 +110,26 @@ export default function OutboundOrdersPage() {
             title: t('outbound.orders.createdAt'),
             dataIndex: 'createdAt',
             render: (v: string) => new Date(v).toLocaleString(),
+          },
+          {
+            title: t('outbound.orders.status'),
+            width: 200,
+            render: (_, r) => {
+              if (r.status !== 'CANCELLED') {
+                return <Tag color="blue">{t('outbound.orders.statusActive')}</Tag>;
+              }
+              return (
+                <div>
+                  <Tag color="red">{t('outbound.orders.statusCancelled')}</Tag>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                    {r.cancelledByUserName ?? '-'}
+                    {r.cancelledAt
+                      ? ` · ${new Date(r.cancelledAt).toLocaleString()}`
+                      : ''}
+                  </div>
+                </div>
+              );
+            },
           },
         ]}
       />

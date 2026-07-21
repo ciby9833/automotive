@@ -72,6 +72,7 @@ import com.automotive.alms.feature.home.model.HomeActions
 fun HomeScreen(
     sessionStore: SessionStore,
     permissionManager: PermissionManager,
+    onOpenPickup: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val session by sessionStore.state.collectAsState()
@@ -119,6 +120,7 @@ fun HomeScreen(
                     userName = user?.displayName.orEmpty(),
                     role = user?.role,
                     actions = actions,
+                    onOpenPickup = onOpenPickup,
                 )
 
                 MainTab.Profile.key -> ProfileScreen(
@@ -139,6 +141,7 @@ private fun HomeDashboard(
     userName: String,
     role: Role?,
     actions: List<HomeAction>,
+    onOpenPickup: () -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 156.dp),
@@ -182,8 +185,12 @@ private fun HomeDashboard(
                 subtitle = stringResource(action.subtitleRes),
                 icon = iconFor(action.route),
                 accent = accentFor(action.route),
-                enabled = false,
-                onClick = {},
+                enabled = action.route == AppRoute.PickupScan,
+                onClick = {
+                    if (action.route == AppRoute.PickupScan) {
+                        onOpenPickup()
+                    }
+                },
             )
         }
     }

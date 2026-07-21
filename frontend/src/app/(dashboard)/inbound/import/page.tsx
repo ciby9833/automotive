@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Alert,
   Button,
@@ -34,6 +34,8 @@ import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 // 3. 提交 → 后端一次事务创建订单 + N 条 VIN
 export default function InboundImportPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reactivateOrderId = searchParams.get('reactivateOrderId') ?? undefined;
   const { t, locale } = useTranslation();
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const organizations = useOrganizations();
@@ -57,6 +59,37 @@ export default function InboundImportPage() {
     customersApi.list().then(setCustomers).catch(() => undefined);
     yardsApi.list().then(setYards).catch(() => undefined);
   }, [activeOrgId]);
+
+  // 重新导入模式：从已取消订单加载 head 预填 customer/yard/customerOrderNo/originText
+  useEffect(() => {
+    if (!reactivateOrderId) return;
+    inboundApi
+      .orderDetail(reactivateOrderId)
+      .then((data) => {
+        const o = data.order as {
+          customer?: { id: string };
+          destinationYard?: { id: string };
+          customerOrderNo: string | null;
+          originText: string | null;
+        };
+        form.setFieldsValue({
+          customerId: o.customer?.id,
+          destinationYardId: o.destinationYard?.id,
+          customerOrderNo: o.customerOrderNo ?? undefined,
+          originText: o.originText ?? undefined,
+        });
+      })
+      .catch(() => message.error(t('inbound.import.reactivateLoadFailed')));
+  }, [reactivateOrderId, form, t]);
+
+  // 成功后重置整个向导：文件+解析结果+表单
+  const resetWizard = () => {
+    setFile(null);
+    setRows([]);
+    setParseInfo(null);
+    setParseError(null);
+    form.resetFields();
+  };
 
   const uploadProps: UploadProps = {
     accept: '.xlsx,.xls,.csv',
@@ -117,7 +150,7 @@ export default function InboundImportPage() {
     }
     setSubmitting(true);
     try {
-      const res = await inboundApi.importOrder({
+      const payload = {
         customerId: values.customerId,
         destinationYardId: values.destinationYardId,
         customerOrderNo: values.customerOrderNo,
@@ -125,7 +158,10 @@ export default function InboundImportPage() {
         expectedArrivalDate: values.expectedArrivalDate?.format('YYYY-MM-DD'),
         remark: values.remark,
         vins: rows,
-      });
+      };
+      const res = reactivateOrderId
+        ? await inboundApi.reactivateOrder(reactivateOrderId, payload)
+        : await inboundApi.importOrder(payload);
       message.success(
         t('inbound.import.success', {
           orderCode: res.orderCode,
@@ -133,6 +169,7 @@ export default function InboundImportPage() {
           skipped: res.skipped,
         }),
       );
+      resetWizard();
       router.push(`/inbound/orders/${res.orderId}`);
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
@@ -145,7 +182,21 @@ export default function InboundImportPage() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>{t('inbound.import.title')}</h2>
+      <h2 style={{ marginBottom: 16 }}>
+        {reactivateOrderId
+          ? t('inbound.import.reactivateTitle')
+          : t('inbound.import.title')}
+      </h2>
+
+      {reactivateOrderId && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('inbound.import.reactivateBanner')}
+          description={t('inbound.import.reactivateHint')}
+        />
+      )}
 
       <Alert
         type="info"
@@ -264,6 +315,7 @@ export default function InboundImportPage() {
           >
             <Select
               showSearch
+              disabled={!!reactivateOrderId}
               placeholder={t('inbound.import.customerPlaceholder')}
               optionFilterProp="label"
               options={customers.map((c) => ({ value: c.id, label: c.name }))}
@@ -276,6 +328,7 @@ export default function InboundImportPage() {
           >
             <Select
               showSearch
+              disabled={!!reactivateOrderId}
               optionFilterProp="label"
               options={yards.map((y) => ({
                 value: y.id,

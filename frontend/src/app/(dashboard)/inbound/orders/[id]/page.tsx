@@ -1,21 +1,35 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
 import {
+  Alert,
   Button,
   Card,
   Col,
   Descriptions,
   Drawer,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
   Row,
+  Segmented,
   Space,
   Statistic,
   Table,
   Tag,
+  Tooltip,
   message,
 } from 'antd';
-import { FileImageOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  FileImageOutlined,
+  ImportOutlined,
+} from '@ant-design/icons';
+import Link from 'next/link';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   inboundApi,
   InboundOrderVinDetail,
@@ -35,6 +49,9 @@ interface OrderHead {
   expectedArrivalDate: string | null;
   remark: string | null;
   createdAt: string;
+  status: 'ACTIVE' | 'CANCELLED';
+  cancelledAt: string | null;
+  cancelledByUser?: { id: string; displayName: string } | null;
   customer?: { id: string; name: string };
   destinationYard?: { id: string; name: string; code: string };
   organization?: { id: string; name: string; code: string };
@@ -109,8 +126,16 @@ function buildEvidenceSections(
 
 export function InboundOrderDetail({ id }: { id: string }) {
   const { t } = useTranslation();
+  const router = useRouter();
+  const canEdit = usePermission(Permission.INBOUND_IMPORT);
   const [order, setOrder] = useState<OrderHead | null>(null);
   const [vins, setVins] = useState<InboundOrderVinDetail[]>([]);
+  const [totals, setTotals] = useState<{
+    total: number;
+    arrived: number;
+    pickedUp: number;
+    cancelled: number;
+  }>({ total: 0, arrived: 0, pickedUp: 0, cancelled: 0 });
   const [loading, setLoading] = useState(false);
   const [evidenceVin, setEvidenceVin] = useState<InboundOrderVinDetail | null>(null);
   const evidenceSections = useMemo(
@@ -118,31 +143,156 @@ export function InboundOrderDetail({ id }: { id: string }) {
     [evidenceVin, t],
   );
 
-  useEffect(() => {
+  // 搜索 + 状态过滤（后端过滤，keyword 匹配 vin/model/color/motorNo/dealer*）
+  const [keyword, setKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<
+    'ALL' | 'EXPECTED' | 'ARRIVED' | 'CANCELLED'
+  >('ALL');
+
+  // 编辑 VIN Modal
+  const [editing, setEditing] = useState<InboundOrderVinDetail | null>(null);
+  const [editForm] = Form.useForm();
+
+  const load = useCallback(() => {
     if (!id) return;
     setLoading(true);
     inboundApi
-      .orderDetail(id)
+      .orderDetail(id, {
+        keyword: keyword.trim() || undefined,
+        status: statusFilter === 'ALL' ? undefined : statusFilter,
+      })
       .then((data) => {
         setOrder(data.order as OrderHead);
         setVins(data.vins);
+        setTotals(data.totals);
       })
       .catch(() => message.error(t('inbound.detail.loadFailed')))
       .finally(() => setLoading(false));
-  }, [id, t]);
+  }, [id, keyword, statusFilter, t]);
 
-  const total = vins.length;
-  const arrived = vins.filter((v) => v.arrivalStatus === 'ARRIVED').length;
-  const pickedUp = vins.filter((v) => !!v.pickedUpAt).length;
-  const cancelled = vins.filter((v) => v.arrivalStatus === 'CANCELLED').length;
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const openEdit = (v: InboundOrderVinDetail) => {
+    setEditing(v);
+    editForm.setFieldsValue({
+      brand: v.brand ?? '',
+      model: v.model ?? '',
+      color: v.color ?? '',
+      vehicleType: v.vehicleType ?? '',
+      motorNo: v.motorNo ?? '',
+    });
+  };
+
+  const submitEdit = async () => {
+    if (!editing) return;
+    const values = await editForm.validateFields();
+    try {
+      await inboundApi.updateOrderVin(id, editing.id, values);
+      message.success(t('inbound.detail.editSuccess'));
+      setEditing(null);
+      load();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(detail || t('inbound.detail.editFailed'));
+    }
+  };
+
+  const onCancelVin = async (v: InboundOrderVinDetail) => {
+    try {
+      await inboundApi.cancelOrderVin(id, v.id);
+      message.success(t('inbound.detail.cancelVinOk'));
+      load();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(detail || t('inbound.detail.cancelVinFailed'));
+    }
+  };
+
+  const onCancelOrder = async () => {
+    try {
+      await inboundApi.cancelOrder(id);
+      message.success(t('inbound.detail.cancelOrderOk'));
+      load();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(detail || t('inbound.detail.cancelOrderFailed'));
+    }
+  };
+
+  const { total, arrived, pickedUp, cancelled } = totals;
+  const isCancelled = order?.status === 'CANCELLED';
+  // 取消整单：ACTIVE 且没有到仓的车 (取消保留订单壳；已到仓的车先撤销入库)
+  const canCancelOrder =
+    canEdit && !isCancelled && total > 0 && arrived === 0 && cancelled === 0;
 
   if (!order && !loading) return null;
 
   return (
     <div>
-      <h2 style={{ marginBottom: 16 }}>
-        {t('inbound.detail.title')}: {order?.orderCode}
-      </h2>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+        }}
+      >
+        <h2 style={{ margin: 0 }}>
+          {t('inbound.detail.title')}: {order?.orderCode}
+        </h2>
+        <Space>
+          {isCancelled && canEdit && (
+            <Link href={`/inbound/import?reactivateOrderId=${id}`}>
+              <Button type="primary" icon={<ImportOutlined />}>
+                {t('inbound.detail.reactivate')}
+              </Button>
+            </Link>
+          )}
+          {canCancelOrder && (
+            <Popconfirm
+              title={t('inbound.detail.cancelOrderTitle')}
+              description={t('inbound.detail.cancelOrderHint', { n: total })}
+              okText={t('inbound.detail.cancelOrderOk')}
+              okButtonProps={{ danger: true }}
+              onConfirm={onCancelOrder}
+            >
+              <Button danger icon={<DeleteOutlined />}>
+                {t('inbound.detail.cancelOrder')}
+              </Button>
+            </Popconfirm>
+          )}
+        </Space>
+      </div>
+
+      {isCancelled && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={t('inbound.detail.cancelledBanner')}
+          description={
+            <div style={{ fontSize: 13 }}>
+              {order?.cancelledByUser?.displayName
+                ? t('inbound.detail.cancelledBy', {
+                    by: order.cancelledByUser.displayName,
+                  })
+                : ''}
+              {order?.cancelledAt
+                ? ` · ${new Date(order.cancelledAt).toLocaleString()}`
+                : ''}
+              <div style={{ marginTop: 4, color: '#94a3b8' }}>
+                {t('inbound.detail.cancelledHint')}
+              </div>
+            </div>
+          }
+        />
+      )}
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
@@ -207,13 +357,44 @@ export function InboundOrderDetail({ id }: { id: string }) {
           <Descriptions.Item label={t('inbound.detail.expectedArrival')}>
             {order?.expectedArrivalDate ?? '-'}
           </Descriptions.Item>
+          <Descriptions.Item label={t('inbound.detail.importedAt')}>
+            {order?.createdAt ? new Date(order.createdAt).toLocaleString() : '-'}
+          </Descriptions.Item>
           <Descriptions.Item label={t('inbound.detail.remark')} span={2}>
             {order?.remark ?? '-'}
           </Descriptions.Item>
         </Descriptions>
       </Card>
 
-      <Card title={t('inbound.detail.vinList')}>
+      <Card
+        title={t('inbound.detail.vinList')}
+        extra={
+          <Space size="small">
+            <Segmented
+              size="small"
+              value={statusFilter}
+              onChange={(v) =>
+                setStatusFilter(v as 'ALL' | 'EXPECTED' | 'ARRIVED' | 'CANCELLED')
+              }
+              options={[
+                { label: t('inbound.detail.filterAll'), value: 'ALL' },
+                { label: t('inbound.detail.status.EXPECTED'), value: 'EXPECTED' },
+                { label: t('inbound.detail.status.ARRIVED'), value: 'ARRIVED' },
+                { label: t('inbound.detail.status.CANCELLED'), value: 'CANCELLED' },
+              ]}
+            />
+            <Input.Search
+              size="small"
+              style={{ width: 260 }}
+              allowClear
+              placeholder={t('inbound.detail.searchPlaceholder')}
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onSearch={() => load()}
+            />
+          </Space>
+        }
+      >
         <Table
           rowKey="id"
           size="small"
@@ -230,10 +411,26 @@ export function InboundOrderDetail({ id }: { id: string }) {
             { title: 'Color', dataIndex: 'color', render: (v) => v ?? '-' },
             {
               title: t('inbound.detail.vinStatus'),
-              dataIndex: 'arrivalStatus',
-              render: (v: OrderVinArrivalStatus) => (
-                <Tag color={STATUS_COLORS[v]}>{t(`inbound.detail.status.${v}`)}</Tag>
-              ),
+              render: (_: unknown, r: InboundOrderVinDetail) => {
+                const tag = (
+                  <Tag color={STATUS_COLORS[r.arrivalStatus]}>
+                    {t(`inbound.detail.status.${r.arrivalStatus}`)}
+                  </Tag>
+                );
+                if (r.arrivalStatus !== 'CANCELLED') return tag;
+                // 已取消 VIN 显示审计信息 tooltip：谁 / 何时取消
+                const hint = [
+                  r.cancelledByUser?.displayName
+                    ? t('inbound.detail.cancelledByLabel', {
+                        by: r.cancelledByUser.displayName,
+                      })
+                    : null,
+                  r.cancelledAt ? new Date(r.cancelledAt).toLocaleString() : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+                return hint ? <Tooltip title={hint}>{tag}</Tooltip> : tag;
+              },
             },
             {
               title: t('inbound.detail.pickup'),
@@ -298,9 +495,91 @@ export function InboundOrderDetail({ id }: { id: string }) {
                 );
               },
             },
+            ...(canEdit
+              ? [
+                  {
+                    title: '',
+                    width: 140,
+                    render: (_: unknown, r: InboundOrderVinDetail) => {
+                      // 只有 EXPECTED + 未占用 才允许改/删（后端会二次校验）
+                      const editable =
+                        r.arrivalStatus === 'EXPECTED' && !r.isAllocated;
+                      if (!editable) return null;
+                      return (
+                        <Space size={4}>
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<EditOutlined />}
+                            onClick={() => openEdit(r)}
+                          >
+                            {t('inbound.detail.editVin')}
+                          </Button>
+                          <Popconfirm
+                            title={t('inbound.detail.cancelVinTitle')}
+                            onConfirm={() => onCancelVin(r)}
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Button
+                              type="link"
+                              size="small"
+                              danger
+                              icon={<DeleteOutlined />}
+                            >
+                              {t('inbound.detail.cancelVin')}
+                            </Button>
+                          </Popconfirm>
+                        </Space>
+                      );
+                    },
+                  },
+                ]
+              : []),
           ]}
         />
       </Card>
+
+      <Modal
+        title={editing ? `${t('inbound.detail.editVinTitle')} · ${editing.vin}` : ''}
+        open={!!editing}
+        onCancel={() => setEditing(null)}
+        onOk={submitEdit}
+        okText={t('inbound.detail.saveEdit')}
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical" preserve={false}>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item label={t('inbound.detail.field.brand')} name="brand">
+                <Input maxLength={60} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label={t('inbound.detail.field.model')} name="model">
+                <Input maxLength={120} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item label={t('inbound.detail.field.color')} name="color">
+                <Input maxLength={60} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item
+                label={t('inbound.detail.field.vehicleType')}
+                name="vehicleType"
+              >
+                <Input maxLength={60} />
+              </Form.Item>
+            </Col>
+            <Col span={24}>
+              <Form.Item label={t('inbound.detail.field.motorNo')} name="motorNo">
+                <Input maxLength={60} />
+              </Form.Item>
+            </Col>
+          </Row>
+        </Form>
+      </Modal>
 
       <Drawer
         title={

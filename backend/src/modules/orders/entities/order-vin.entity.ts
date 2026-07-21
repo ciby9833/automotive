@@ -117,6 +117,18 @@ export class OrderVin extends BaseEntity {
   @Column({ name: 'arrival_remark', type: 'text', nullable: true })
   arrivalRemark: string | null;
 
+  // 软取消审计：单条 VIN 取消 (arrivalStatus=CANCELLED) 时记录操作人 + 时间
+  // 整单取消也会走这条路径，一起打标记；数据永不硬删，供后续追溯
+  @Column({ name: 'cancelled_at', type: 'timestamptz', nullable: true })
+  cancelledAt: Date | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'cancelled_by_user_id' })
+  cancelledByUser: User | null;
+
+  @Column({ name: 'cancelled_by_user_id', type: 'uuid', nullable: true })
+  cancelledByUserId: string | null;
+
   // ===== 出库派送目的地 (客户 Excel 里每台车都可能不同) =====
   // dealerCode/dealerName 用文本存储：BYD 给的 Excel 只提供"经销店代码 + 名称"，
   // 不做外键到 customer_addresses —— 客户系统里的经销店维护是我们自己的事，先文本存证

@@ -1,9 +1,11 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -22,6 +24,8 @@ import { InboundService } from './inbound.service';
 import { ImportInboundOrderDto } from './dto/import-inbound-order.dto';
 import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
+import { UpdateOrderVinDto } from './dto/update-order-vin.dto';
+import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 
 @ApiTags('inbound')
 @ApiBearerAuth()
@@ -55,7 +59,7 @@ export class InboundController {
     @Query('destinationYardId') destinationYardId?: string,
     @Query('customerOrderNo') customerOrderNo?: string,
     @Query('organizationId') organizationId?: string,
-    @Query('status') status?: 'ALL' | 'PENDING' | 'COMPLETED',
+    @Query('status') status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED',
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.inboundService.listInboundOrders(scope, {
@@ -73,9 +77,73 @@ export class InboundController {
   async orderDetail(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Query('keyword') keyword?: string,
+    @Query('status') status?: OrderVinArrivalStatus,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.inboundService.getInboundOrderDetail(id, scope);
+    return this.inboundService.getInboundOrderDetail(id, scope, {
+      keyword,
+      status,
+    });
+  }
+
+  // 单条 VIN 纠错编辑 (仅 EXPECTED)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.INBOUND_IMPORT)
+  @Patch('inbound/orders/:orderId/vins/:vinId')
+  async updateOrderVin(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Param('vinId', ParseUUIDPipe) vinId: string,
+    @Body() dto: UpdateOrderVinDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.inboundService.updateOrderVin(orderId, vinId, dto, scope);
+  }
+
+  // 单条 VIN 软取消 (数据保留，只切 arrivalStatus=CANCELLED + 记录操作人)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.INBOUND_IMPORT)
+  @Delete('inbound/orders/:orderId/vins/:vinId')
+  async cancelOrderVin(
+    @Param('orderId', ParseUUIDPipe) orderId: string,
+    @Param('vinId', ParseUUIDPipe) vinId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    await this.inboundService.cancelOrderVin(
+      orderId,
+      vinId,
+      scope,
+      user.userId,
+    );
+    return { ok: true };
+  }
+
+  // 整单软取消 (保留订单壳、清空 VINs、记录操作人；仅 EXPECTED VIN 允许)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.INBOUND_IMPORT)
+  @Delete('inbound/orders/:id')
+  async cancelOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    await this.inboundService.cancelInboundOrder(id, scope, user.userId);
+    return { ok: true };
+  }
+
+  // 已取消订单重新导入 VIN (恢复 ACTIVE + 追加 VIN)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.INBOUND_IMPORT)
+  @Post('inbound/orders/:id/reactivate')
+  async reactivate(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ImportInboundOrderDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.inboundService.reactivateInboundOrder(id, dto.vins, scope);
   }
 
   // ============ 供应商司机：提货扫描 ============

@@ -10,6 +10,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   message,
 } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
@@ -29,7 +30,9 @@ export default function InboundOrdersPage() {
 
   const [rows, setRows] = useState<InboundOrderListRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<'ALL' | 'PENDING' | 'COMPLETED'>('ALL');
+  const [status, setStatus] = useState<
+    'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED'
+  >('ALL');
   const [orderSearch, setOrderSearch] = useState('');
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
 
@@ -70,11 +73,14 @@ export default function InboundOrdersPage() {
           <OrgFilter value={orgFilter} onChange={setOrgFilter} />
           <Segmented
             value={status}
-            onChange={(v) => setStatus(v as 'ALL' | 'PENDING' | 'COMPLETED')}
+            onChange={(v) =>
+              setStatus(v as 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED')
+            }
             options={[
               { label: t('inbound.orders.filterAll'), value: 'ALL' },
               { label: t('inbound.orders.filterPending'), value: 'PENDING' },
               { label: t('inbound.orders.filterCompleted'), value: 'COMPLETED' },
+              { label: t('inbound.orders.filterCancelled'), value: 'CANCELLED' },
             ]}
           />
           <Input.Search
@@ -131,6 +137,15 @@ export default function InboundOrdersPage() {
             render: (v: string | null) => v ?? '-',
           },
           {
+            title: t('inbound.orders.importedAt'),
+            dataIndex: 'createdAt',
+            width: 170,
+            defaultSortOrder: 'descend' as const,
+            sorter: (a: InboundOrderListRow, b: InboundOrderListRow) =>
+              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            render: (v: string) => (v ? new Date(v).toLocaleString() : '-'),
+          },
+          {
             title: t('inbound.orders.progress'),
             render: (_: unknown, r: InboundOrderListRow) => (
               <div style={{ minWidth: 200 }}>
@@ -148,6 +163,21 @@ export default function InboundOrdersPage() {
           {
             title: t('inbound.orders.status'),
             render: (_: unknown, r: InboundOrderListRow) => {
+              if (r.status === 'CANCELLED') {
+                const hint = [
+                  r.cancelledByUserName
+                    ? t('inbound.orders.cancelledBy', { by: r.cancelledByUserName })
+                    : null,
+                  r.cancelledAt ? new Date(r.cancelledAt).toLocaleString() : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ');
+                return (
+                  <Tooltip title={hint || undefined}>
+                    <Tag color="red">{t('inbound.orders.cancelled')}</Tag>
+                  </Tooltip>
+                );
+              }
               if (r.total === 0) return <Tag>{t('inbound.orders.empty')}</Tag>;
               if (r.arrived === r.total)
                 return <Tag color="green">{t('inbound.orders.completed')}</Tag>;

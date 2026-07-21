@@ -17,12 +17,16 @@ import {
   YardSlotStatus,
 } from '../yards/entities/yard-slot.entity';
 import { TransportType } from '../../common/enums/order-type.enum';
+import { OrderStatus } from '../../common/enums/order-status.enum';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
 import type { AuthenticatedUser } from '../auth/auth.types';
-import { ImportInboundOrderDto } from './dto/import-inbound-order.dto';
+import {
+  ImportInboundOrderDto,
+  ImportInboundVinRow,
+} from './dto/import-inbound-order.dto';
 import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
 
@@ -127,7 +131,7 @@ export class InboundService {
       destinationYardId?: string;
       customerOrderNo?: string;
       organizationId?: string;
-      status?: 'ALL' | 'PENDING' | 'COMPLETED';
+      status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
     },
   ): Promise<
     Array<{
@@ -143,6 +147,9 @@ export class InboundService {
       arrived: number;
       pickedUp: number;
       createdAt: Date;
+      status: OrderStatus;
+      cancelledAt: Date | null;
+      cancelledByUserName: string | null;
     }>
   > {
     const qb = this.ordersRepo
@@ -150,8 +157,17 @@ export class InboundService {
       .leftJoinAndSelect('order.customer', 'customer')
       .leftJoinAndSelect('order.destinationYard', 'yard')
       .leftJoinAndSelect('order.organization', 'organization')
+      .leftJoinAndSelect('order.cancelledByUser', 'cancelledByUser')
       .where('order.transportType = :type', { type: TransportType.TRANSFER })
       .orderBy('order.createdAt', 'DESC');
+    // 默认排除 CANCELLED；status=CANCELLED 时只查 CANCELLED
+    if (filters.status === 'CANCELLED') {
+      qb.andWhere('order.status = :cancelled', {
+        cancelled: OrderStatus.CANCELLED,
+      });
+    } else {
+      qb.andWhere('order.status = :active', { active: OrderStatus.ACTIVE });
+    }
     this.scopeService.applyScopeToQuery(qb, 'order', scope, {
       customerIdCol: 'customerId',
       narrowToOrgId: filters.organizationId,
@@ -219,17 +235,25 @@ export class InboundService {
           arrived: c.arrived,
           pickedUp: c.pickedUp,
           createdAt: o.createdAt,
+          status: o.status,
+          cancelledAt: o.cancelledAt,
+          cancelledByUserName: o.cancelledByUser?.displayName ?? null,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
   }
 
-  async getInboundOrderDetail(id: string, scope: EffectiveScope) {
+  async getInboundOrderDetail(
+    id: string,
+    scope: EffectiveScope,
+    filters?: { keyword?: string; status?: OrderVinArrivalStatus },
+  ) {
     const qb = this.ordersRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.customer', 'customer')
       .leftJoinAndSelect('order.destinationYard', 'yard')
       .leftJoinAndSelect('order.organization', 'organization')
+      .leftJoinAndSelect('order.cancelledByUser', 'cancelledByUser')
       .where('order.id = :id', { id })
       .andWhere('order.transportType = :type', {
         type: TransportType.TRANSFER,
@@ -240,18 +264,53 @@ export class InboundService {
     const order = await qb.getOne();
     if (!order) throw new NotFoundException('入库订单不存在');
 
-    const vins = await this.orderVinsRepo.find({
-      where: { orderId: id },
-      relations: {
-        pickupCarrier: true,
-        pickupDriverUser: true,
-        arrivedByUser: true,
-        slot: { yard: true },
-        inboundBatch: true,
-      },
-      order: { vin: 'ASC' },
-    });
-    return { order, vins };
+    // VIN 列表查询：走 QueryBuilder 支持 ilike 关键字过滤 + 状态过滤 + 关联加载
+    // 关键字匹配 vin / brand / model / color / motorNo / dealerCode / dealerName
+    const vinQb = this.orderVinsRepo
+      .createQueryBuilder('v')
+      .leftJoinAndSelect('v.pickupCarrier', 'pickupCarrier')
+      .leftJoinAndSelect('v.pickupDriverUser', 'pickupDriverUser')
+      .leftJoinAndSelect('v.arrivedByUser', 'arrivedByUser')
+      .leftJoinAndSelect('v.cancelledByUser', 'cancelledByUser')
+      .leftJoinAndSelect('v.slot', 'slot')
+      .leftJoinAndSelect('slot.yard', 'slotYard')
+      .leftJoinAndSelect('v.inboundBatch', 'inboundBatch')
+      .where('v.orderId = :id', { id })
+      .orderBy('v.vin', 'ASC');
+
+    if (filters?.status) {
+      vinQb.andWhere('v.arrivalStatus = :status', { status: filters.status });
+    }
+    const kw = filters?.keyword?.trim();
+    if (kw) {
+      vinQb.andWhere(
+        `(v.vin ILIKE :kw OR v.brand ILIKE :kw OR v.model ILIKE :kw OR v.color ILIKE :kw OR v."motor_no" ILIKE :kw OR v."dealer_code" ILIKE :kw OR v."dealer_name" ILIKE :kw)`,
+        { kw: `%${kw}%` },
+      );
+    }
+    const vins = await vinQb.getMany();
+
+    // 概览统计走原始订单口径 (不受 keyword/status 过滤影响)，用一次聚合查询
+    const totalsRow = await this.orderVinsRepo
+      .createQueryBuilder('v')
+      .select('COUNT(*)::int', 'total')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.arrival_status = '${OrderVinArrivalStatus.ARRIVED}')::int`,
+        'arrived',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.picked_up_at IS NOT NULL)::int`,
+        'pickedUp',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.arrival_status = '${OrderVinArrivalStatus.CANCELLED}')::int`,
+        'cancelled',
+      )
+      .where('v.orderId = :id', { id })
+      .getRawOne<{ total: number; arrived: number; pickedUp: number; cancelled: number }>();
+    const totals = totalsRow ?? { total: 0, arrived: 0, pickedUp: 0, cancelled: 0 };
+
+    return { order, vins, totals };
   }
 
   // ============ 提货扫描 (供应商司机) ============
@@ -546,5 +605,197 @@ export class InboundService {
       return { vin: found, canPickup: false, reason: '已到仓入库' };
     }
     return { vin: found, canPickup: true };
+  }
+
+  // ============ 订单纠错 (导入错了要改/删) ============
+
+  // 单条 VIN 编辑：仅 EXPECTED 允许改；不含 vin 字段（VIN 是主键）
+  async updateOrderVin(
+    orderId: string,
+    vinId: string,
+    patch: Partial<{
+      brand: string;
+      model: string;
+      color: string;
+      vehicleType: string;
+      motorNo: string;
+      dealerCode: string;
+      dealerName: string;
+    }>,
+    scope: EffectiveScope,
+  ): Promise<OrderVin> {
+    await this.assertOrderInScope(orderId, scope);
+    const vin = await this.orderVinsRepo.findOne({
+      where: { id: vinId, orderId },
+    });
+    if (!vin) throw new NotFoundException('VIN 不属于此订单');
+    if (vin.arrivalStatus !== OrderVinArrivalStatus.EXPECTED) {
+      throw new BadRequestException('已提货/已到仓/已取消的 VIN 不能编辑');
+    }
+    Object.assign(vin, patch);
+    return this.orderVinsRepo.save(vin);
+  }
+
+  // 单条 VIN 软取消：不硬删，只标 arrivalStatus=CANCELLED + 记录操作人
+  // 数据保留可追溯 (详情页"已取消" Tab 依旧看得到，鼠标悬浮显示谁/何时取消)
+  async cancelOrderVin(
+    orderId: string,
+    vinId: string,
+    scope: EffectiveScope,
+    operatorUserId: string,
+  ): Promise<void> {
+    await this.assertOrderInScope(orderId, scope);
+    const vin = await this.orderVinsRepo.findOne({
+      where: { id: vinId, orderId },
+    });
+    if (!vin) throw new NotFoundException('VIN 不属于此订单');
+    if (vin.arrivalStatus === OrderVinArrivalStatus.CANCELLED) {
+      throw new BadRequestException('VIN 已取消');
+    }
+    if (vin.arrivalStatus !== OrderVinArrivalStatus.EXPECTED) {
+      throw new BadRequestException('已提货/已到仓的 VIN 不能取消，请先撤销入库');
+    }
+    if (vin.isAllocated || vin.outboundOrderId) {
+      throw new BadRequestException('VIN 已被出库单占用，请先撤销出库单');
+    }
+    await this.orderVinsRepo.update(vin.id, {
+      arrivalStatus: OrderVinArrivalStatus.CANCELLED,
+      cancelledAt: new Date(),
+      cancelledByUserId: operatorUserId,
+    });
+  }
+
+  // 整单软取消：Order 打 CANCELLED 标 + 所有 EXPECTED VIN 也打 CANCELLED
+  // 关键：VIN 数据完整保留 (含品牌/车型/颜色/客户信息)，只切状态 + 加审计
+  // 追溯场景：3 个月后客户问"我那单 100 台车都是啥"，仍能在详情"已取消"Tab 看全
+  async cancelInboundOrder(
+    orderId: string,
+    scope: EffectiveScope,
+    operatorUserId: string,
+  ): Promise<void> {
+    const order = await this.assertOrderInScope(orderId, scope);
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('订单已取消，不需要再次取消');
+    }
+    const vins = await this.orderVinsRepo.find({ where: { orderId } });
+    const bad = vins.filter(
+      (v) =>
+        v.arrivalStatus !== OrderVinArrivalStatus.EXPECTED &&
+        v.arrivalStatus !== OrderVinArrivalStatus.CANCELLED,
+    );
+    const blocked = vins.filter((v) => v.isAllocated || v.outboundOrderId);
+    if (bad.length > 0) {
+      throw new BadRequestException(
+        `订单里有 ${bad.length} 台车已到仓，无法取消整单 —— 请先撤销入库记录`,
+      );
+    }
+    if (blocked.length > 0) {
+      throw new BadRequestException(
+        `订单里有 ${blocked.length} 台车已被出库单占用，请先撤销出库单`,
+      );
+    }
+    const now = new Date();
+    await this.dataSource.transaction(async (mgr) => {
+      // 只更新还没取消的 EXPECTED VIN；已经 CANCELLED 的保持原有审计信息
+      await mgr
+        .getRepository(OrderVin)
+        .createQueryBuilder()
+        .update()
+        .set({
+          arrivalStatus: OrderVinArrivalStatus.CANCELLED,
+          cancelledAt: now,
+          cancelledByUserId: operatorUserId,
+        })
+        .where('order_id = :orderId', { orderId })
+        .andWhere('arrival_status = :expected', {
+          expected: OrderVinArrivalStatus.EXPECTED,
+        })
+        .execute();
+      await mgr.getRepository(Order).update(order.id, {
+        status: OrderStatus.CANCELLED,
+        cancelledAt: now,
+        cancelledByUserId: operatorUserId,
+      });
+    });
+  }
+
+  // 重新导入 VIN 到已取消的订单：清 cancel 标记 + status=ACTIVE + 追加 VINs
+  // 复用现有 VIN 冲突校验：同一 VIN 在系统里唯一
+  async reactivateInboundOrder(
+    orderId: string,
+    vins: ImportInboundVinRow[],
+    scope: EffectiveScope,
+  ): Promise<{
+    orderId: string;
+    orderCode: string;
+    created: number;
+    skipped: number;
+  }> {
+    const order = await this.assertOrderInScope(orderId, scope);
+    if (order.status !== OrderStatus.CANCELLED) {
+      throw new BadRequestException('只有已取消的订单可以重新导入 VIN');
+    }
+    // 去重 + 冲突预检 (复用同 importInboundOrder 里的语义)
+    const seen = new Set<string>();
+    const uniqueVins = vins.filter((v) => {
+      const key = v.vin.toUpperCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    const existing = await this.orderVinsRepo.find({
+      where: { vin: In(uniqueVins.map((v) => v.vin)) },
+      select: { vin: true },
+    });
+    const existingSet = new Set(existing.map((e) => e.vin));
+    const toInsert = uniqueVins.filter((v) => !existingSet.has(v.vin));
+    if (toInsert.length === 0) {
+      throw new ConflictException('导入的 VIN 全部已在系统中，无需重复导入');
+    }
+
+    await this.dataSource.transaction(async (mgr) => {
+      await mgr.getRepository(Order).update(order.id, {
+        status: OrderStatus.ACTIVE,
+        cancelledAt: null,
+        cancelledByUserId: null,
+      });
+      const vinRepo = mgr.getRepository(OrderVin);
+      const vinDatas: Partial<OrderVin>[] = toInsert.map((v) => ({
+        orderId: order.id,
+        vin: v.vin,
+        brand: v.brand,
+        model: v.model,
+        color: v.color,
+        vehicleType: v.vehicleType,
+        motorNo: v.motorNo,
+        arrivalStatus: OrderVinArrivalStatus.EXPECTED,
+      }));
+      await vinRepo.save(vinRepo.create(vinDatas));
+    });
+
+    return {
+      orderId: order.id,
+      orderCode: order.orderCode,
+      created: toInsert.length,
+      skipped: uniqueVins.length - toInsert.length,
+    };
+  }
+
+  private async assertOrderInScope(
+    orderId: string,
+    scope: EffectiveScope,
+  ): Promise<Order> {
+    const qb = this.ordersRepo
+      .createQueryBuilder('order')
+      .where('order.id = :id', { id: orderId })
+      .andWhere('order.transportType = :type', {
+        type: TransportType.TRANSFER,
+      });
+    this.scopeService.applyScopeToQuery(qb, 'order', scope, {
+      customerIdCol: 'customerId',
+    });
+    const order = await qb.getOne();
+    if (!order) throw new NotFoundException('入库订单不存在或无权访问');
+    return order;
   }
 }

@@ -21,6 +21,8 @@ export interface ImportInboundOrderPayload {
   vins: InboundVinRow[];
 }
 
+export type InboundOrderStatus = 'ACTIVE' | 'CANCELLED';
+
 export interface InboundOrderListRow {
   id: string;
   orderCode: string;
@@ -34,6 +36,9 @@ export interface InboundOrderListRow {
   arrived: number;
   pickedUp: number;
   createdAt: string;
+  status: InboundOrderStatus;
+  cancelledAt: string | null;
+  cancelledByUserName: string | null;
 }
 
 export interface InboundBatch {
@@ -70,6 +75,8 @@ export interface InboundOrderVinDetail {
   arrivalPhotoUrls: string[] | null;
   vehicleCheckInfo: Record<string, string | number> | null;
   arrivalRemark: string | null;
+  cancelledAt: string | null;
+  cancelledByUser?: { id: string; displayName: string } | null;
   // 生命周期接口会带上 order 关联和 isAllocated；订单详情接口里同样的 shape 但可能不带 order
   order?: { id: string; orderCode: string; customerOrderNo: string | null };
   isAllocated?: boolean;
@@ -91,11 +98,48 @@ export const inboundApi = {
     destinationYardId?: string;
     customerOrderNo?: string;
     organizationId?: string;
-    status?: 'ALL' | 'PENDING' | 'COMPLETED';
+    status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
   }) => unwrap<InboundOrderListRow[]>(apiClient.get('/inbound/orders', { params })),
-  orderDetail: (id: string) =>
-    unwrap<{ order: unknown; vins: InboundOrderVinDetail[] }>(
-      apiClient.get(`/inbound/orders/${id}`),
+  orderDetail: (
+    id: string,
+    params?: { keyword?: string; status?: OrderVinArrivalStatus },
+  ) =>
+    unwrap<{
+      order: unknown;
+      vins: InboundOrderVinDetail[];
+      totals: { total: number; arrived: number; pickedUp: number; cancelled: number };
+    }>(apiClient.get(`/inbound/orders/${id}`, { params })),
+  updateOrderVin: (
+    orderId: string,
+    vinId: string,
+    patch: {
+      brand?: string;
+      model?: string;
+      color?: string;
+      vehicleType?: string;
+      motorNo?: string;
+      dealerCode?: string;
+      dealerName?: string;
+    },
+  ) =>
+    unwrap<InboundOrderVinDetail>(
+      apiClient.patch(`/inbound/orders/${orderId}/vins/${vinId}`, patch),
+    ),
+  // DELETE 语义：软取消单条 VIN (保留数据 + 打审计标记，"已取消"Tab 仍可查)
+  cancelOrderVin: (orderId: string, vinId: string) =>
+    unwrap<{ ok: boolean }>(
+      apiClient.delete(`/inbound/orders/${orderId}/vins/${vinId}`),
+    ),
+  // DELETE 语义：软取消 (保留订单壳，标 CANCELLED)
+  cancelOrder: (orderId: string) =>
+    unwrap<{ ok: boolean }>(apiClient.delete(`/inbound/orders/${orderId}`)),
+  // 已取消订单重新导入 VIN (恢复 ACTIVE + 追加)
+  reactivateOrder: (
+    orderId: string,
+    payload: ImportInboundOrderPayload,
+  ) =>
+    unwrap<{ orderId: string; orderCode: string; created: number; skipped: number }>(
+      apiClient.post(`/inbound/orders/${orderId}/reactivate`, payload),
     ),
   pickupLookup: (vin: string) =>
     unwrap<PickupLookupResult>(apiClient.get(`/pickup/lookup/${vin}`)),

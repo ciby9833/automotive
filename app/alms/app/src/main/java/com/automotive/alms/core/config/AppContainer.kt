@@ -7,6 +7,7 @@ import com.automotive.alms.core.network.ApiClient
 import com.automotive.alms.core.network.AuthInterceptor
 import com.automotive.alms.core.permission.PermissionManager
 import com.automotive.alms.feature.auth.data.AuthRepository
+import com.automotive.alms.feature.pickup.data.PickupRepository
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -43,4 +44,5 @@ class AppContainer(context: Context) {
     )
 
     val authRepository = AuthRepository(apiClient, sessionStore)
+    val pickupRepository = PickupRepository(apiClient)
 }

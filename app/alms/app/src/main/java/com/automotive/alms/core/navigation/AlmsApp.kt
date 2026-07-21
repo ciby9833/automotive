@@ -62,6 +62,7 @@ fun AlmsApp(container: AppContainer) {
             HomeScreen(
                 sessionStore = container.sessionStore,
                 permissionManager = container.permissionManager,
+                onOpenPickup = { navController.navigate(AppRoute.PickupScan.path) },
                 onLogout = {
                     container.authRepository.logoutLocal()
                     navController.navigate(AppRoute.Login.path) {
@@ -71,7 +72,9 @@ fun AlmsApp(container: AppContainer) {
             )
         }
         composable(AppRoute.InboundScan.path) { InboundScanScreen() }
-        composable(AppRoute.PickupScan.path) { PickupScanScreen() }
+        composable(AppRoute.PickupScan.path) {
+            PickupScanScreen(repository = container.pickupRepository)
+        }
         composable(AppRoute.WaybillList.path) { WaybillListScreen() }
         composable(AppRoute.YardInventory.path) { YardInventoryScreen() }
         composable(AppRoute.OutboundOrders.path) { OutboundOrdersScreen() }

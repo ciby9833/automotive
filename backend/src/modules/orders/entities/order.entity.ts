@@ -1,8 +1,10 @@
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { OrgScopedEntity } from '../../../common/entities/org-scoped.entity';
 import { TransportType } from '../../../common/enums/order-type.enum';
+import { OrderStatus } from '../../../common/enums/order-status.enum';
 import { Customer } from '../../customers/entities/customer.entity';
 import { Yard } from '../../yards/entities/yard.entity';
+import { User } from '../../users/entities/user.entity';
 import { OrderVin } from './order-vin.entity';
 
 // 订单来自客户(Excel 导入或未来系统对接)：入库订单(transportType=TRANSFER)、
@@ -53,4 +55,23 @@ export class Order extends OrgScopedEntity {
 
   @OneToMany(() => OrderVin, (vin) => vin.order)
   vins: OrderVin[];
+
+  // 软取消：删除入库订单只是标记而非真删，方便审计 + 允许重新导入 VIN 继续用同一订单号
+  // 取消时 order_vins 会被清空（前提是它们都还是 EXPECTED 未占用），reactivate 时再补录
+  @Column({
+    type: 'enum',
+    enum: OrderStatus,
+    default: OrderStatus.ACTIVE,
+  })
+  status: OrderStatus;
+
+  @Column({ name: 'cancelled_at', type: 'timestamptz', nullable: true })
+  cancelledAt: Date | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'cancelled_by_user_id' })
+  cancelledByUser: User | null;
+
+  @Column({ name: 'cancelled_by_user_id', type: 'uuid', nullable: true })
+  cancelledByUserId: string | null;
 }

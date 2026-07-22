@@ -152,7 +152,13 @@
       "dealerCode": "门店代码",
       "dealerPhone": "门店电话",
       "dealerAddress": "地址",
-      "vinList": "VIN 明细"
+      "vinList": "VIN 明细",
+      "assign": "分派",
+      "assignTitle": "分派司机 / 拖车",
+      "assignOk": "已保存",
+      "assignFailed": "保存失败",
+      "driverPlaceholder": "选一位司机 (可清空)",
+      "vehiclePlaceholder": "选一辆拖车 (可清空)"
     }
   },
   "yards": {
@@ -348,7 +354,9 @@
       "PICKUP_SCAN": "供应商提货",
       "INBOUND_SCAN": "场地入库扫码",
       "INBOUND_UNDO": "撤销入库",
+      "INBOUND_UNEXPECTED": "异常入库登记",
       "YARD_MOVE": "场内移位",
+      "WAYBILL_ASSIGN": "分派司机/车辆",
       "OUTBOUND_ORDER_IMPORT": "出库单导入",
       "OUTBOUND_ORDER_CANCEL": "出库单取消",
       "WAYBILL_PLAN": "开单",
@@ -666,7 +674,18 @@
       "notes": "备注",
       "batchCreated": "批次已创建",
       "batchCreateFailed": "批次创建失败",
-      "selectYardFirst": "请先选择您所在的场地"
+      "selectYardFirst": "请先选择您所在的场地",
+      "unexpectedPrompt": "此 VIN 不在任何订单里 —— 请补录客户与车辆信息进行临时登记",
+      "unexpectedTitle": "临时登记异常入库 VIN",
+      "unexpectedHint": "补录信息后，系统会为此客户+本场地维护一张「散车」订单，把此 VIN 挂进去并一步完成入库分配。之前选好的库位/批次/车检/照片会继续使用。",
+      "unexpectedOk": "临时登记入库成功",
+      "customer": "客户",
+      "customerPlaceholder": "选择客户 (BYD 等)",
+      "brand": "品牌",
+      "model": "车型",
+      "color": "颜色",
+      "vehicleTypeLabel": "配置",
+      "motorNo": "发动机号"
     }
   },
   "pickup": {

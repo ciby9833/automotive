@@ -1,24 +1,91 @@
 'use client';
 
-import { Descriptions, Drawer, Space, Tag } from 'antd';
+import { useEffect, useState } from 'react';
+import {
+  Button,
+  Descriptions,
+  Drawer,
+  Form,
+  message,
+  Modal,
+  Select,
+  Space,
+  Tag,
+} from 'antd';
 import {
   CarOutlined,
   EnvironmentOutlined,
+  EditOutlined,
   PhoneOutlined,
   ShopOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import type { Waybill } from '@/lib/api/waybills';
+import { waybillsApi, type Waybill } from '@/lib/api/waybills';
+import { carriersApi, type Driver, type Vehicle } from '@/lib/api/carriers';
+import { useAuthStore } from '@/lib/auth/store';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface Props {
   waybill: Waybill | null;
   onClose: () => void;
+  onSaved?: () => void;
 }
 
 // 运单详情抽屉：展示司机/承运商/拖车/经销店全部联系方式，供业务员核对
-export function WaybillDetailDrawer({ waybill, onClose }: Props) {
+export function WaybillDetailDrawer({ waybill, onClose, onSaved }: Props) {
   const { t } = useTranslation();
+  const userRole = useAuthStore((s) => s.user?.role);
+  const userCarrierId = useAuthStore((s) => s.externalContext?.carrierId);
+
+  // 分派权限：HQ/ORG_ADMIN 全通；CARRIER_STAFF 仅自己承接的运单
+  // 且必须 NOT_ARRIVED + 未锁定，与后端校验对齐
+  const canAssign =
+    !!waybill &&
+    waybill.status === 'NOT_ARRIVED' &&
+    !waybill.isLocked &&
+    (userRole === 'HQ_ADMIN' ||
+      userRole === 'ORG_ADMIN' ||
+      (userRole === 'CARRIER_STAFF' && userCarrierId === waybill.carrierId));
+
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignForm] = Form.useForm();
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+
+  useEffect(() => {
+    if (!assignOpen || !waybill?.carrierId) return;
+    carriersApi.listDrivers(waybill.carrierId).then(setDrivers).catch(() => setDrivers([]));
+    carriersApi.listVehicles(waybill.carrierId).then(setVehicles).catch(() => setVehicles([]));
+    assignForm.setFieldsValue({
+      driverId: waybill.driver?.id ?? null,
+      vehicleId: waybill.vehicle?.id ?? null,
+    });
+  }, [assignOpen, waybill?.carrierId, waybill?.driver?.id, waybill?.vehicle?.id, assignForm]);
+
+  const submitAssign = async () => {
+    if (!waybill) return;
+    const values = (await assignForm.validateFields()) as {
+      driverId?: string | null;
+      vehicleId?: string | null;
+    };
+    setAssignSubmitting(true);
+    try {
+      await waybillsApi.assign(waybill.id, {
+        driverId: values.driverId ?? null,
+        vehicleId: values.vehicleId ?? null,
+      });
+      message.success(t('waybills.detail.assignOk'));
+      setAssignOpen(false);
+      onSaved?.();
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(detail || t('waybills.detail.assignFailed'));
+    } finally {
+      setAssignSubmitting(false);
+    }
+  };
 
   return (
     <Drawer
@@ -76,7 +143,26 @@ export function WaybillDetailDrawer({ waybill, onClose }: Props) {
 
           {/* 承运商 · 司机 · 拖车 */}
           <section style={cardStyle}>
-            <div style={sectionTitle}>{t('waybills.detail.carrierInfo')}</div>
+            <div
+              style={{
+                ...sectionTitle,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <span>{t('waybills.detail.carrierInfo')}</span>
+              {canAssign && (
+                <Button
+                  size="small"
+                  type="link"
+                  icon={<EditOutlined />}
+                  onClick={() => setAssignOpen(true)}
+                >
+                  {t('waybills.detail.assign')}
+                </Button>
+              )}
+            </div>
             <Descriptions column={2} size="small">
               <Descriptions.Item
                 label={
@@ -181,6 +267,42 @@ export function WaybillDetailDrawer({ waybill, onClose }: Props) {
           </section>
         </div>
       )}
+
+      <Modal
+        title={t('waybills.detail.assignTitle')}
+        open={assignOpen}
+        onCancel={() => setAssignOpen(false)}
+        onOk={submitAssign}
+        confirmLoading={assignSubmitting}
+        destroyOnClose
+      >
+        <Form form={assignForm} layout="vertical" preserve={false}>
+          <Form.Item label={t('waybills.detail.driver')} name="driverId">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={t('waybills.detail.driverPlaceholder')}
+              options={drivers.map((d) => ({
+                value: d.id,
+                label: `${d.name}${d.phone ? ` · ${d.phone}` : ''}`,
+              }))}
+            />
+          </Form.Item>
+          <Form.Item label={t('waybills.detail.plateNumber')} name="vehicleId">
+            <Select
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder={t('waybills.detail.vehiclePlaceholder')}
+              options={vehicles.map((v) => ({
+                value: v.id,
+                label: `${v.plateNumber}${v.towType ? ` · ${v.towType}` : ''}`,
+              }))}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
     </Drawer>
   );
 }

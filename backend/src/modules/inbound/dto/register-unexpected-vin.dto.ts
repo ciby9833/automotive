@@ -57,6 +57,13 @@ export class RegisterUnexpectedVinDto {
   @MaxLength(60)
   motorNo?: string;
 
+  // 目的场地。HQ/ORG_ADMIN 用 zoneCode 自动模式时必传；
+  // slotCode 模式可反查；YARD_STAFF 可省略走 scopeYardId 兜底
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsUUID()
+  yardId?: string;
+
   // 库位指定：slotCode 手动、zoneCode 自动 二选一
   @ApiProperty({ required: false })
   @IsOptional()

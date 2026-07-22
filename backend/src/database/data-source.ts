@@ -16,4 +16,7 @@ export const AppDataSource = new DataSource({
   entities: [__dirname + '/../modules/**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
   synchronize: false,
+  // 每个 migration 单独包事务：允许个别 migration 用 transaction=false 跳过
+  // (Postgres ALTER TYPE ADD VALUE 不能在事务里执行)
+  migrationsTransactionMode: 'each',
 });

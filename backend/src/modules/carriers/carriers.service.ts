@@ -78,4 +78,24 @@ export class CarriersService {
   findByIdUnscoped(id: string): Promise<Carrier | null> {
     return this.carriersRepository.findOne({ where: { id } });
   }
+
+  // 分派运单时使用：拉某承运商的司机 / 拖车列表
+  async listDrivers(carrierId: string, scope: EffectiveScope): Promise<Driver[]> {
+    await this.findOne(carrierId, scope);
+    return this.driversRepository.find({
+      where: { carrierId },
+      order: { name: 'ASC' },
+    });
+  }
+
+  async listVehicles(
+    carrierId: string,
+    scope: EffectiveScope,
+  ): Promise<Vehicle[]> {
+    await this.findOne(carrierId, scope);
+    return this.vehiclesRepository.find({
+      where: { carrierId },
+      order: { plateNumber: 'ASC' },
+    });
+  }
 }

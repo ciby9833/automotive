@@ -578,18 +578,19 @@ export class InboundService {
       );
     }
 
-    // 目的仓：slotCode 反查 或 场地作业员的 scopeYardId
-    let yardId: string | undefined;
-    if (dto.slotCode) {
+    // 目的仓解析优先级：dto.yardId 显式传 → slotCode 反查 → YARD_STAFF scopeYardId 兜底
+    let yardId: string | undefined = dto.yardId;
+    if (!yardId && dto.slotCode) {
       const slot = await this.slotRepo.findOne({ where: { code: dto.slotCode } });
       if (!slot) throw new NotFoundException(`库位 ${dto.slotCode} 不存在`);
       yardId = slot.yardId;
-    } else if (scope.role === Role.YARD_STAFF && scope.scopeYardId) {
+    }
+    if (!yardId && scope.role === Role.YARD_STAFF && scope.scopeYardId) {
       yardId = scope.scopeYardId;
     }
     if (!yardId) {
       throw new BadRequestException(
-        '无法确定目的场地：请指定 slotCode 或以场地业务员身份登录',
+        '无法确定目的场地：请传 yardId、slotCode 或以场地业务员身份登录',
       );
     }
     const yard = await this.yardRepo.findOne({ where: { id: yardId } });

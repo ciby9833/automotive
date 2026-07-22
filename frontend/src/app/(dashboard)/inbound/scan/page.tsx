@@ -20,6 +20,7 @@ import {
 import { CheckCircleOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons';
 import { inboundApi, InboundBatch } from '@/lib/api/inbound';
 import { yardsApi, Yard, YardSlot } from '@/lib/api/yards';
+import { customersApi, Customer } from '@/lib/api/customers';
 import { VinScanner } from '@/components/scan/VinScanner';
 import { SlotPicker } from '@/components/scan/SlotPicker';
 import { PhotoUpload } from '@/components/scan/PhotoUpload';
@@ -55,8 +56,15 @@ export default function InboundScanPage() {
   const [newBatchOpen, setNewBatchOpen] = useState(false);
   const [batchForm] = Form.useForm();
 
+  // 未登记 VIN 到仓的应急登记 Modal
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [unexpectedOpen, setUnexpectedOpen] = useState(false);
+  const [unexpectedForm] = Form.useForm();
+  const [unexpectedSubmitting, setUnexpectedSubmitting] = useState(false);
+
   useEffect(() => {
     yardsApi.list().then(setYards).catch(() => undefined);
+    customersApi.list().then(setCustomers).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -167,9 +175,70 @@ export default function InboundScanPage() {
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
-      message.error(detail || t('inbound.scan.submitFailed'));
+      // VIN 不在系统 → 主动打开"临时登记"表单，让业务员补录车辆基本信息
+      if (
+        typeof detail === 'string' &&
+        (detail.includes('未找到') || detail.toLowerCase().includes('not found'))
+      ) {
+        message.warning(t('inbound.scan.unexpectedPrompt'));
+        unexpectedForm.setFieldsValue({ vin });
+        setUnexpectedOpen(true);
+      } else {
+        message.error(detail || t('inbound.scan.submitFailed'));
+      }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // 提交"临时登记"→ 建/找散车订单 → 挂 VIN → 入库分配
+  // 复用当前 stage 里的 slot/zone/photos/vehicleCheck，避免让业务员重填一遍
+  const submitUnexpected = async () => {
+    const values = (await unexpectedForm.validateFields()) as {
+      customerId: string;
+      brand?: string;
+      model?: string;
+      color?: string;
+      motorNo?: string;
+      vehicleType?: string;
+    };
+    if (photos.length === 0) {
+      message.warning(t('inbound.scan.needPhoto'));
+      return;
+    }
+    setUnexpectedSubmitting(true);
+    try {
+      const check: Record<string, string | number> = {};
+      if (battery !== null) check.battery = battery;
+      if (mileage !== null) check.mileage = mileage;
+      if (exterior) check.exterior = exterior;
+      const result = await inboundApi.registerUnexpectedScan({
+        vin,
+        customerId: values.customerId,
+        brand: values.brand,
+        model: values.model,
+        color: values.color,
+        vehicleType: values.vehicleType,
+        motorNo: values.motorNo,
+        // 显式带上当前场地，避免后端 zoneCode 模式下 HQ_ADMIN 无法解析目的仓
+        yardId: selectedYardId ?? undefined,
+        ...(assignMode === 'manual' ? { slotCode } : { zoneCode }),
+        inboundBatchId: selectedBatchId ?? undefined,
+        vehicleCheckInfo: Object.keys(check).length > 0 ? check : undefined,
+        photoUrls: photos,
+        remark: remark || undefined,
+      });
+      setAssignedSlotCode(result.slot?.code ?? '');
+      setUnexpectedOpen(false);
+      unexpectedForm.resetFields();
+      setStage('done');
+      message.success(t('inbound.scan.unexpectedOk'));
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
+      message.error(detail || t('inbound.scan.submitFailed'));
+    } finally {
+      setUnexpectedSubmitting(false);
     }
   };
 
@@ -451,6 +520,53 @@ export default function InboundScanPage() {
           style={{ marginTop: 12 }}
         />
       )}
+
+      <Modal
+        title={t('inbound.scan.unexpectedTitle')}
+        open={unexpectedOpen}
+        onCancel={() => setUnexpectedOpen(false)}
+        onOk={submitUnexpected}
+        confirmLoading={unexpectedSubmitting}
+        destroyOnClose
+      >
+        <Alert
+          type="info"
+          message={t('inbound.scan.unexpectedHint')}
+          style={{ marginBottom: 12 }}
+        />
+        <Form form={unexpectedForm} layout="vertical" preserve={false}>
+          <Form.Item label="VIN" name="vin">
+            <Input disabled />
+          </Form.Item>
+          <Form.Item
+            label={t('inbound.scan.customer')}
+            name="customerId"
+            rules={[{ required: true }]}
+          >
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder={t('inbound.scan.customerPlaceholder')}
+              options={customers.map((c) => ({ value: c.id, label: c.name }))}
+            />
+          </Form.Item>
+          <Form.Item label={t('inbound.scan.brand')} name="brand">
+            <Input maxLength={60} placeholder="BYD" />
+          </Form.Item>
+          <Form.Item label={t('inbound.scan.model')} name="model">
+            <Input maxLength={120} />
+          </Form.Item>
+          <Form.Item label={t('inbound.scan.color')} name="color">
+            <Input maxLength={60} />
+          </Form.Item>
+          <Form.Item label={t('inbound.scan.vehicleTypeLabel')} name="vehicleType">
+            <Input maxLength={60} />
+          </Form.Item>
+          <Form.Item label={t('inbound.scan.motorNo')} name="motorNo">
+            <Input maxLength={60} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }

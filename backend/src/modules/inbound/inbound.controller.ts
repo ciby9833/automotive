@@ -25,6 +25,7 @@ import { ImportInboundOrderDto } from './dto/import-inbound-order.dto';
 import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
 import { UpdateOrderVinDto } from './dto/update-order-vin.dto';
+import { RegisterUnexpectedVinDto } from './dto/register-unexpected-vin.dto';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 
 @ApiTags('inbound')
@@ -199,6 +200,18 @@ export class InboundController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.inboundService.inboundScan(dto, user);
+  }
+
+  // 未登记 VIN 到仓的应急登记 (车不在任何订单里但已到仓)
+  // 建/找散车订单 → 挂 VIN → 走入库分配 一步完成
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.INBOUND_SCAN)
+  @Post('inbound/scan/unregistered')
+  registerUnexpected(
+    @Body() dto: RegisterUnexpectedVinDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inboundService.registerUnexpectedVinAndScan(dto, user);
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)

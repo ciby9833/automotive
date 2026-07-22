@@ -188,6 +188,10 @@ export default function WaybillsPage() {
       <WaybillDetailDrawer
         waybill={detailWaybill}
         onClose={() => setDetailWaybill(null)}
+        onSaved={() => {
+          setDetailWaybill(null);
+          load();
+        }}
       />
     </div>
   );

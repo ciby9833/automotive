@@ -152,7 +152,13 @@
       "dealerCode": "Kode",
       "dealerPhone": "Telp",
       "dealerAddress": "Alamat",
-      "vinList": "Daftar VIN"
+      "vinList": "Daftar VIN",
+      "assign": "Tugaskan",
+      "assignTitle": "Tugaskan sopir / kendaraan",
+      "assignOk": "Tersimpan",
+      "assignFailed": "Gagal menyimpan",
+      "driverPlaceholder": "Pilih sopir (bisa kosong)",
+      "vehiclePlaceholder": "Pilih kendaraan (bisa kosong)"
     }
   },
   "yards": {
@@ -348,7 +354,9 @@
       "PICKUP_SCAN": "Scan pickup",
       "INBOUND_SCAN": "Scan inbound",
       "INBOUND_UNDO": "Inbound dibatalkan",
+      "INBOUND_UNEXPECTED": "VIN belum terdaftar diregistrasi",
       "YARD_MOVE": "Pindah slot",
+      "WAYBILL_ASSIGN": "Sopir/kendaraan ditugaskan",
       "OUTBOUND_ORDER_IMPORT": "Order outbound diimpor",
       "OUTBOUND_ORDER_CANCEL": "Order outbound dibatalkan",
       "WAYBILL_PLAN": "SJ dibuat",
@@ -666,7 +674,18 @@
       "notes": "Catatan",
       "batchCreated": "Batch dibuat",
       "batchCreateFailed": "Gagal membuat batch",
-      "selectYardFirst": "Pilih yard Anda dulu"
+      "selectYardFirst": "Pilih yard Anda dulu",
+      "unexpectedPrompt": "VIN ini tidak ada di order manapun — silakan input info pelanggan & kendaraan",
+      "unexpectedTitle": "Registrasi VIN belum terdaftar",
+      "unexpectedHint": "Sistem akan mengaitkan VIN ini ke order 'lepasan' untuk pelanggan+yard ini, lalu menyelesaikan scan inbound. Slot/batch/foto/pengecekan yang sudah dipilih tetap digunakan.",
+      "unexpectedOk": "Berhasil terdaftar & disimpan",
+      "customer": "Pelanggan",
+      "customerPlaceholder": "Pilih pelanggan (mis. BYD)",
+      "brand": "Merek",
+      "model": "Model",
+      "color": "Warna",
+      "vehicleTypeLabel": "Varian",
+      "motorNo": "No. Mesin"
     }
   },
   "pickup": {

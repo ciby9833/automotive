@@ -14,6 +14,21 @@ export interface Carrier {
   isActive: boolean;
 }
 
+export interface Driver {
+  id: string;
+  name: string;
+  phone: string | null;
+  licenseNo: string | null;
+  carrierId: string;
+}
+
+export interface Vehicle {
+  id: string;
+  plateNumber: string;
+  towType: string | null;
+  carrierId: string;
+}
+
 export const carriersApi = {
   list: (organizationId?: string) =>
     unwrap<Carrier[]>(apiClient.get('/carriers', { params: { organizationId } })),
@@ -26,10 +41,14 @@ export const carriersApi = {
     contactPhone?: string;
     email?: string;
   }) => unwrap<Carrier>(apiClient.post('/carriers', dto)),
+  listDrivers: (carrierId: string) =>
+    unwrap<Driver[]>(apiClient.get(`/carriers/${carrierId}/drivers`)),
+  listVehicles: (carrierId: string) =>
+    unwrap<Vehicle[]>(apiClient.get(`/carriers/${carrierId}/vehicles`)),
   addDriver: (
     carrierId: string,
     dto: { name: string; phone?: string; licenseNo?: string },
-  ) => unwrap(apiClient.post(`/carriers/${carrierId}/drivers`, dto)),
+  ) => unwrap<Driver>(apiClient.post(`/carriers/${carrierId}/drivers`, dto)),
   addVehicle: (carrierId: string, dto: { plateNumber: string; towType?: string }) =>
-    unwrap(apiClient.post(`/carriers/${carrierId}/vehicles`, dto)),
+    unwrap<Vehicle>(apiClient.post(`/carriers/${carrierId}/vehicles`, dto)),
 };

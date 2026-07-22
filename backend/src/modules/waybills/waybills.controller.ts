@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Patch,
   Param,
   ParseUUIDPipe,
   Post,
@@ -22,6 +23,7 @@ import { CreateWaybillDto } from './dto/create-waybill.dto';
 import { ScanDto } from './dto/scan.dto';
 import { LoadVinDto } from './dto/load-vin.dto';
 import { DepartWaybillDto } from './dto/depart-waybill.dto';
+import { AssignWaybillDto } from './dto/assign-waybill.dto';
 import { WaybillStatus } from '../../common/enums/waybill-status.enum';
 import { TransportType } from '../../common/enums/order-type.enum';
 
@@ -162,5 +164,20 @@ export class WaybillsController {
     const scope = await this.scopeService.resolve(user);
     await this.waybillsService.cancelWaybill(id, scope, user.userId);
     return { ok: true };
+  }
+
+  // 分派司机 / 拖车 (承运商开单后补录，或极兔直接指派)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Patch(':id/assignment')
+  async assign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignWaybillDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.waybillsService.assignWaybill(id, dto, {
+      userId: user.userId,
+      role: user.role,
+      carrierId: user.carrierId,
+    });
   }
 }

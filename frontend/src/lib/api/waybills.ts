@@ -104,4 +104,9 @@ export const waybillsApi = {
     waybillId: string,
     payload: { gatePhotoKeys?: string[]; remark?: string },
   ) => unwrap<Waybill>(apiClient.post(`/waybills/${waybillId}/depart`, payload)),
+  assign: (
+    waybillId: string,
+    payload: { driverId?: string | null; vehicleId?: string | null },
+  ) =>
+    unwrap<Waybill>(apiClient.patch(`/waybills/${waybillId}/assignment`, payload)),
 };

@@ -17,11 +17,13 @@ export class OperationLog1784200000000 implements MigrationInterface {
         );
       EXCEPTION WHEN duplicate_object THEN NULL; END $$;`,
     );
+    // BaseEntity 里 @CreateDateColumn 显式 name: created_at；实际 DB 列是 snake_case
+    // uuid_generate_v4() 用 uuid-ossp 扩展 (与 InitialSchema 一致)，避免依赖 pgcrypto
     await queryRunner.query(
       `CREATE TABLE IF NOT EXISTS "operation_logs" (
-        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        "createdAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        "updatedAt" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
         "operation_type" "public"."operation_logs_operation_type_enum" NOT NULL,
         "order_id" uuid,
         "vin" varchar,
@@ -37,7 +39,7 @@ export class OperationLog1784200000000 implements MigrationInterface {
       `CREATE INDEX IF NOT EXISTS "idx_operation_logs_order_id" ON "operation_logs"("order_id")`,
     );
     await queryRunner.query(
-      `CREATE INDEX IF NOT EXISTS "idx_operation_logs_created_at" ON "operation_logs"("createdAt" DESC)`,
+      `CREATE INDEX IF NOT EXISTS "idx_operation_logs_created_at" ON "operation_logs"("created_at" DESC)`,
     );
   }
 

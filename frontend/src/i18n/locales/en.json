@@ -152,7 +152,13 @@
       "dealerCode": "Code",
       "dealerPhone": "Phone",
       "dealerAddress": "Address",
-      "vinList": "VIN List"
+      "vinList": "VIN List",
+      "assign": "Assign",
+      "assignTitle": "Assign driver / vehicle",
+      "assignOk": "Saved",
+      "assignFailed": "Save failed",
+      "driverPlaceholder": "Pick a driver (clearable)",
+      "vehiclePlaceholder": "Pick a vehicle (clearable)"
     }
   },
   "yards": {
@@ -348,7 +354,9 @@
       "PICKUP_SCAN": "Pickup scan",
       "INBOUND_SCAN": "Inbound scan",
       "INBOUND_UNDO": "Inbound undone",
+      "INBOUND_UNEXPECTED": "Unregistered VIN registered",
       "YARD_MOVE": "Yard move",
+      "WAYBILL_ASSIGN": "Driver/vehicle assigned",
       "OUTBOUND_ORDER_IMPORT": "Outbound order imported",
       "OUTBOUND_ORDER_CANCEL": "Outbound order cancelled",
       "WAYBILL_PLAN": "Waybill planned",
@@ -666,7 +674,18 @@
       "notes": "Notes",
       "batchCreated": "Batch created",
       "batchCreateFailed": "Failed to create batch",
-      "selectYardFirst": "Select your yard first"
+      "selectYardFirst": "Select your yard first",
+      "unexpectedPrompt": "This VIN is not in any order — please register the customer and vehicle info",
+      "unexpectedTitle": "Register unregistered VIN",
+      "unexpectedHint": "The system will attach this VIN to a 'stray' order for this customer + yard, then complete the inbound scan. The slot/batch/photos/checks you already entered are reused.",
+      "unexpectedOk": "Registered and stored",
+      "customer": "Customer",
+      "customerPlaceholder": "Select customer (e.g. BYD)",
+      "brand": "Brand",
+      "model": "Model",
+      "color": "Color",
+      "vehicleTypeLabel": "Trim",
+      "motorNo": "Motor #"
     }
   },
   "pickup": {

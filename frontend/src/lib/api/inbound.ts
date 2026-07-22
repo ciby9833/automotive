@@ -161,6 +161,26 @@ export const inboundApi = {
     photoUrls?: string[];
     remark?: string;
   }) => unwrap<InboundOrderVinDetail>(apiClient.post('/inbound/scan', payload)),
+  // 未登记 VIN 应急登记 (车到但订单没这台) → 后端建/找散车订单 + 入库
+  registerUnexpectedScan: (payload: {
+    vin: string;
+    customerId: string;
+    brand?: string;
+    model?: string;
+    color?: string;
+    vehicleType?: string;
+    motorNo?: string;
+    yardId?: string;
+    slotCode?: string;
+    zoneCode?: string;
+    inboundBatchId?: string;
+    vehicleCheckInfo?: Record<string, string | number>;
+    photoUrls: string[];
+    remark?: string;
+  }) =>
+    unwrap<InboundOrderVinDetail>(
+      apiClient.post('/inbound/scan/unregistered', payload),
+    ),
   createBatch: (payload: {
     yardId: string;
     batchCode: string;

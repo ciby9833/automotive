@@ -667,4 +667,79 @@ export class WaybillsService {
     }
     throw new ForbiddenException('无权执行装车/启运');
   }
+
+  // 分派司机 / 拖车。承运商开单后由 CARRIER_STAFF 补录常用，也可 ORG_ADMIN 直接指派
+  // 仅未启运 (NOT_ARRIVED) 且未锁定的运单允许改；避免运输中/到达后再篡改责任人
+  async assignWaybill(
+    waybillId: string,
+    dto: { driverId?: string | null; vehicleId?: string | null },
+    user: {
+      userId: string;
+      role: Role;
+      carrierId?: string | null;
+    },
+  ): Promise<Waybill> {
+    const waybill = await this.findByIdUnscoped(waybillId);
+    if (!waybill) throw new NotFoundException('运单不存在');
+
+    if (
+      user.role !== Role.HQ_ADMIN &&
+      user.role !== Role.ORG_ADMIN &&
+      !(user.role === Role.CARRIER_STAFF && waybill.carrierId === user.carrierId)
+    ) {
+      throw new ForbiddenException('无权分派此运单');
+    }
+
+    if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
+      throw new BadRequestException(
+        `运单已 ${waybill.status}，无法再改司机/车辆`,
+      );
+    }
+    if (waybill.isLocked) {
+      throw new BadRequestException('运单已锁定，无法修改');
+    }
+
+    // 校验司机/车辆归属：必须属于此运单的承运商，防跨供应商乱指
+    if (dto.driverId) {
+      const driver = await this.dataSource
+        .getRepository('drivers')
+        .findOne({ where: { id: dto.driverId } });
+      if (!driver) throw new NotFoundException('司机不存在');
+      if ((driver as { carrierId?: string }).carrierId !== waybill.carrierId) {
+        throw new BadRequestException('司机不属于此运单的承运商');
+      }
+    }
+    if (dto.vehicleId) {
+      const vehicle = await this.dataSource
+        .getRepository('vehicles')
+        .findOne({ where: { id: dto.vehicleId } });
+      if (!vehicle) throw new NotFoundException('拖车不存在');
+      if ((vehicle as { carrierId?: string }).carrierId !== waybill.carrierId) {
+        throw new BadRequestException('拖车不属于此运单的承运商');
+      }
+    }
+
+    const before = { driverId: waybill.driverId, vehicleId: waybill.vehicleId };
+    if (dto.driverId !== undefined) waybill.driverId = dto.driverId;
+    if (dto.vehicleId !== undefined) waybill.vehicleId = dto.vehicleId;
+    const saved = await this.waybillsRepository.save(waybill);
+
+    // 每台车都写一条审计日志，追溯"谁在何时分派了谁"
+    const wvs = await this.waybillVinsRepository.find({ where: { waybillId } });
+    for (const wv of wvs) {
+      await this.audit.log({
+        operationType: OperationType.WAYBILL_ASSIGN,
+        vin: wv.vin,
+        operatorUserId: user.userId,
+        payload: {
+          waybillId,
+          waybillCode: waybill.waybillCode,
+          before,
+          after: { driverId: saved.driverId, vehicleId: saved.vehicleId },
+        },
+      });
+    }
+
+    return saved;
+  }
 }

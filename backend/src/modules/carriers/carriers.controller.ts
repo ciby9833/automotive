@@ -62,6 +62,16 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Get(':id/drivers')
+  async listDrivers(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.listDrivers(id, scope);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
   @Post(':id/drivers')
   async addDriver(
     @Param('id') id: string,
@@ -70,6 +80,16 @@ export class CarriersController {
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.carriersService.addDriver(id, dto, scope);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Get(':id/vehicles')
+  async listVehicles(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.listVehicles(id, scope);
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)

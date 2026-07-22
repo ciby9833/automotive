@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -468,6 +469,162 @@ export class YardsService {
       orderVin,
       waybills: waybillVins.map((wv) => wv.waybill).filter(Boolean),
       events,
+    };
+  }
+
+  // 批量库位分配：go-live 初始化 / 大规模移位
+  // 语义：把 (VIN, targetSlotCode) 逐条落库。VIN 已 ARRIVED 时释放旧 slot；EXPECTED 时置 ARRIVED
+  // 失败按行汇总原因返回，不阻塞整批 (一致性交给业务员按结果人工纠错)
+  // 事务粒度：每行一个事务；避免一整批因单行冲突全 rollback
+  async batchAssignSlots(
+    yardId: string,
+    items: Array<{ vin: string; slotCode: string }>,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<{
+    total: number;
+    succeeded: number;
+    skipped: Array<{ vin: string; reason: string }>;
+    failed: Array<{ vin: string; slotCode: string; reason: string }>;
+  }> {
+    const yard = await this.yardsRepository.findOne({ where: { id: yardId } });
+    if (!yard) throw new NotFoundException('目标场地不存在');
+    this.scopeService.assertOrgWritable(scope, yard.organizationId);
+    if (
+      scope.type === 'ORG' &&
+      scope.role === Role.YARD_STAFF &&
+      scope.scopeYardId &&
+      scope.scopeYardId !== yardId
+    ) {
+      throw new ForbiddenException('仅本场地作业员可分配此场地库位');
+    }
+
+    // 行内去重：同一 VIN 只保留最后一行
+    const seen = new Set<string>();
+    const uniqueItems: typeof items = [];
+    for (let i = items.length - 1; i >= 0; i -= 1) {
+      const key = items[i].vin.trim().toUpperCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      uniqueItems.unshift({ ...items[i], vin: key });
+    }
+
+    const skipped: Array<{ vin: string; reason: string }> = [];
+    const failed: Array<{ vin: string; slotCode: string; reason: string }> = [];
+    let succeeded = 0;
+
+    for (const row of uniqueItems) {
+      try {
+        const moveResult = await this.dataSource.transaction(async (mgr) => {
+          const vinRepo = mgr.getRepository(OrderVin);
+          const slotRepo = mgr.getRepository(YardSlot);
+
+          const orderVin = await vinRepo.findOne({ where: { vin: row.vin } });
+          if (!orderVin) return { skip: 'VIN 未在系统中' };
+          if (orderVin.arrivalStatus === OrderVinArrivalStatus.CANCELLED) {
+            return { skip: 'VIN 已取消' };
+          }
+
+          const targetSlot = await slotRepo.findOne({
+            where: { code: row.slotCode, yardId },
+          });
+          if (!targetSlot) {
+            return { fail: `目标库位 ${row.slotCode} 不在此场地` };
+          }
+          if (targetSlot.isLocked) {
+            return { fail: `目标库位 ${row.slotCode} 已锁定` };
+          }
+          if (
+            targetSlot.status === YardSlotStatus.OCCUPIED &&
+            targetSlot.currentVin !== row.vin
+          ) {
+            return {
+              fail: `目标库位 ${row.slotCode} 已被 ${targetSlot.currentVin} 占用`,
+            };
+          }
+
+          // 幂等：VIN 已在这个 slot → 直接 skip
+          if (orderVin.slotId === targetSlot.id) {
+            return { skip: '已在目标库位' };
+          }
+
+          // 释放旧 slot (如果有)
+          if (orderVin.slotId) {
+            const oldSlot = await slotRepo.findOne({
+              where: { id: orderVin.slotId },
+            });
+            if (oldSlot && oldSlot.currentVin === row.vin) {
+              oldSlot.status = YardSlotStatus.VACANT;
+              oldSlot.currentVin = null;
+              oldSlot.assignedAt = null;
+              await slotRepo.save(oldSlot);
+            }
+          }
+
+          // 占目标 slot + 更新 VIN
+          targetSlot.status = YardSlotStatus.OCCUPIED;
+          targetSlot.currentVin = row.vin;
+          targetSlot.assignedAt = new Date();
+          await slotRepo.save(targetSlot);
+
+          const wasExpected =
+            orderVin.arrivalStatus === OrderVinArrivalStatus.EXPECTED;
+          orderVin.slotId = targetSlot.id;
+          if (wasExpected) {
+            orderVin.arrivalStatus = OrderVinArrivalStatus.ARRIVED;
+            orderVin.arrivedAt = new Date();
+            orderVin.arrivedByUserId = operatorUserId ?? null;
+          }
+          await vinRepo.save(orderVin);
+
+          return {
+            success: {
+              orderId: orderVin.orderId,
+              slotCode: targetSlot.code,
+              wasExpected,
+            },
+          };
+        });
+
+        if (moveResult.skip) {
+          skipped.push({ vin: row.vin, reason: moveResult.skip });
+        } else if (moveResult.fail) {
+          failed.push({
+            vin: row.vin,
+            slotCode: row.slotCode,
+            reason: moveResult.fail,
+          });
+        } else if (moveResult.success) {
+          succeeded += 1;
+          // 事务外记审计：EXPECTED→ARRIVED 视同 INBOUND_SCAN；已 ARRIVED 视同 YARD_MOVE
+          await this.audit.log({
+            operationType: moveResult.success.wasExpected
+              ? OperationType.INBOUND_SCAN
+              : OperationType.YARD_MOVE,
+            orderId: moveResult.success.orderId,
+            vin: row.vin,
+            operatorUserId,
+            payload: {
+              slotCode: moveResult.success.slotCode,
+              yardId,
+              bulk: true,
+            },
+          });
+        }
+      } catch (err) {
+        failed.push({
+          vin: row.vin,
+          slotCode: row.slotCode,
+          reason: (err as Error).message ?? '未知错误',
+        });
+      }
+    }
+
+    return {
+      total: uniqueItems.length,
+      succeeded,
+      skipped,
+      failed,
     };
   }
 }

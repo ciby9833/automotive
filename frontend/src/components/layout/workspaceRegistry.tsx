@@ -13,6 +13,7 @@ import DeliverySignPage from '@/app/(dashboard)/delivery/sign/page';
 import { OutboundOrderDetail } from '@/app/(dashboard)/outbound/orders/[id]/page';
 import WaybillsPage from '@/app/(dashboard)/waybills/page';
 import YardBoardPage from '@/app/(dashboard)/yards/page';
+import YardBatchAssignPage from '@/app/(dashboard)/yards/batch-assign/page';
 import VinInventoryPage from '@/app/(dashboard)/vin-inventory/page';
 import TrackingPage from '@/app/(dashboard)/tracking/page';
 import FinancePage from '@/app/(dashboard)/finance/page';
@@ -37,6 +38,7 @@ const WORKSPACE_PAGE_REGISTRY: Record<string, ComponentType> = {
   '/delivery/sign': DeliverySignPage,
   '/waybills': WaybillsPage,
   '/yards': YardBoardPage,
+  '/yards/batch-assign': YardBatchAssignPage,
   '/vin-inventory': VinInventoryPage,
   '/tracking': TrackingPage,
   '/finance': FinancePage,

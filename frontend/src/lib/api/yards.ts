@@ -109,4 +109,16 @@ export const yardsApi = {
   // VIN 全生命周期：orderVin + 出库运单 + 事件流水
   vinLifecycle: (vin: string) =>
     unwrap<VinLifecycle>(apiClient.get(`/yards/vin/${vin}/lifecycle`)),
+  // 批量分配库位 (初始化 / 大规模移位)
+  batchAssignSlots: (payload: {
+    yardId: string;
+    items: Array<{ vin: string; slotCode: string }>;
+    remark?: string;
+  }) =>
+    unwrap<{
+      total: number;
+      succeeded: number;
+      skipped: Array<{ vin: string; reason: string }>;
+      failed: Array<{ vin: string; slotCode: string; reason: string }>;
+    }>(apiClient.post('/yards/slots/batch-assign', payload)),
 };

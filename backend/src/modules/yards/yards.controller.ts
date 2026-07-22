@@ -24,6 +24,7 @@ import { CreateYardSlotDto } from './dto/create-yard-slot.dto';
 import { BulkCreateSlotsDto } from './dto/bulk-create-slots.dto';
 import { AssignSlotDto } from './dto/assign-slot.dto';
 import { MoveSlotDto } from './dto/move-slot.dto';
+import { BatchAssignSlotDto } from './dto/batch-assign-slot.dto';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Permission } from '../../common/enums/permission.enum';
 
@@ -153,6 +154,23 @@ export class YardsController {
     return this.yardsService.moveSlot(
       dto.fromSlotId,
       dto.toSlotId,
+      user.userId,
+    );
+  }
+
+  // 批量库位分配 (初始化 / 批量移位) — Excel 解析后走此接口
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_MOVE_VEHICLE)
+  @Post('slots/batch-assign')
+  async batchAssign(
+    @Body() dto: BatchAssignSlotDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.yardsService.batchAssignSlots(
+      dto.yardId,
+      dto.items,
+      scope,
       user.userId,
     );
   }

@@ -47,6 +47,7 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
     ]},
     { key: 'yardOps', i18nKey: 'nav.group.yardOps', items: [
       { key: 'yard-board', i18nKey: 'nav.yardBoard', path: '/yards' },
+      { key: 'yard-batch-assign', i18nKey: 'nav.yardBatchAssign', path: '/yards/batch-assign' },
       { key: 'vin-inventory', i18nKey: 'nav.vinInventory', path: '/vin-inventory' },
     ]},
     { key: 'monitoring', i18nKey: 'nav.group.monitoring', items: [
@@ -85,6 +86,7 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
     ]},
     { key: 'yardOps', i18nKey: 'nav.group.yardOps', items: [
       { key: 'yard-board', i18nKey: 'nav.yardBoard', path: '/yards' },
+      { key: 'yard-batch-assign', i18nKey: 'nav.yardBatchAssign', path: '/yards/batch-assign' },
       { key: 'vin-inventory', i18nKey: 'nav.vinInventory', path: '/vin-inventory' },
     ]},
     { key: 'monitoring', i18nKey: 'nav.group.monitoring', items: [
@@ -114,6 +116,7 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
     ]},
     { key: 'yardOps', i18nKey: 'nav.group.yardOps', items: [
       { key: 'yard-board', i18nKey: 'nav.yardBoard', path: '/yards' },
+      { key: 'yard-batch-assign', i18nKey: 'nav.yardBatchAssign', path: '/yards/batch-assign' },
       { key: 'vin-inventory', i18nKey: 'nav.vinInventory', path: '/vin-inventory' },
       { key: 'waybills', i18nKey: 'nav.myWaybillsForYard', path: '/waybills' },
     ]},

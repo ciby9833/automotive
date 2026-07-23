@@ -26,6 +26,9 @@ import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
 import { UpdateOrderVinDto } from './dto/update-order-vin.dto';
 import { RegisterUnexpectedVinDto } from './dto/register-unexpected-vin.dto';
+import { AssignPickupDto } from './dto/assign-pickup.dto';
+import { PickupOrderScanDto } from './dto/pickup-order-scan.dto';
+import { OrderPickupStatus } from '../../common/enums/order-pickup-status.enum';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 
 @ApiTags('inbound')
@@ -140,6 +143,19 @@ export class InboundController {
     return { ok: true };
   }
 
+  // HQ / ORG_ADMIN 给入库订单分派提货承运商 (可选到司机)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.INBOUND_IMPORT)
+  @Patch('inbound/orders/:id/pickup-assignment')
+  async assignPickup(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignPickupDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.inboundService.assignPickup(id, dto, scope, user.userId);
+  }
+
   // 已取消订单重新导入 VIN (恢复 ACTIVE + 追加 VIN)
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
   @Permissions(Permission.INBOUND_IMPORT)
@@ -188,6 +204,44 @@ export class InboundController {
   @Get('pickup/my')
   myPickups(@CurrentUser() user: AuthenticatedUser) {
     return this.inboundService.listMyPickups(user);
+  }
+
+  // 承运商任务池：分给我家的入库订单
+  @Roles(Role.CARRIER_DRIVER, Role.CARRIER_STAFF)
+  @Permissions(Permission.PICKUP_VIEW)
+  @Get('pickup/orders')
+  listPickupOrders(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('status') status?: OrderPickupStatus,
+    @Query('includeCompleted') includeCompleted?: string,
+  ) {
+    return this.inboundService.listPickupOrdersForCarrier(user, {
+      status,
+      includeCompleted: includeCompleted === 'true' || includeCompleted === '1',
+    });
+  }
+
+  // 单个提货任务详情：订单头 + VIN 分组 + 统计
+  @Roles(Role.CARRIER_DRIVER, Role.CARRIER_STAFF)
+  @Permissions(Permission.PICKUP_VIEW)
+  @Get('pickup/orders/:id')
+  getPickupOrder(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inboundService.getPickupOrderDetail(id, user);
+  }
+
+  // 订单维度扫码：VIN 不在此任务时按 allowOutOfOrder 决定接受/拒绝
+  @Roles(Role.CARRIER_DRIVER, Role.CARRIER_STAFF)
+  @Permissions(Permission.PICKUP_SCAN)
+  @Post('pickup/orders/:id/scan')
+  pickupOrderScan(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PickupOrderScanDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.inboundService.pickupOrderScan(id, dto, user);
   }
 
   // ============ 场地业务员：入库扫描 & 批次 ============

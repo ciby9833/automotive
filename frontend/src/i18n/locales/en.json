@@ -524,6 +524,23 @@
     "refresh": "Refresh",
     "optional": "optional"
   },
+  "driverPicker": {
+    "driver": "Driver",
+    "vehicle": "Vehicle",
+    "driverPlaceholder": "Pick a driver (clearable)",
+    "vehiclePlaceholder": "Pick a vehicle (clearable)",
+    "pickCarrierFirst": "Select a carrier first",
+    "newDriverTitle": "New driver",
+    "newVehicleTitle": "New vehicle",
+    "driverName": "Name",
+    "driverPhone": "Phone",
+    "driverLicense": "License #",
+    "plateNumber": "Plate #",
+    "towType": "Tow Type",
+    "driverCreated": "Driver added and selected",
+    "vehicleCreated": "Vehicle added and selected",
+    "createFailed": "Create failed"
+  },
   "inbound": {
     "import": {
       "title": "Import Inbound Order",
@@ -753,6 +770,9 @@
       "waybill": "Waybill",
       "dealer": "Dealer",
       "dealerMissing": "No dealer set on this waybill",
+      "dealerUnloaded": "Dealer details were not loaded",
+      "recipientName": "Recipient",
+      "recipientPhone": "Recipient Phone",
       "originYard": "Origin Yard",
       "progress": "Sign progress",
       "signPhoto": "Sign evidence (optional)",

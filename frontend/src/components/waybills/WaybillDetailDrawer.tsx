@@ -1,17 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import {
-  Button,
-  Descriptions,
-  Drawer,
-  Form,
-  message,
-  Modal,
-  Select,
-  Space,
-  Tag,
-} from 'antd';
+import { useState } from 'react';
+import { Button, Descriptions, Drawer, Space, Tag } from 'antd';
 import {
   CarOutlined,
   EnvironmentOutlined,
@@ -20,10 +10,11 @@ import {
   ShopOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { waybillsApi, type Waybill } from '@/lib/api/waybills';
-import { carriersApi, type Driver, type Vehicle } from '@/lib/api/carriers';
+import { type Waybill } from '@/lib/api/waybills';
 import { useAuthStore } from '@/lib/auth/store';
 import { useTranslation } from '@/i18n/useTranslation';
+import { AssignWaybillModal } from './AssignWaybillModal';
+import { canAssignWaybill } from './canAssignWaybill';
 
 interface Props {
   waybill: Waybill | null;
@@ -37,55 +28,12 @@ export function WaybillDetailDrawer({ waybill, onClose, onSaved }: Props) {
   const userRole = useAuthStore((s) => s.user?.role);
   const userCarrierId = useAuthStore((s) => s.externalContext?.carrierId);
 
-  // 分派权限：HQ/ORG_ADMIN 全通；CARRIER_STAFF 仅自己承接的运单
-  // 且必须 NOT_ARRIVED + 未锁定，与后端校验对齐
-  const canAssign =
-    !!waybill &&
-    waybill.status === 'NOT_ARRIVED' &&
-    !waybill.isLocked &&
-    (userRole === 'HQ_ADMIN' ||
-      userRole === 'ORG_ADMIN' ||
-      (userRole === 'CARRIER_STAFF' && userCarrierId === waybill.carrierId));
+  const canAssign = canAssignWaybill(waybill, {
+    role: userRole,
+    carrierId: userCarrierId ?? null,
+  });
 
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [assignForm] = Form.useForm();
-  const [assignSubmitting, setAssignSubmitting] = useState(false);
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-
-  useEffect(() => {
-    if (!assignOpen || !waybill?.carrierId) return;
-    carriersApi.listDrivers(waybill.carrierId).then(setDrivers).catch(() => setDrivers([]));
-    carriersApi.listVehicles(waybill.carrierId).then(setVehicles).catch(() => setVehicles([]));
-    assignForm.setFieldsValue({
-      driverId: waybill.driver?.id ?? null,
-      vehicleId: waybill.vehicle?.id ?? null,
-    });
-  }, [assignOpen, waybill?.carrierId, waybill?.driver?.id, waybill?.vehicle?.id, assignForm]);
-
-  const submitAssign = async () => {
-    if (!waybill) return;
-    const values = (await assignForm.validateFields()) as {
-      driverId?: string | null;
-      vehicleId?: string | null;
-    };
-    setAssignSubmitting(true);
-    try {
-      await waybillsApi.assign(waybill.id, {
-        driverId: values.driverId ?? null,
-        vehicleId: values.vehicleId ?? null,
-      });
-      message.success(t('waybills.detail.assignOk'));
-      setAssignOpen(false);
-      onSaved?.();
-    } catch (err) {
-      const detail = (err as { response?: { data?: { message?: string } } })
-        .response?.data?.message;
-      message.error(detail || t('waybills.detail.assignFailed'));
-    } finally {
-      setAssignSubmitting(false);
-    }
-  };
+  const [assignTarget, setAssignTarget] = useState<Waybill | null>(null);
 
   return (
     <Drawer
@@ -157,7 +105,7 @@ export function WaybillDetailDrawer({ waybill, onClose, onSaved }: Props) {
                   size="small"
                   type="link"
                   icon={<EditOutlined />}
-                  onClick={() => setAssignOpen(true)}
+                  onClick={() => setAssignTarget(waybill)}
                 >
                   {t('waybills.detail.assign')}
                 </Button>
@@ -268,41 +216,11 @@ export function WaybillDetailDrawer({ waybill, onClose, onSaved }: Props) {
         </div>
       )}
 
-      <Modal
-        title={t('waybills.detail.assignTitle')}
-        open={assignOpen}
-        onCancel={() => setAssignOpen(false)}
-        onOk={submitAssign}
-        confirmLoading={assignSubmitting}
-        destroyOnClose
-      >
-        <Form form={assignForm} layout="vertical" preserve={false}>
-          <Form.Item label={t('waybills.detail.driver')} name="driverId">
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder={t('waybills.detail.driverPlaceholder')}
-              options={drivers.map((d) => ({
-                value: d.id,
-                label: `${d.name}${d.phone ? ` · ${d.phone}` : ''}`,
-              }))}
-            />
-          </Form.Item>
-          <Form.Item label={t('waybills.detail.plateNumber')} name="vehicleId">
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              placeholder={t('waybills.detail.vehiclePlaceholder')}
-              options={vehicles.map((v) => ({
-                value: v.id,
-                label: `${v.plateNumber}${v.towType ? ` · ${v.towType}` : ''}`,
-              }))}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
+      <AssignWaybillModal
+        waybill={assignTarget}
+        onClose={() => setAssignTarget(null)}
+        onSaved={onSaved}
+      />
     </Drawer>
   );
 }

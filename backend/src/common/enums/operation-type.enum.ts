@@ -9,6 +9,9 @@ export enum OperationType {
   INBOUND_VIN_EDIT = 'INBOUND_VIN_EDIT',
   INBOUND_VIN_CANCEL = 'INBOUND_VIN_CANCEL',
 
+  // 入库订单提货分派 / 完成（分派到承运商是 HQ 动作；完成是订单收口）
+  PICKUP_ASSIGN = 'PICKUP_ASSIGN',
+  PICKUP_COMPLETE = 'PICKUP_COMPLETE',
   // 提货/入库扫描
   PICKUP_SCAN = 'PICKUP_SCAN',
   INBOUND_SCAN = 'INBOUND_SCAN',

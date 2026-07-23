@@ -124,12 +124,13 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     OUTBOUND_VIEW,
   ],
 
-  // 承运商业务员：分给自己家的运单 + 提货记录
+  // 承运商业务员：分给自己家的运单 + 提货记录 + 现场帮扫
   [Role.CARRIER_STAFF]: [
     WAYBILL_VIEW,
     WAYBILL_SCAN,
     PARTNER_CARRIER_VIEW,
     TRACKING_VIEW,
+    PICKUP_SCAN,
     PICKUP_VIEW,
   ],
 

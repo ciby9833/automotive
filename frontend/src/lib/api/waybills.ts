@@ -41,6 +41,7 @@ export interface Waybill {
     dealerGroup?: string | null;
     region?: string | null;
     code?: string | null;
+    contactName?: string | null;
     contactPhone?: string | null;
   };
   carrier?: {
@@ -61,6 +62,8 @@ export interface Waybill {
     towType: string | null;
   };
   towType: string | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
   remark: string | null;
   vins: WaybillVin[];
   createdAt: string;

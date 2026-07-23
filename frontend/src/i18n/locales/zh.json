@@ -524,6 +524,23 @@
     "refresh": "刷新",
     "optional": "可选"
   },
+  "driverPicker": {
+    "driver": "司机",
+    "vehicle": "拖车",
+    "driverPlaceholder": "选一位司机 (可清空)",
+    "vehiclePlaceholder": "选一辆拖车 (可清空)",
+    "pickCarrierFirst": "请先选择承运商",
+    "newDriverTitle": "新增司机",
+    "newVehicleTitle": "新增拖车",
+    "driverName": "姓名",
+    "driverPhone": "电话",
+    "driverLicense": "驾驶证号",
+    "plateNumber": "车牌号",
+    "towType": "拖车类型",
+    "driverCreated": "司机已新增并选中",
+    "vehicleCreated": "拖车已新增并选中",
+    "createFailed": "新增失败"
+  },
   "inbound": {
     "import": {
       "title": "入库订单导入",
@@ -753,6 +770,9 @@
       "waybill": "运单号",
       "dealer": "目的经销店",
       "dealerMissing": "运单未指定经销店",
+      "dealerUnloaded": "目的经销店资料未加载",
+      "recipientName": "收件人",
+      "recipientPhone": "收件电话",
       "originYard": "始发仓",
       "progress": "签收进度",
       "signPhoto": "签收凭证（可选）",

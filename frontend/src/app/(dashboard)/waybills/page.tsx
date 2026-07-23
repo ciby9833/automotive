@@ -2,7 +2,11 @@
 
 import { useEffect, useState } from 'react';
 import { Button, Popconfirm, Space, Table, Tag, message } from 'antd';
-import { DeleteOutlined, FileSearchOutlined } from '@ant-design/icons';
+import {
+  DeleteOutlined,
+  EditOutlined,
+  FileSearchOutlined,
+} from '@ant-design/icons';
 import { waybillsApi, Waybill } from '@/lib/api/waybills';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -10,6 +14,8 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 import { OrgFilter } from '@/components/layout/OrgFilter';
 import { WaybillDetailDrawer } from '@/components/waybills/WaybillDetailDrawer';
+import { AssignWaybillModal } from '@/components/waybills/AssignWaybillModal';
+import { canAssignWaybill } from '@/components/waybills/canAssignWaybill';
 
 const STATUS_COLOR: Record<string, string> = {
   NOT_ARRIVED: 'default',
@@ -22,7 +28,10 @@ export default function WaybillsPage() {
   const [loading, setLoading] = useState(false);
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
   const [detailWaybill, setDetailWaybill] = useState<Waybill | null>(null);
+  const [assignTarget, setAssignTarget] = useState<Waybill | null>(null);
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
+  const userRole = useAuthStore((s) => s.user?.role);
+  const userCarrierId = useAuthStore((s) => s.externalContext?.carrierId);
   const organizations = useOrganizations();
   const { t, locale } = useTranslation();
 
@@ -147,9 +156,13 @@ export default function WaybillsPage() {
           },
           {
             title: '',
-            width: 180,
+            width: 260,
             render: (_: unknown, r: Waybill) => {
               const canCancel = r.status === 'NOT_ARRIVED' && !r.isLocked;
+              const canAssign = canAssignWaybill(r, {
+                role: userRole,
+                carrierId: userCarrierId ?? null,
+              });
               return (
                 <Space size={4}>
                   <Button
@@ -160,6 +173,16 @@ export default function WaybillsPage() {
                   >
                     {t('waybills.detail.view')}
                   </Button>
+                  {canAssign && (
+                    <Button
+                      type="link"
+                      size="small"
+                      icon={<EditOutlined />}
+                      onClick={() => setAssignTarget(r)}
+                    >
+                      {t('waybills.detail.assign')}
+                    </Button>
+                  )}
                   {canCancel && (
                     <Popconfirm
                       title={t('waybills.cancelTitle')}
@@ -183,6 +206,12 @@ export default function WaybillsPage() {
             },
           },
         ]}
+      />
+
+      <AssignWaybillModal
+        waybill={assignTarget}
+        onClose={() => setAssignTarget(null)}
+        onSaved={load}
       />
 
       <WaybillDetailDrawer

@@ -524,6 +524,23 @@
     "refresh": "Muat ulang",
     "optional": "opsional"
   },
+  "driverPicker": {
+    "driver": "Sopir",
+    "vehicle": "Kendaraan",
+    "driverPlaceholder": "Pilih sopir (bisa kosong)",
+    "vehiclePlaceholder": "Pilih kendaraan (bisa kosong)",
+    "pickCarrierFirst": "Pilih vendor dulu",
+    "newDriverTitle": "Sopir baru",
+    "newVehicleTitle": "Kendaraan baru",
+    "driverName": "Nama",
+    "driverPhone": "Telepon",
+    "driverLicense": "No. SIM",
+    "plateNumber": "No. Plat",
+    "towType": "Jenis Tow",
+    "driverCreated": "Sopir ditambahkan & dipilih",
+    "vehicleCreated": "Kendaraan ditambahkan & dipilih",
+    "createFailed": "Gagal menambah"
+  },
   "inbound": {
     "import": {
       "title": "Impor Order Inbound",
@@ -753,6 +770,9 @@
       "waybill": "No. SJ",
       "dealer": "Dealer",
       "dealerMissing": "SJ tidak memiliki dealer",
+      "dealerUnloaded": "Detail dealer belum dimuat",
+      "recipientName": "Penerima",
+      "recipientPhone": "Telepon Penerima",
       "originYard": "Yard Asal",
       "progress": "Progress terima",
       "signPhoto": "Bukti terima (opsional)",

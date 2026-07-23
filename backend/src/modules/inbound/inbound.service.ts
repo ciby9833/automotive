@@ -18,6 +18,7 @@ import {
 } from '../yards/entities/yard-slot.entity';
 import { TransportType } from '../../common/enums/order-type.enum';
 import { OrderStatus } from '../../common/enums/order-status.enum';
+import { OrderPickupStatus } from '../../common/enums/order-pickup-status.enum';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
@@ -30,6 +31,10 @@ import {
   ImportInboundVinRow,
 } from './dto/import-inbound-order.dto';
 import { RegisterUnexpectedVinDto } from './dto/register-unexpected-vin.dto';
+import { AssignPickupDto } from './dto/assign-pickup.dto';
+import { PickupOrderScanDto } from './dto/pickup-order-scan.dto';
+import { Carrier } from '../carriers/entities/carrier.entity';
+import { User } from '../users/entities/user.entity';
 import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
 
@@ -905,6 +910,11 @@ export class InboundService {
     if (order.status === OrderStatus.CANCELLED) {
       throw new BadRequestException('订单已取消，不需要再次取消');
     }
+    if (order.pickupStatus === OrderPickupStatus.IN_PROGRESS) {
+      throw new BadRequestException(
+        '订单已在提货中，无法取消 —— 请先与承运商协调终止提货',
+      );
+    }
     const vins = await this.orderVinsRepo.find({ where: { orderId } });
     const bad = vins.filter(
       (v) =>
@@ -1033,6 +1043,386 @@ export class InboundService {
       created: toInsert.length,
       skipped: uniqueVins.length - toInsert.length,
     };
+  }
+
+  // ============ HQ 提货分派 ============
+  // 极兔管理员把入库订单派给某个承运商 (可选到人)。首次派 → PENDING；解除 → 状态回 PENDING
+  async assignPickup(
+    orderId: string,
+    dto: AssignPickupDto,
+    scope: EffectiveScope,
+    operatorUserId: string,
+  ): Promise<Order> {
+    const order = await this.assertOrderInScope(orderId, scope);
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('已取消订单无法分派提货');
+    }
+    // 提货中途禁止改派 (换承运商会导致责任链断裂)；要改先联系承运商中止
+    if (
+      order.pickupStatus === OrderPickupStatus.IN_PROGRESS &&
+      dto.pickupCarrierId !== undefined &&
+      dto.pickupCarrierId !== order.pickupCarrierId
+    ) {
+      throw new BadRequestException(
+        '订单已在提货中，无法改派承运商；请先与当前承运商协商终止',
+      );
+    }
+    // 校验 carrier / driver 存在 (null 表示解除)
+    if (dto.pickupCarrierId) {
+      const carrier = await this.dataSource
+        .getRepository(Carrier)
+        .findOne({ where: { id: dto.pickupCarrierId } });
+      if (!carrier) throw new NotFoundException('承运商不存在');
+    }
+    if (dto.pickupDriverUserId) {
+      const driverUser = await this.dataSource
+        .getRepository(User)
+        .findOne({ where: { id: dto.pickupDriverUserId } });
+      if (!driverUser) throw new NotFoundException('司机账号不存在');
+    }
+
+    const before = {
+      pickupCarrierId: order.pickupCarrierId,
+      pickupDriverUserId: order.pickupDriverUserId,
+      plannedPickupDate: order.plannedPickupDate,
+    };
+    if (dto.pickupCarrierId !== undefined) {
+      order.pickupCarrierId = dto.pickupCarrierId;
+    }
+    if (dto.pickupDriverUserId !== undefined) {
+      order.pickupDriverUserId = dto.pickupDriverUserId;
+    }
+    if (dto.plannedPickupDate !== undefined) {
+      order.plannedPickupDate = dto.plannedPickupDate;
+    }
+    // 状态回归：从 IN_PROGRESS 状态不动 (仍有 pickup 事实)；PENDING/COMPLETED 均可来回
+    if (order.pickupStatus !== OrderPickupStatus.IN_PROGRESS) {
+      order.pickupStatus = OrderPickupStatus.PENDING;
+      order.pickupStartedAt = null;
+      order.pickupCompletedAt = null;
+    }
+    const saved = await this.ordersRepo.save(order);
+
+    await this.audit.log({
+      operationType: OperationType.PICKUP_ASSIGN,
+      orderId: order.id,
+      operatorUserId,
+      payload: {
+        orderCode: order.orderCode,
+        before,
+        after: {
+          pickupCarrierId: saved.pickupCarrierId,
+          pickupDriverUserId: saved.pickupDriverUserId,
+          plannedPickupDate: saved.plannedPickupDate,
+        },
+      },
+    });
+    return saved;
+  }
+
+  // ============ 承运商任务池 ============
+  // 承运商侧看"分给我家的入库订单"。CARRIER_STAFF 看整个承运商任务；CARRIER_DRIVER 看整个承运商（同承运商共享）
+  async listPickupOrdersForCarrier(
+    user: AuthenticatedUser,
+    filters?: { status?: OrderPickupStatus; includeCompleted?: boolean },
+  ): Promise<
+    Array<{
+      id: string;
+      orderCode: string;
+      customerOrderNo: string | null;
+      customerName: string;
+      originText: string | null;
+      destinationYardName: string | null;
+      plannedPickupDate: string | null;
+      pickupStatus: OrderPickupStatus;
+      pickupStartedAt: Date | null;
+      pickupCompletedAt: Date | null;
+      pickupDriverUserName: string | null;
+      total: number;
+      pickedUp: number;
+      remaining: number;
+      createdAt: Date;
+    }>
+  > {
+    if (
+      user.role !== Role.CARRIER_DRIVER &&
+      user.role !== Role.CARRIER_STAFF
+    ) {
+      throw new ForbiddenException('仅承运商账号可查看提货任务池');
+    }
+    if (!user.carrierId) {
+      throw new ForbiddenException('账号未绑定承运商');
+    }
+    const qb = this.ordersRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.customer', 'customer')
+      .leftJoinAndSelect('order.destinationYard', 'yard')
+      .leftJoinAndSelect('order.pickupDriverUser', 'pickupDriverUser')
+      .where('order.transportType = :type', { type: TransportType.TRANSFER })
+      .andWhere('order.status = :active', { active: OrderStatus.ACTIVE })
+      .andWhere('order.pickupCarrierId = :cid', { cid: user.carrierId })
+      .orderBy('order.plannedPickupDate', 'ASC', 'NULLS LAST')
+      .addOrderBy('order.createdAt', 'DESC');
+
+    if (filters?.status) {
+      qb.andWhere('order.pickupStatus = :ps', { ps: filters.status });
+    } else if (!filters?.includeCompleted) {
+      qb.andWhere('order.pickupStatus IN (:...ps)', {
+        ps: [OrderPickupStatus.PENDING, OrderPickupStatus.IN_PROGRESS],
+      });
+    }
+    const orders = await qb.getMany();
+    if (orders.length === 0) return [];
+
+    // 聚合进度：一次查询按 order_id group
+    const stats = await this.orderVinsRepo
+      .createQueryBuilder('v')
+      .select('v.order_id', 'orderId')
+      .addSelect('COUNT(*)::int', 'total')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.picked_up_at IS NOT NULL)::int`,
+        'pickedUp',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.arrival_status IN ('${OrderVinArrivalStatus.ARRIVED}','${OrderVinArrivalStatus.CANCELLED}'))::int`,
+        'settled',
+      )
+      .where('v.order_id IN (:...ids)', { ids: orders.map((o) => o.id) })
+      .groupBy('v.order_id')
+      .getRawMany<{ orderId: string; total: number; pickedUp: number; settled: number }>();
+    const statMap = new Map(stats.map((s) => [s.orderId, s]));
+
+    return orders.map((o) => {
+      const s = statMap.get(o.id) ?? { total: 0, pickedUp: 0, settled: 0 };
+      return {
+        id: o.id,
+        orderCode: o.orderCode,
+        customerOrderNo: o.customerOrderNo,
+        customerName: o.customer?.name ?? '-',
+        originText: o.originText ?? null,
+        destinationYardName: o.destinationYard?.name ?? null,
+        plannedPickupDate: o.plannedPickupDate,
+        pickupStatus: o.pickupStatus,
+        pickupStartedAt: o.pickupStartedAt,
+        pickupCompletedAt: o.pickupCompletedAt,
+        pickupDriverUserName: o.pickupDriverUser?.displayName ?? null,
+        total: s.total,
+        pickedUp: s.pickedUp,
+        remaining: Math.max(0, s.total - s.pickedUp - s.settled),
+        createdAt: o.createdAt,
+      };
+    });
+  }
+
+  // 单个提货任务详情（承运商视角）
+  async getPickupOrderDetail(orderId: string, user: AuthenticatedUser) {
+    if (
+      user.role !== Role.CARRIER_DRIVER &&
+      user.role !== Role.CARRIER_STAFF
+    ) {
+      throw new ForbiddenException('仅承运商账号可查看提货任务');
+    }
+    if (!user.carrierId) {
+      throw new ForbiddenException('账号未绑定承运商');
+    }
+    const order = await this.ordersRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.customer', 'customer')
+      .leftJoinAndSelect('order.destinationYard', 'yard')
+      .leftJoinAndSelect('order.pickupDriverUser', 'pickupDriverUser')
+      .where('order.id = :id', { id: orderId })
+      .andWhere('order.transportType = :type', {
+        type: TransportType.TRANSFER,
+      })
+      .andWhere('order.pickupCarrierId = :cid', { cid: user.carrierId })
+      .getOne();
+    if (!order) throw new NotFoundException('提货任务不存在或不属您承运商');
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('订单已取消');
+    }
+
+    const vins = await this.orderVinsRepo.find({
+      where: { orderId },
+      order: { vin: 'ASC' },
+      relations: { pickupDriverUser: true, pickupCarrier: true },
+    });
+    const stats = await this.pickupOrderStats(orderId);
+    return { order, vins, stats };
+  }
+
+  // 承运商在某个提货任务里扫 VIN
+  // 允许扫到"不属本任务"的 VIN：默认接受并挪去它真正的订单；App 端 allowOutOfOrder=false 走严格
+  // 触发订单生命周期：第一次 pickup 事件 → IN_PROGRESS；全部消化完 → COMPLETED
+  async pickupOrderScan(
+    orderId: string,
+    dto: PickupOrderScanDto,
+    user: AuthenticatedUser,
+  ): Promise<{
+    vin: OrderVin;
+    outOfOrder: boolean;
+    orderPickupStatus: OrderPickupStatus;
+  }> {
+    if (
+      user.role !== Role.CARRIER_DRIVER &&
+      user.role !== Role.CARRIER_STAFF
+    ) {
+      throw new ForbiddenException('仅承运商账号可执行提货扫描');
+    }
+    if (!user.carrierId) {
+      throw new ForbiddenException('账号未绑定承运商');
+    }
+
+    const targetOrder = await this.ordersRepo.findOne({
+      where: { id: orderId, transportType: TransportType.TRANSFER },
+    });
+    if (!targetOrder) throw new NotFoundException('提货任务不存在');
+    if (targetOrder.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('订单已取消');
+    }
+    if (targetOrder.pickupCarrierId !== user.carrierId) {
+      throw new ForbiddenException('此任务未分派给您的承运商');
+    }
+
+    const vin = await this.orderVinsRepo.findOne({
+      where: { vin: dto.vin },
+      relations: { order: true },
+    });
+    if (!vin) {
+      throw new NotFoundException('系统里未找到此 VIN，请确认是否已导入订单');
+    }
+    if (vin.pickedUpAt) {
+      throw new BadRequestException(
+        `此 VIN 已于 ${vin.pickedUpAt.toISOString()} 被提货过`,
+      );
+    }
+    if (vin.arrivalStatus === OrderVinArrivalStatus.ARRIVED) {
+      throw new BadRequestException('此 VIN 已到仓入库，无法再提货');
+    }
+    if (vin.arrivalStatus === OrderVinArrivalStatus.CANCELLED) {
+      throw new BadRequestException('此 VIN 已取消，不需要提货');
+    }
+
+    // VIN 是否属于当前任务
+    const outOfOrder = vin.orderId !== orderId;
+    if (outOfOrder) {
+      const allow = dto.allowOutOfOrder ?? true;
+      if (!allow) {
+        throw new BadRequestException(
+          `此 VIN 不在本任务，属于订单 ${vin.order?.orderCode ?? '未知'}`,
+        );
+      }
+      // 承运商权限：VIN 所在订单也必须已分派给本承运商 (跨承运商无权代提)
+      if (vin.order && vin.order.pickupCarrierId !== user.carrierId) {
+        throw new ForbiddenException(
+          `此 VIN 属订单 ${vin.order.orderCode}，不在您承运商的任务池`,
+        );
+      }
+    }
+
+    // 写入 VIN 提货字段
+    vin.pickupCarrierId = user.carrierId;
+    vin.pickupDriverUserId = user.userId;
+    vin.pickedUpAt = new Date();
+    vin.pickupLocation =
+      dto.location ?? vin.order?.originText ?? targetOrder.originText ?? null;
+    vin.pickupPhotoUrls = dto.photoUrls ?? null;
+    vin.pickupRemark = dto.remark ?? null;
+    const saved = await this.orderVinsRepo.save(vin);
+
+    // 触发 VIN 所在真实订单的状态流转（可能是 targetOrder 也可能是别的）
+    const affectedOrderId = vin.orderId;
+    const affectedOrder = affectedOrderId === orderId
+      ? targetOrder
+      : await this.ordersRepo.findOne({ where: { id: affectedOrderId } });
+    if (affectedOrder) {
+      const now = new Date();
+      let statusChanged = false;
+      if (affectedOrder.pickupStatus === OrderPickupStatus.PENDING) {
+        affectedOrder.pickupStatus = OrderPickupStatus.IN_PROGRESS;
+        affectedOrder.pickupStartedAt = now;
+        statusChanged = true;
+      }
+      const s = await this.pickupOrderStats(affectedOrderId);
+      if (s.remaining === 0 && s.total > 0) {
+        affectedOrder.pickupStatus = OrderPickupStatus.COMPLETED;
+        affectedOrder.pickupCompletedAt = now;
+        statusChanged = true;
+      }
+      if (statusChanged) {
+        await this.ordersRepo.save(affectedOrder);
+      }
+      if (affectedOrder.pickupStatus === OrderPickupStatus.COMPLETED) {
+        await this.audit.log({
+          operationType: OperationType.PICKUP_COMPLETE,
+          orderId: affectedOrder.id,
+          operatorUserId: user.userId,
+          payload: {
+            orderCode: affectedOrder.orderCode,
+            total: s.total,
+            pickedUp: s.pickedUp,
+          },
+        });
+      }
+    }
+
+    await this.audit.log({
+      operationType: OperationType.PICKUP_SCAN,
+      orderId: affectedOrderId,
+      vin: saved.vin,
+      operatorUserId: user.userId,
+      payload: {
+        taskOrderId: orderId,
+        outOfOrder,
+        location: saved.pickupLocation,
+        photoKeys: dto.photoUrls ?? null,
+        remark: dto.remark ?? null,
+      },
+    });
+
+    return {
+      vin: saved,
+      outOfOrder,
+      orderPickupStatus: affectedOrder?.pickupStatus ?? OrderPickupStatus.PENDING,
+    };
+  }
+
+  // 单个订单聚合提货进度（供承运商侧列表/详情复用）
+  async pickupOrderStats(orderId: string): Promise<{
+    total: number;
+    pickedUp: number;
+    arrived: number;
+    cancelled: number;
+    remaining: number;
+  }> {
+    const row = await this.orderVinsRepo
+      .createQueryBuilder('v')
+      .select('COUNT(*)::int', 'total')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.picked_up_at IS NOT NULL)::int`,
+        'pickedUp',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.arrival_status = '${OrderVinArrivalStatus.ARRIVED}')::int`,
+        'arrived',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE v.arrival_status = '${OrderVinArrivalStatus.CANCELLED}')::int`,
+        'cancelled',
+      )
+      .where('v.order_id = :orderId', { orderId })
+      .getRawOne<{
+        total: number;
+        pickedUp: number;
+        arrived: number;
+        cancelled: number;
+      }>();
+    const total = row?.total ?? 0;
+    const pickedUp = row?.pickedUp ?? 0;
+    const arrived = row?.arrived ?? 0;
+    const cancelled = row?.cancelled ?? 0;
+    // remaining = 需要提货的剩余数：不含 已提货 / 已到仓 / 已取消
+    const remaining = Math.max(0, total - pickedUp - arrived - cancelled);
+    return { total, pickedUp, arrived, cancelled, remaining };
   }
 
   private async assertOrderInScope(

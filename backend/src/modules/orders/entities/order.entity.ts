@@ -2,6 +2,8 @@ import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { OrgScopedEntity } from '../../../common/entities/org-scoped.entity';
 import { TransportType } from '../../../common/enums/order-type.enum';
 import { OrderStatus } from '../../../common/enums/order-status.enum';
+import { OrderPickupStatus } from '../../../common/enums/order-pickup-status.enum';
+import { Carrier } from '../../carriers/entities/carrier.entity';
 import { Customer } from '../../customers/entities/customer.entity';
 import { Yard } from '../../yards/entities/yard.entity';
 import { User } from '../../users/entities/user.entity';
@@ -74,4 +76,41 @@ export class Order extends OrgScopedEntity {
 
   @Column({ name: 'cancelled_by_user_id', type: 'uuid', nullable: true })
   cancelledByUserId: string | null;
+
+  // ============ 提货分派（TRANSFER 入库订单专用）============
+  // 极兔总部/机构管理员把订单派给某个承运商，由该承运商去港口/工厂提车
+  // 可选精确到司机 (pickupDriverUserId)；默认承运商内所有司机共享任务池
+  @ManyToOne(() => Carrier, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'pickup_carrier_id' })
+  pickupCarrier: Carrier | null;
+
+  @Column({ name: 'pickup_carrier_id', type: 'uuid', nullable: true })
+  pickupCarrierId: string | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'pickup_driver_user_id' })
+  pickupDriverUser: User | null;
+
+  @Column({ name: 'pickup_driver_user_id', type: 'uuid', nullable: true })
+  pickupDriverUserId: string | null;
+
+  // 计划提货日 (客户或极兔调度定的窗口)；App 侧可按日期过滤
+  @Column({ name: 'planned_pickup_date', type: 'date', nullable: true })
+  plannedPickupDate: string | null;
+
+  // 提货生命周期：PENDING → IN_PROGRESS → COMPLETED
+  // 分派后即 PENDING；第一次成功 pickupScan 切 IN_PROGRESS；全 VIN 消化完切 COMPLETED
+  @Column({
+    name: 'pickup_status',
+    type: 'enum',
+    enum: OrderPickupStatus,
+    default: OrderPickupStatus.PENDING,
+  })
+  pickupStatus: OrderPickupStatus;
+
+  @Column({ name: 'pickup_started_at', type: 'timestamptz', nullable: true })
+  pickupStartedAt: Date | null;
+
+  @Column({ name: 'pickup_completed_at', type: 'timestamptz', nullable: true })
+  pickupCompletedAt: Date | null;
 }

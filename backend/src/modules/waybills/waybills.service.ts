@@ -153,6 +153,7 @@ export class WaybillsService {
       .leftJoinAndSelect('waybill.vehicle', 'vehicle')
       .leftJoinAndSelect('waybill.originYard', 'originYard')
       .leftJoinAndSelect('waybill.destinationYard', 'destinationYard')
+      .leftJoinAndSelect('waybill.destinationDealer', 'destinationDealer')
       .leftJoinAndSelect('waybill.organization', 'organization')
       .where('waybill.id = :id', { id });
     this.applyWaybillScope(qb, scope);
@@ -172,6 +173,7 @@ export class WaybillsService {
         'vehicle',
         'originYard',
         'destinationYard',
+        'destinationDealer',
         'order',
       ],
     });
@@ -393,7 +395,7 @@ export class WaybillsService {
       });
     }
 
-    return result.waybill;
+    return (await this.findByIdUnscoped(result.waybill.id)) ?? result.waybill;
   }
 
   // 供司机扫码前用：给一个 VIN，返回它当前挂在哪张 Waybill 上 + 是否已签收

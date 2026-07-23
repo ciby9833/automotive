@@ -127,9 +127,21 @@ export default function DeliverySignPage() {
                     {waybill.destinationDealer.address}
                   </div>
                 </div>
+              ) : waybill.destinationDealerId ? (
+                <Tag color="orange">{t('delivery.sign.dealerUnloaded')}</Tag>
               ) : (
                 <Tag color="orange">{t('delivery.sign.dealerMissing')}</Tag>
               )}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('delivery.sign.recipientName')}>
+              {waybill.recipientName ??
+                waybill.destinationDealer?.contactName ??
+                '-'}
+            </Descriptions.Item>
+            <Descriptions.Item label={t('delivery.sign.recipientPhone')}>
+              {waybill.recipientPhone ??
+                waybill.destinationDealer?.contactPhone ??
+                '-'}
             </Descriptions.Item>
             <Descriptions.Item label={t('delivery.sign.originYard')}>
               {waybill.originYard?.name ?? waybill.originText ?? '-'}

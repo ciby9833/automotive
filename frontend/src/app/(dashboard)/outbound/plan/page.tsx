@@ -27,6 +27,7 @@ import {
 import { customersApi, Customer, CustomerAddress } from '@/lib/api/customers';
 import { yardsApi, Yard } from '@/lib/api/yards';
 import { carriersApi, Carrier } from '@/lib/api/carriers';
+import { DriverVehiclePicker } from '@/components/carriers/DriverVehiclePicker';
 import { useTranslation } from '@/i18n/useTranslation';
 
 // 出库开单：从库存里选 VIN → 分配供应商 → 生成运单
@@ -53,6 +54,8 @@ function OutboundPlanInner() {
 
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([]);
   const [carrierId, setCarrierId] = useState<string | undefined>();
+  const [driverId, setDriverId] = useState<string | null>(null);
+  const [vehicleId, setVehicleId] = useState<string | null>(null);
   const [towType, setTowType] = useState<VehicleTowType | undefined>();
   const [customerWaybillCode, setCustomerWaybillCode] = useState('');
   const [recipientName, setRecipientName] = useState('');
@@ -199,6 +202,8 @@ function OutboundPlanInner() {
         orderVinIds: selected.map((v) => v.id),
         originYardId: inferredOriginYardId!,
         carrierId,
+        driverId: driverId ?? undefined,
+        vehicleId: vehicleId ?? undefined,
         towType,
         customerWaybillCode: customerWaybillCode || undefined,
         destinationDealerId: manualDealerId || undefined,
@@ -218,6 +223,8 @@ function OutboundPlanInner() {
       setRecipientName('');
       setRecipientPhone('');
       setManualDealerId(undefined);
+      setDriverId(null);
+      setVehicleId(null);
       setRemark('');
       reload();
     } catch (err) {
@@ -477,13 +484,27 @@ function OutboundPlanInner() {
                   showSearch
                   optionFilterProp="label"
                   value={carrierId}
-                  onChange={setCarrierId}
+                  onChange={(v) => {
+                    setCarrierId(v);
+                    // 换承运商 → 清空司机/拖车避免张冠李戴
+                    setDriverId(null);
+                    setVehicleId(null);
+                  }}
                   options={carriers.map((c) => ({
                     value: c.id,
                     label: `${c.name}${c.type === 'SELF_OWNED' ? ' (自营)' : ''}`,
                   }))}
                 />
               </Form.Item>
+              <DriverVehiclePicker
+                carrierId={carrierId}
+                driverId={driverId}
+                vehicleId={vehicleId}
+                onChange={(v) => {
+                  setDriverId(v.driverId);
+                  setVehicleId(v.vehicleId);
+                }}
+              />
               <Form.Item label={t('outbound.plan.towType')}>
                 <Select
                   placeholder={t('outbound.plan.towTypePlaceholder')}

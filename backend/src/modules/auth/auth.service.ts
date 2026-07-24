@@ -11,6 +11,8 @@ import { UsersService } from '../users/users.service';
 import { EmailService } from '../email/email.service';
 import { UserOrganizationMembership } from '../users/entities/user-organization-membership.entity';
 import { Organization } from '../organizations/entities/organization.entity';
+import { Carrier } from '../carriers/entities/carrier.entity';
+import { Customer } from '../customers/entities/customer.entity';
 import { JwtPayload } from './auth.types';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { Role } from '../../common/enums/role.enum';
@@ -47,10 +49,22 @@ export interface LoginResult {
   // 外部账号才会返回
   externalContext?: {
     carrierId: string | null;
+    carrierName?: string | null;
     customerId: string | null;
+    customerName?: string | null;
   };
+  // 账号当前归属单位：移动端拍照水印、审计展示等统一使用。
+  // 内部账号随 activeOrgId 变化；外部账号指承运商/客户主数据。
+  accountUnit?: AccountUnit | null;
   // 当前角色的功能权限清单；前端据此驱动按钮可见性
   permissions: Permission[];
+}
+
+export interface AccountUnit {
+  type: 'ORG' | 'CARRIER' | 'CUSTOMER';
+  id: string;
+  code: string | null;
+  name: string;
 }
 
 const EXTERNAL_ROLES = new Set([
@@ -69,6 +83,10 @@ export class AuthService {
     private readonly memRepo: Repository<UserOrganizationMembership>,
     @InjectRepository(Organization)
     private readonly orgRepo: Repository<Organization>,
+    @InjectRepository(Carrier)
+    private readonly carrierRepo: Repository<Carrier>,
+    @InjectRepository(Customer)
+    private readonly customerRepo: Repository<Customer>,
   ) {}
 
   async login(username: string, password: string): Promise<LoginResult> {
@@ -119,14 +137,23 @@ export class AuthService {
         carrierId: user.carrierId,
         customerId: user.customerId,
       });
+      const accountUnit = await this.resolveExternalAccountUnit(
+        user.carrierId,
+        user.customerId,
+      );
       return {
         mode: 'EXTERNAL',
         accessToken: token,
         user: publicUser,
         externalContext: {
           carrierId: user.carrierId,
+          carrierName:
+            accountUnit?.type === 'CARRIER' ? accountUnit.name : null,
           customerId: user.customerId,
+          customerName:
+            accountUnit?.type === 'CUSTOMER' ? accountUnit.name : null,
         },
+        accountUnit,
         permissions: permissionsForRole(user.role),
       };
     }
@@ -158,6 +185,12 @@ export class AuthService {
         user: publicUser,
         memberships,
         activeOrgId: only.organizationId,
+        accountUnit: {
+          type: 'ORG',
+          id: only.organizationId,
+          code: only.organizationCode,
+          name: only.organizationName,
+        },
         permissions: permissionsForRole(user.role),
       };
     }
@@ -179,6 +212,7 @@ export class AuthService {
       user: publicUser,
       memberships,
       activeOrgId: null,
+      accountUnit: null,
       // NEEDS_SELECTION 时权限清单也一起返回，选完机构不用二次请求
       permissions: permissionsForRole(user.role),
     };
@@ -203,6 +237,7 @@ export class AuthService {
       throw new ForbiddenException('无权访问此机构');
     }
     const memberships = await this.getMembershipSummaries(userId);
+    const selected = memberships.find((m) => m.organizationId === organizationId);
     const token = this.signToken({
       sub: user.id,
       username: user.username,
@@ -225,6 +260,14 @@ export class AuthService {
       },
       memberships,
       activeOrgId: organizationId,
+      accountUnit: selected
+        ? {
+            type: 'ORG',
+            id: selected.organizationId,
+            code: selected.organizationCode,
+            name: selected.organizationName,
+          }
+        : null,
       permissions: permissionsForRole(user.role),
     };
   }
@@ -255,6 +298,69 @@ export class AuthService {
       organizationName: m.organization.name,
       role: m.role,
     }));
+  }
+
+  private async resolveExternalAccountUnit(
+    carrierId: string | null,
+    customerId: string | null,
+  ): Promise<AccountUnit | null> {
+    if (carrierId) {
+      const carrier = await this.carrierRepo.findOne({ where: { id: carrierId } });
+      return carrier
+        ? {
+            type: 'CARRIER',
+            id: carrier.id,
+            code: carrier.shortName,
+            name: carrier.name,
+          }
+        : null;
+    }
+    if (customerId) {
+      const customer = await this.customerRepo.findOne({ where: { id: customerId } });
+      return customer
+        ? {
+            type: 'CUSTOMER',
+            id: customer.id,
+            code: null,
+            name: customer.name,
+          }
+        : null;
+    }
+    return null;
+  }
+
+  async getCurrentSession(user: {
+    userId: string;
+    username: string;
+    role: Role;
+    preAuth: boolean;
+    activeOrgId: string | null;
+    scopeYardId: string | null;
+    carrierId: string | null;
+    customerId: string | null;
+  }) {
+    const account = await this.usersService.findById(user.userId);
+    let accountUnit: AccountUnit | null = null;
+
+    if (!user.preAuth && user.activeOrgId) {
+      const org = await this.orgRepo.findOne({ where: { id: user.activeOrgId } });
+      accountUnit = org
+        ? { type: 'ORG', id: org.id, code: org.code, name: org.name }
+        : null;
+    } else if (!user.preAuth) {
+      accountUnit = await this.resolveExternalAccountUnit(
+        user.carrierId,
+        user.customerId,
+      );
+    }
+
+    return {
+      ...user,
+      displayName: account?.displayName ?? null,
+      email: account?.email ?? null,
+      accountUnit,
+      permissions: permissionsForRole(user.role),
+    };
   }
 
   async forgotPassword(email: string): Promise<void> {

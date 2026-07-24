@@ -46,7 +46,8 @@
     "deliverySign": "签收扫描",
     "myOutboundOrders": "我的出库订单",
     "myWaybills": "我的运单",
-    "pickup": "提货扫描"
+    "pickup": "提货扫描",
+    "myCarrierUsers": "账号管理"
   },
   "roles": {
     "HQ_ADMIN": "总部管理团队",
@@ -277,7 +278,53 @@
     "createFailed": "创建失败",
     "createSuccess": "创建成功",
     "organization": "所属机构",
-    "action": "操作"
+    "action": "操作",
+    "viewUsers": "账号",
+    "usersDrawerTitle": "供应商账号"
+  },
+  "carrierUsers": {
+    "loadFailed": "加载失败",
+    "empty": "还没有账号，请点右上「新增账号」",
+    "searchPlaceholder": "用户名 / 姓名 / 邮箱",
+    "roleAll": "全部角色",
+    "stateAll": "全部",
+    "stateActive": "已启用",
+    "stateDisabled": "已禁用",
+    "addUser": "新增账号",
+    "editTitle": "编辑账号",
+    "username": "用户名",
+    "password": "初始密码",
+    "displayName": "姓名",
+    "role": "角色",
+    "email": "邮箱",
+    "state": "状态",
+    "emailInvalid": "邮箱格式错误",
+    "createHint": "管理员直接建号：用户名唯一，姓名/邮箱用于显示与通知。承运商侧只能建业务员/司机两种角色。",
+    "createOk": "账号已创建",
+    "createFailed": "创建失败",
+    "updateOk": "已保存",
+    "updateFailed": "保存失败",
+    "edit": "编辑",
+    "resetPwd": "重置密码",
+    "resetConfirm": "为 {username} 生成新密码？旧密码立即失效",
+    "resetFailed": "重置失败",
+    "resetOkTitle": "新密码已生成 · 一次性显示",
+    "resetOkHint": "请立即复制并转交对方；关闭弹窗后无法再看到",
+    "resetOkClose": "已复制并关闭",
+    "newPassword": "新密码",
+    "deactivate": "禁用",
+    "deactivateConfirm": "禁用 {username}？该账号将无法登录",
+    "deactivateOk": "已禁用",
+    "deactivateFailed": "禁用失败",
+    "reactivate": "启用",
+    "reactivateOk": "已启用",
+    "reactivateFailed": "启用失败"
+  },
+  "myCarrierUsers": {
+    "title": "账号管理",
+    "subtitle": "管理本公司下的业务员和司机账号",
+    "notCarrierAccount": "当前账号未绑定承运商，无法管理承运商账号",
+    "driverHint": "司机账号只有查看权限；如需修改请让业务员操作"
   },
   "customers": {
     "title": "客户管理",
@@ -598,7 +645,15 @@
       "partial": "进行中",
       "pending": "未开始",
       "organization": "所属机构",
-      "importedAt": "导入时间"
+      "importedAt": "导入时间",
+      "pickupAssignment": "提货分派",
+      "pickupNotAssigned": "未分派",
+      "plannedShort": "计划",
+      "pickupStatus": {
+        "PENDING": "待提货",
+        "IN_PROGRESS": "提货中",
+        "COMPLETED": "已完成"
+      }
     },
     "detail": {
       "title": "入库订单详情",
@@ -649,6 +704,23 @@
       "cancelledBy": "取消人：{by}",
       "cancelledHint": "订单壳保留可审计。如需继续使用此订单号，请点击右上「重新导入 VIN」。",
       "reactivate": "重新导入 VIN",
+      "assignPickup": "分派承运商",
+      "reassignPickup": "改派承运商",
+      "assignPickupTitle": "分派提货承运商",
+      "assignPickupCarrier": "承运商",
+      "assignPickupCarrierHint": "分派后此单进入承运商任务池；解除承运商可留空清除",
+      "assignPickupCarrierPlaceholder": "选一家承运商（可清空解除分派）",
+      "plannedPickupDate": "计划提货日",
+      "plannedPickupDatePlaceholder": "选日期",
+      "assignPickupOk": "已分派",
+      "assignPickupFailed": "分派失败",
+      "pickupCarrier": "提货承运商",
+      "pickupNotAssigned": "未分派",
+      "pickupStatus": {
+        "PENDING": "待提货",
+        "IN_PROGRESS": "提货中",
+        "COMPLETED": "已完成"
+      },
       "field": {
         "brand": "品牌",
         "model": "车型",
@@ -662,6 +734,8 @@
         "CANCELLED": "已取消"
       },
       "pickup": "提货",
+      "pickupLatitude": "提货纬度",
+      "pickupLongitude": "提货经度",
       "notPickedUp": "未提货",
       "thirdParty": "三方直送",
       "awaitingPickup": "待提货",

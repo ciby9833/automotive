@@ -46,7 +46,8 @@
     "deliverySign": "Scan Terima",
     "myOutboundOrders": "Order Outbound Saya",
     "myWaybills": "Surat Jalan Saya",
-    "pickup": "Scan Pickup"
+    "pickup": "Scan Pickup",
+    "myCarrierUsers": "Manajemen Akun"
   },
   "roles": {
     "HQ_ADMIN": "Admin Pusat",
@@ -277,7 +278,53 @@
     "createFailed": "Gagal membuat",
     "createSuccess": "Berhasil dibuat",
     "organization": "Organisasi",
-    "action": "Aksi"
+    "action": "Aksi",
+    "viewUsers": "Akun",
+    "usersDrawerTitle": "Akun Vendor"
+  },
+  "carrierUsers": {
+    "loadFailed": "Gagal memuat",
+    "empty": "Belum ada akun — klik 'Tambah Akun' di kanan atas",
+    "searchPlaceholder": "Username / nama / email",
+    "roleAll": "Semua role",
+    "stateAll": "Semua",
+    "stateActive": "Aktif",
+    "stateDisabled": "Dinonaktifkan",
+    "addUser": "Tambah Akun",
+    "editTitle": "Ubah Akun",
+    "username": "Username",
+    "password": "Password awal",
+    "displayName": "Nama tampil",
+    "role": "Peran",
+    "email": "Email",
+    "state": "Status",
+    "emailInvalid": "Email tidak valid",
+    "createHint": "Admin membuat akun langsung. Username unik; nama/email untuk tampilan dan notifikasi. Hanya Staff/Driver yang boleh.",
+    "createOk": "Akun dibuat",
+    "createFailed": "Gagal membuat",
+    "updateOk": "Tersimpan",
+    "updateFailed": "Gagal menyimpan",
+    "edit": "Ubah",
+    "resetPwd": "Reset password",
+    "resetConfirm": "Buat password baru untuk {username}? Password lama langsung tidak berlaku.",
+    "resetFailed": "Gagal reset",
+    "resetOkTitle": "Password baru — tampil sekali",
+    "resetOkHint": "Salin dan serahkan sekarang; tidak bisa dilihat lagi setelah ditutup",
+    "resetOkClose": "Disalin · tutup",
+    "newPassword": "Password baru",
+    "deactivate": "Nonaktifkan",
+    "deactivateConfirm": "Nonaktifkan {username}? Akun tidak bisa login.",
+    "deactivateOk": "Dinonaktifkan",
+    "deactivateFailed": "Gagal menonaktifkan",
+    "reactivate": "Aktifkan",
+    "reactivateOk": "Diaktifkan",
+    "reactivateFailed": "Gagal mengaktifkan"
+  },
+  "myCarrierUsers": {
+    "title": "Manajemen Akun",
+    "subtitle": "Kelola akun staff dan sopir perusahaan Anda",
+    "notCarrierAccount": "Akun Anda tidak terhubung ke vendor — tidak dapat mengelola akun",
+    "driverHint": "Akun sopir hanya bisa lihat; hubungi staff untuk perubahan"
   },
   "customers": {
     "title": "Manajemen Pelanggan",
@@ -598,7 +645,15 @@
       "partial": "Berjalan",
       "pending": "Belum mulai",
       "organization": "Organisasi",
-      "importedAt": "Waktu Impor"
+      "importedAt": "Waktu Impor",
+      "pickupAssignment": "Alokasi Pickup",
+      "pickupNotAssigned": "Belum dialokasi",
+      "plannedShort": "Rencana",
+      "pickupStatus": {
+        "PENDING": "Menunggu",
+        "IN_PROGRESS": "Sedang berjalan",
+        "COMPLETED": "Selesai"
+      }
     },
     "detail": {
       "title": "Detail Order Inbound",
@@ -649,6 +704,23 @@
       "cancelledBy": "Dibatalkan oleh {by}",
       "cancelledHint": "Shell order dipertahankan untuk audit. Untuk memakai ulang kode order ini, klik 'Impor ulang VIN' di kanan atas.",
       "reactivate": "Impor ulang VIN",
+      "assignPickup": "Tugaskan Vendor",
+      "reassignPickup": "Ganti Vendor",
+      "assignPickupTitle": "Tugaskan Vendor Pickup",
+      "assignPickupCarrier": "Vendor",
+      "assignPickupCarrierHint": "Order masuk task pool vendor; kosongkan untuk membatalkan",
+      "assignPickupCarrierPlaceholder": "Pilih vendor (kosongkan = batal alokasi)",
+      "plannedPickupDate": "Rencana pickup",
+      "plannedPickupDatePlaceholder": "Pilih tanggal",
+      "assignPickupOk": "Berhasil dialokasi",
+      "assignPickupFailed": "Gagal alokasi",
+      "pickupCarrier": "Vendor Pickup",
+      "pickupNotAssigned": "Belum dialokasi",
+      "pickupStatus": {
+        "PENDING": "Menunggu",
+        "IN_PROGRESS": "Sedang berjalan",
+        "COMPLETED": "Selesai"
+      },
       "field": {
         "brand": "Merek",
         "model": "Model",
@@ -662,6 +734,8 @@
         "CANCELLED": "Batal"
       },
       "pickup": "Pickup",
+      "pickupLatitude": "Latitude Pickup",
+      "pickupLongitude": "Longitude Pickup",
       "notPickedUp": "Belum diambil",
       "thirdParty": "Kirim langsung pihak ketiga",
       "awaitingPickup": "Menunggu pickup",

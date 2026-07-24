@@ -46,7 +46,8 @@
     "deliverySign": "Delivery Sign",
     "myOutboundOrders": "My Outbound Orders",
     "myWaybills": "My Waybills",
-    "pickup": "Pickup Scan"
+    "pickup": "Pickup Scan",
+    "myCarrierUsers": "Accounts"
   },
   "roles": {
     "HQ_ADMIN": "HQ Admin",
@@ -277,7 +278,53 @@
     "createFailed": "Failed to create",
     "createSuccess": "Created successfully",
     "organization": "Organization",
-    "action": "Action"
+    "action": "Action",
+    "viewUsers": "Users",
+    "usersDrawerTitle": "Carrier Users"
+  },
+  "carrierUsers": {
+    "loadFailed": "Load failed",
+    "empty": "No accounts yet — click 'Add Account' on the top right",
+    "searchPlaceholder": "Username / name / email",
+    "roleAll": "All roles",
+    "stateAll": "All",
+    "stateActive": "Active",
+    "stateDisabled": "Disabled",
+    "addUser": "Add Account",
+    "editTitle": "Edit Account",
+    "username": "Username",
+    "password": "Initial password",
+    "displayName": "Display name",
+    "role": "Role",
+    "email": "Email",
+    "state": "State",
+    "emailInvalid": "Invalid email",
+    "createHint": "Admin creates account directly. Username is unique; name/email are for display and notifications. Only Staff/Driver roles are allowed.",
+    "createOk": "Account created",
+    "createFailed": "Create failed",
+    "updateOk": "Saved",
+    "updateFailed": "Save failed",
+    "edit": "Edit",
+    "resetPwd": "Reset password",
+    "resetConfirm": "Generate a new password for {username}? Old password stops working immediately.",
+    "resetFailed": "Reset failed",
+    "resetOkTitle": "New password — shown once",
+    "resetOkHint": "Copy and hand it over now; you can't view it again after closing",
+    "resetOkClose": "Copied · close",
+    "newPassword": "New password",
+    "deactivate": "Disable",
+    "deactivateConfirm": "Disable {username}? The account won't be able to log in.",
+    "deactivateOk": "Disabled",
+    "deactivateFailed": "Disable failed",
+    "reactivate": "Enable",
+    "reactivateOk": "Enabled",
+    "reactivateFailed": "Enable failed"
+  },
+  "myCarrierUsers": {
+    "title": "Account Management",
+    "subtitle": "Manage staff and driver accounts for your company",
+    "notCarrierAccount": "Your account is not linked to a carrier — cannot manage accounts",
+    "driverHint": "Driver accounts have view-only access; ask your staff to make changes"
   },
   "customers": {
     "title": "Customers",
@@ -598,7 +645,15 @@
       "partial": "In progress",
       "pending": "Not started",
       "organization": "Organization",
-      "importedAt": "Imported At"
+      "importedAt": "Imported At",
+      "pickupAssignment": "Pickup Assignment",
+      "pickupNotAssigned": "Unassigned",
+      "plannedShort": "Planned",
+      "pickupStatus": {
+        "PENDING": "Pending",
+        "IN_PROGRESS": "In progress",
+        "COMPLETED": "Completed"
+      }
     },
     "detail": {
       "title": "Inbound Order",
@@ -649,6 +704,23 @@
       "cancelledBy": "Cancelled by {by}",
       "cancelledHint": "The order shell is kept for audit. To reuse this order code, click 'Reimport VINs' at the top right.",
       "reactivate": "Reimport VINs",
+      "assignPickup": "Assign Carrier",
+      "reassignPickup": "Reassign Carrier",
+      "assignPickupTitle": "Assign Pickup Carrier",
+      "assignPickupCarrier": "Carrier",
+      "assignPickupCarrierHint": "Order enters carrier's task pool; clear to unassign",
+      "assignPickupCarrierPlaceholder": "Pick a carrier (clear to unassign)",
+      "plannedPickupDate": "Planned pickup date",
+      "plannedPickupDatePlaceholder": "Pick date",
+      "assignPickupOk": "Assigned",
+      "assignPickupFailed": "Assign failed",
+      "pickupCarrier": "Pickup Carrier",
+      "pickupNotAssigned": "Unassigned",
+      "pickupStatus": {
+        "PENDING": "Pending",
+        "IN_PROGRESS": "In progress",
+        "COMPLETED": "Completed"
+      },
       "field": {
         "brand": "Brand",
         "model": "Model",
@@ -662,6 +734,8 @@
         "CANCELLED": "Cancelled"
       },
       "pickup": "Pickup",
+      "pickupLatitude": "Pickup Latitude",
+      "pickupLongitude": "Pickup Longitude",
       "notPickedUp": "Not picked up",
       "thirdParty": "Third-party delivery",
       "awaitingPickup": "Awaiting pickup",

@@ -174,6 +174,11 @@ export class InboundService {
       status: OrderStatus;
       cancelledAt: Date | null;
       cancelledByUserName: string | null;
+      pickupCarrierId: string | null;
+      pickupCarrierName: string | null;
+      pickupDriverUserName: string | null;
+      plannedPickupDate: string | null;
+      pickupStatus: OrderPickupStatus;
     }>
   > {
     const qb = this.ordersRepo
@@ -182,6 +187,8 @@ export class InboundService {
       .leftJoinAndSelect('order.destinationYard', 'yard')
       .leftJoinAndSelect('order.organization', 'organization')
       .leftJoinAndSelect('order.cancelledByUser', 'cancelledByUser')
+      .leftJoinAndSelect('order.pickupCarrier', 'pickupCarrier')
+      .leftJoinAndSelect('order.pickupDriverUser', 'pickupDriverUser')
       .where('order.transportType = :type', { type: TransportType.TRANSFER })
       .orderBy('order.createdAt', 'DESC');
     // 默认排除 CANCELLED；status=CANCELLED 时只查 CANCELLED
@@ -262,6 +269,11 @@ export class InboundService {
           status: o.status,
           cancelledAt: o.cancelledAt,
           cancelledByUserName: o.cancelledByUser?.displayName ?? null,
+          pickupCarrierId: o.pickupCarrierId,
+          pickupCarrierName: o.pickupCarrier?.name ?? null,
+          pickupDriverUserName: o.pickupDriverUser?.displayName ?? null,
+          plannedPickupDate: o.plannedPickupDate,
+          pickupStatus: o.pickupStatus,
         };
       })
       .filter((x): x is NonNullable<typeof x> => x !== null);
@@ -278,6 +290,8 @@ export class InboundService {
       .leftJoinAndSelect('order.destinationYard', 'yard')
       .leftJoinAndSelect('order.organization', 'organization')
       .leftJoinAndSelect('order.cancelledByUser', 'cancelledByUser')
+      .leftJoinAndSelect('order.pickupCarrier', 'pickupCarrier')
+      .leftJoinAndSelect('order.pickupDriverUser', 'pickupDriverUser')
       .where('order.id = :id', { id })
       .andWhere('order.transportType = :type', {
         type: TransportType.TRANSFER,
@@ -362,6 +376,8 @@ export class InboundService {
     vin.pickupDriverUserId = user.userId;
     vin.pickedUpAt = new Date();
     vin.pickupLocation = dto.location ?? vin.order?.originText ?? null;
+    vin.pickupLatitude = dto.pickupLatitude ?? null;
+    vin.pickupLongitude = dto.pickupLongitude ?? null;
     vin.pickupPhotoUrls = dto.photoUrls ?? null;
     vin.pickupRemark = dto.remark ?? null;
     const saved = await this.orderVinsRepo.save(vin);
@@ -372,6 +388,8 @@ export class InboundService {
       operatorUserId: user.userId,
       payload: {
         location: vin.pickupLocation,
+        pickupLatitude: vin.pickupLatitude,
+        pickupLongitude: vin.pickupLongitude,
         carrierId: user.carrierId,
         photoKeys: dto.photoUrls ?? null,
         remark: dto.remark ?? null,
@@ -1325,6 +1343,8 @@ export class InboundService {
     vin.pickedUpAt = new Date();
     vin.pickupLocation =
       dto.location ?? vin.order?.originText ?? targetOrder.originText ?? null;
+    vin.pickupLatitude = dto.pickupLatitude ?? null;
+    vin.pickupLongitude = dto.pickupLongitude ?? null;
     vin.pickupPhotoUrls = dto.photoUrls ?? null;
     vin.pickupRemark = dto.remark ?? null;
     const saved = await this.orderVinsRepo.save(vin);
@@ -1374,6 +1394,8 @@ export class InboundService {
         taskOrderId: orderId,
         outOfOrder,
         location: saved.pickupLocation,
+        pickupLatitude: saved.pickupLatitude,
+        pickupLongitude: saved.pickupLongitude,
         photoKeys: dto.photoUrls ?? null,
         remark: dto.remark ?? null,
       },

@@ -43,6 +43,8 @@ const {
   OUTBOUND_IMPORT,
   OUTBOUND_VIEW,
   OUTBOUND_PLAN,
+  CARRIER_USER_VIEW,
+  CARRIER_USER_MANAGE,
 } = Permission;
 // ORG_CRUD 只在 HQ_ALL 里通过 Object.values 引用，不用单独解构
 
@@ -93,6 +95,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     OUTBOUND_IMPORT,
     OUTBOUND_VIEW,
     OUTBOUND_PLAN,
+    CARRIER_USER_VIEW,
+    CARRIER_USER_MANAGE,
   ],
 
   // 场地业务员：日常运营 + 扫码 + 入库扫码 + 建批次
@@ -124,7 +128,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     OUTBOUND_VIEW,
   ],
 
-  // 承运商业务员：分给自己家的运单 + 提货记录 + 现场帮扫
+  // 承运商业务员：分给自己家的运单 + 提货记录 + 现场帮扫 + 管理自家账号
   [Role.CARRIER_STAFF]: [
     WAYBILL_VIEW,
     WAYBILL_SCAN,
@@ -132,6 +136,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     TRACKING_VIEW,
     PICKUP_SCAN,
     PICKUP_VIEW,
+    CARRIER_USER_VIEW,
+    CARRIER_USER_MANAGE,
   ],
 
   // 承运商司机：分给自己的运单 + 港口扫码提货

@@ -2,6 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   IsArray,
+  IsLatitude,
+  IsLongitude,
   IsOptional,
   IsString,
   Length,
@@ -20,6 +22,16 @@ export class PickupScanDto {
   @IsString()
   @MaxLength(120)
   location?: string;
+
+  @ApiProperty({ required: false, description: '提货 GPS 纬度，由 App 无感采集' })
+  @IsOptional()
+  @IsLatitude()
+  pickupLatitude?: number;
+
+  @ApiProperty({ required: false, description: '提货 GPS 经度，由 App 无感采集' })
+  @IsOptional()
+  @IsLongitude()
+  pickupLongitude?: number;
 
   @ApiProperty({ required: false, description: '车损存证照片 (MinIO object keys)' })
   @IsOptional()

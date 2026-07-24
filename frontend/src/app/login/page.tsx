@@ -40,6 +40,7 @@ export default function LoginPage() {
         activeOrgId: res.activeOrgId ?? null,
         memberships: res.memberships ?? [],
         externalContext: res.externalContext ?? null,
+        accountUnit: res.accountUnit ?? null,
         permissions: res.permissions ?? [],
       });
       router.replace('/dashboard');

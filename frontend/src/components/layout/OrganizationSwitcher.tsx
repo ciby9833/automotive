@@ -31,6 +31,7 @@ export function OrganizationSwitcher() {
         activeOrgId: res.activeOrgId ?? null,
         memberships: res.memberships ?? [],
         externalContext: res.externalContext ?? null,
+        accountUnit: res.accountUnit ?? null,
         permissions: res.permissions ?? [],
       });
       // 硬重载前先清 tabs：避免下一次进来 tabs 里还有旧机构的路由

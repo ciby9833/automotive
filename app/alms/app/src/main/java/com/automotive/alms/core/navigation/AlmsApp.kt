@@ -73,7 +73,10 @@ fun AlmsApp(container: AppContainer) {
         }
         composable(AppRoute.InboundScan.path) { InboundScanScreen() }
         composable(AppRoute.PickupScan.path) {
-            PickupScanScreen(repository = container.pickupRepository)
+            PickupScanScreen(
+                repository = container.pickupRepository,
+                loginResult = session.loginResult,
+            )
         }
         composable(AppRoute.WaybillList.path) { WaybillListScreen() }
         composable(AppRoute.YardInventory.path) { YardInventoryScreen() }

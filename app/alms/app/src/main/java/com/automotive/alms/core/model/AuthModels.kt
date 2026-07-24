@@ -29,7 +29,17 @@ data class MembershipSummary(
 @Serializable
 data class ExternalContext(
     val carrierId: String? = null,
+    val carrierName: String? = null,
     val customerId: String? = null,
+    val customerName: String? = null,
+)
+
+@Serializable
+data class AccountUnit(
+    val type: String,
+    val id: String,
+    val code: String? = null,
+    val name: String,
 )
 
 @Serializable
@@ -40,6 +50,7 @@ data class LoginResult(
     val memberships: List<MembershipSummary> = emptyList(),
     val activeOrgId: String? = null,
     val externalContext: ExternalContext? = null,
+    val accountUnit: AccountUnit? = null,
     val permissions: List<String> = emptyList(),
 )
 
@@ -64,5 +75,8 @@ data class CurrentUserResult(
     val scopeYardId: String? = null,
     val carrierId: String? = null,
     val customerId: String? = null,
+    val displayName: String? = null,
+    val email: String? = null,
+    val accountUnit: AccountUnit? = null,
     val permissions: List<String> = emptyList(),
 )

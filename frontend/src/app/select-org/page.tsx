@@ -42,6 +42,7 @@ export default function SelectOrgPage() {
         activeOrgId: res.activeOrgId ?? null,
         memberships: res.memberships ?? [],
         externalContext: res.externalContext ?? null,
+        accountUnit: res.accountUnit ?? null,
         permissions: res.permissions ?? [],
       });
       // 记住上次选择，下次同一账号登录时可以做默认高亮

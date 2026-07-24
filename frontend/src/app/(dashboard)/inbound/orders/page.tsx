@@ -183,6 +183,37 @@ export default function InboundOrdersPage() {
               return <Tag>{t('inbound.orders.pending')}</Tag>;
             },
           },
+          {
+            title: t('inbound.orders.pickupAssignment'),
+            width: 220,
+            render: (_: unknown, r: InboundOrderListRow) => {
+              if (r.status === 'CANCELLED') return '-';
+              if (!r.pickupCarrierId) {
+                return <Tag>{t('inbound.orders.pickupNotAssigned')}</Tag>;
+              }
+              const color =
+                r.pickupStatus === 'COMPLETED'
+                  ? 'green'
+                  : r.pickupStatus === 'IN_PROGRESS'
+                    ? 'processing'
+                    : 'blue';
+              return (
+                <div>
+                  <Tag color={color}>
+                    {t(`inbound.orders.pickupStatus.${r.pickupStatus}`)}
+                  </Tag>
+                  <div style={{ fontSize: 12, marginTop: 2 }}>
+                    {r.pickupCarrierName ?? '-'}
+                  </div>
+                  {r.plannedPickupDate && (
+                    <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                      {t('inbound.orders.plannedShort')}: {r.plannedPickupDate}
+                    </div>
+                  )}
+                </div>
+              );
+            },
+          },
         ]}
       />
     </div>

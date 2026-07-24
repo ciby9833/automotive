@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Form, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { Button, Drawer, Form, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
+import { TeamOutlined } from '@ant-design/icons';
 import { carriersApi, Carrier } from '@/lib/api/carriers';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -9,6 +10,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { localizedOrganizationName } from '@/i18n/organizationNames';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 import { GenerateInviteButton } from '@/components/invitations/GenerateInviteButton';
+import { CarrierUsersPanel } from '@/components/carriers/CarrierUsersPanel';
 import { Role } from '@/lib/auth/role';
 import { OrgFilter } from '@/components/layout/OrgFilter';
 
@@ -17,6 +19,7 @@ export default function CarriersPage() {
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
+  const [usersDrawer, setUsersDrawer] = useState<Carrier | null>(null);
   const [form] = Form.useForm();
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const role = useAuthStore((s) => s.user?.role);
@@ -83,7 +86,17 @@ export default function CarriersPage() {
     columns.push({
       title: t('carriers.action'),
       render: (_: unknown, record: Carrier) => (
-        <GenerateInviteButton targetType="CARRIER" targetId={record.id} />
+        <Space size={4}>
+          <Button
+            type="link"
+            size="small"
+            icon={<TeamOutlined />}
+            onClick={() => setUsersDrawer(record)}
+          >
+            {t('carriers.viewUsers')}
+          </Button>
+          <GenerateInviteButton targetType="CARRIER" targetId={record.id} />
+        </Space>
       ),
     } as never);
   }
@@ -150,6 +163,25 @@ export default function CarriersPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Drawer
+        title={
+          usersDrawer
+            ? `${t('carriers.usersDrawerTitle')} · ${usersDrawer.name}`
+            : t('carriers.usersDrawerTitle')
+        }
+        open={!!usersDrawer}
+        onClose={() => setUsersDrawer(null)}
+        width={960}
+        destroyOnClose
+      >
+        {usersDrawer && (
+          <CarrierUsersPanel
+            carrierId={usersDrawer.id}
+            carrierName={usersDrawer.name}
+          />
+        )}
+      </Drawer>
     </div>
   );
 }

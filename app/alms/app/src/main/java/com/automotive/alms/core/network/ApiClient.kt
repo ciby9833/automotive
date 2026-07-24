@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.MultipartBody
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,6 +40,27 @@ class ApiClient(
         val request = Request.Builder()
             .url(baseUrl.trimEnd('/') + path)
             .post(ByteArray(0).toRequestBody(null))
+            .build()
+        return execute(request)
+    }
+
+    suspend inline fun <reified T> uploadFile(
+        path: String,
+        fileName: String,
+        contentType: String,
+        bytes: ByteArray,
+    ): T {
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                name = "file",
+                filename = fileName,
+                body = bytes.toRequestBody(contentType.toMediaType()),
+            )
+            .build()
+        val request = Request.Builder()
+            .url(baseUrl.trimEnd('/') + path)
+            .post(body)
             .build()
         return execute(request)
     }

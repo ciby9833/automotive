@@ -7,6 +7,8 @@ import { UsersModule } from '../users/users.module';
 import { EmailModule } from '../email/email.module';
 import { UserOrganizationMembership } from '../users/entities/user-organization-membership.entity';
 import { Organization } from '../organizations/entities/organization.entity';
+import { Carrier } from '../carriers/entities/carrier.entity';
+import { Customer } from '../customers/entities/customer.entity';
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -16,7 +18,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     UsersModule,
     EmailModule,
     PassportModule,
-    TypeOrmModule.forFeature([UserOrganizationMembership, Organization]),
+    TypeOrmModule.forFeature([
+      UserOrganizationMembership,
+      Organization,
+      Carrier,
+      Customer,
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

@@ -21,7 +21,16 @@ export interface Membership {
 
 export interface ExternalContext {
   carrierId: string | null;
+  carrierName?: string | null;
   customerId: string | null;
+  customerName?: string | null;
+}
+
+export interface AccountUnit {
+  type: 'ORG' | 'CARRIER' | 'CUSTOMER';
+  id: string;
+  code: string | null;
+  name: string;
 }
 
 export type LoginMode = 'EXTERNAL' | 'SINGLE_ORG' | 'NEEDS_SELECTION';
@@ -33,6 +42,7 @@ interface AuthState {
   activeOrgId: string | null;
   memberships: Membership[];
   externalContext: ExternalContext | null;
+  accountUnit: AccountUnit | null;
   // 后端下发的功能权限清单；前端按钮可见性完全据此驱动，不再直接检查 role
   permissions: string[];
   hasHydrated: boolean;
@@ -44,6 +54,7 @@ interface AuthState {
     activeOrgId: string | null;
     memberships: Membership[];
     externalContext: ExternalContext | null;
+    accountUnit?: AccountUnit | null;
     permissions: string[];
   }) => void;
   // 多机构场景：先存预授权 token + 待选 memberships + 权限清单（选完机构不重拉）
@@ -69,10 +80,29 @@ export const useAuthStore = create<AuthState>()(
       activeOrgId: null,
       memberships: [],
       externalContext: null,
+      accountUnit: null,
       permissions: [],
       hasHydrated: false,
-      setAuth: ({ token, user, mode, activeOrgId, memberships, externalContext, permissions }) =>
-        set({ token, user, mode, activeOrgId, memberships, externalContext, permissions }),
+      setAuth: ({
+        token,
+        user,
+        mode,
+        activeOrgId,
+        memberships,
+        externalContext,
+        accountUnit,
+        permissions,
+      }) =>
+        set({
+          token,
+          user,
+          mode,
+          activeOrgId,
+          memberships,
+          externalContext,
+          accountUnit: accountUnit ?? null,
+          permissions,
+        }),
       setPreAuth: ({ token, user, memberships, permissions }) =>
         set({
           token,
@@ -81,6 +111,7 @@ export const useAuthStore = create<AuthState>()(
           activeOrgId: null,
           memberships,
           externalContext: null,
+          accountUnit: null,
           permissions,
         }),
       logout: () =>
@@ -91,6 +122,7 @@ export const useAuthStore = create<AuthState>()(
           activeOrgId: null,
           memberships: [],
           externalContext: null,
+          accountUnit: null,
           permissions: [],
         }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
@@ -104,6 +136,7 @@ export const useAuthStore = create<AuthState>()(
         activeOrgId: state.activeOrgId,
         memberships: state.memberships,
         externalContext: state.externalContext,
+        accountUnit: state.accountUnit,
         permissions: state.permissions,
       }),
       onRehydrateStorage: () => (state) => {

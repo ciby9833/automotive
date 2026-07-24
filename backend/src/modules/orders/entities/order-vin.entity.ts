@@ -65,6 +65,12 @@ export class OrderVin extends BaseEntity {
   @Column({ name: 'pickup_location', type: 'varchar', nullable: true })
   pickupLocation: string | null; // 港口/工厂名称
 
+  @Column({ name: 'pickup_latitude', type: 'double precision', nullable: true })
+  pickupLatitude: number | null;
+
+  @Column({ name: 'pickup_longitude', type: 'double precision', nullable: true })
+  pickupLongitude: number | null;
+
   // 车损存证照片 (MinIO 里的 object key 列表)
   @Column({ name: 'pickup_photo_urls', type: 'text', array: true, nullable: true })
   pickupPhotoUrls: string[] | null;

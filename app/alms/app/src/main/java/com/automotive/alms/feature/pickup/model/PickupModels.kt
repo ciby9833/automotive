@@ -15,6 +15,8 @@ data class PickupVin(
     val arrivalStatus: String? = null,
     val pickedUpAt: String? = null,
     val pickupLocation: String? = null,
+    val pickupLatitude: Double? = null,
+    val pickupLongitude: Double? = null,
     val pickupPhotoUrls: List<String>? = null,
     val pickupRemark: String? = null,
     val order: PickupOrder? = null,
@@ -96,6 +98,8 @@ data class PickupOrderScanRequest(
     val vin: String,
     val allowOutOfOrder: Boolean = true,
     val location: String? = null,
+    val pickupLatitude: Double? = null,
+    val pickupLongitude: Double? = null,
     val photoUrls: List<String>? = null,
     val remark: String? = null,
 )

@@ -28,6 +28,13 @@ export enum Permission {
   PARTNER_CUSTOMER_CRUD = 'partner:customer-crud',
   PARTNER_INVITE = 'partner:invite',
 
+  // 承运商账号管理 (承运商侧司机/业务员账号)
+  //   VIEW: 查看某承运商下的账号列表
+  //   MANAGE: 创建/编辑/禁用/启用/重置密码
+  // HQ/ORG_ADMIN 拥有全场景 (受 carrier.organizationId 归属校验)；CARRIER_STAFF 仅自家
+  CARRIER_USER_VIEW = 'carrier:user-view',
+  CARRIER_USER_MANAGE = 'carrier:user-manage',
+
   // 财务结算
   FINANCE_VIEW = 'finance:view',
   FINANCE_CONFIRM = 'finance:confirm',

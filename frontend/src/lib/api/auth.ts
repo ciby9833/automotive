@@ -1,5 +1,11 @@
 import { apiClient, unwrap } from './client';
-import { AuthUser, ExternalContext, LoginMode, Membership } from '../auth/store';
+import {
+  AccountUnit,
+  AuthUser,
+  ExternalContext,
+  LoginMode,
+  Membership,
+} from '../auth/store';
 
 export interface LoginResponse {
   mode: LoginMode;
@@ -8,6 +14,7 @@ export interface LoginResponse {
   memberships?: Membership[];
   activeOrgId?: string | null;
   externalContext?: ExternalContext;
+  accountUnit?: AccountUnit | null;
   permissions: string[];
 }
 

@@ -51,4 +51,53 @@ export const carriersApi = {
   ) => unwrap<Driver>(apiClient.post(`/carriers/${carrierId}/drivers`, dto)),
   addVehicle: (carrierId: string, dto: { plateNumber: string; towType?: string }) =>
     unwrap<Vehicle>(apiClient.post(`/carriers/${carrierId}/vehicles`, dto)),
+
+  // ============ 承运商账号管理 ============
+  listUsers: (
+    carrierId: string,
+    params?: { keyword?: string; role?: 'CARRIER_STAFF' | 'CARRIER_DRIVER'; active?: boolean },
+  ) =>
+    unwrap<CarrierUser[]>(
+      apiClient.get(`/carriers/${carrierId}/users`, { params }),
+    ),
+  createUser: (
+    carrierId: string,
+    dto: {
+      username: string;
+      password: string;
+      displayName: string;
+      role: 'CARRIER_STAFF' | 'CARRIER_DRIVER';
+      email?: string;
+    },
+  ) => unwrap<CarrierUser>(apiClient.post(`/carriers/${carrierId}/users`, dto)),
+  updateUser: (
+    carrierId: string,
+    userId: string,
+    dto: { displayName?: string; email?: string | null },
+  ) =>
+    unwrap<CarrierUser>(
+      apiClient.patch(`/carriers/${carrierId}/users/${userId}`, dto),
+    ),
+  deactivateUser: (carrierId: string, userId: string) =>
+    unwrap<CarrierUser>(
+      apiClient.patch(`/carriers/${carrierId}/users/${userId}/deactivate`),
+    ),
+  reactivateUser: (carrierId: string, userId: string) =>
+    unwrap<CarrierUser>(
+      apiClient.patch(`/carriers/${carrierId}/users/${userId}/reactivate`),
+    ),
+  resetUserPassword: (carrierId: string, userId: string) =>
+    unwrap<{ username: string; temporaryPassword: string }>(
+      apiClient.post(`/carriers/${carrierId}/users/${userId}/reset-password`),
+    ),
 };
+
+export interface CarrierUser {
+  id: string;
+  username: string;
+  displayName: string;
+  role: 'CARRIER_STAFF' | 'CARRIER_DRIVER';
+  email: string | null;
+  isActive: boolean;
+  createdAt: string;
+}

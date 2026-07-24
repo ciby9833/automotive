@@ -8,7 +8,6 @@ import { SelectOrgDto } from './dto/select-org.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AllowPreAuth } from '../../common/decorators/allow-preauth.decorator';
-import { permissionsForRole } from '../../common/rbac/role-permissions';
 import type { AuthenticatedUser } from './auth.types';
 
 @ApiTags('auth')
@@ -55,6 +54,6 @@ export class AuthController {
   @AllowPreAuth()
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser) {
-    return { ...user, permissions: permissionsForRole(user.role) };
+    return this.authService.getCurrentSession(user);
   }
 }

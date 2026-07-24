@@ -55,7 +55,16 @@
     <string name="pickup_out_of_order_title">VIN di luar tugas</string>
     <string name="pickup_out_of_order_dialog">%1$s diterima oleh backend, tetapi tidak ada dalam tugas ini.</string>
     <string name="pickup_out_of_order_confirm">Mengerti</string>
+    <string name="pickup_add_photo">Tambah foto</string>
+    <string name="pickup_photo_uploading">Mengunggah foto</string>
+    <string name="pickup_photo_count">%1$d foto untuk VIN ini</string>
+    <string name="pickup_photo_upload_failed">Gagal mengunggah foto</string>
+    <string name="pickup_camera_denied">Izin kamera ditolak</string>
+    <string name="pickup_permission_denied">Izin kamera dan lokasi diperlukan</string>
+    <string name="pickup_gps_resolving">Mengambil GPS</string>
+    <string name="pickup_gps_required">GPS tidak tersedia. Pindah ke area terbuka dan coba lagi.</string>
     <string name="pickup_vin">VIN</string>
+    <string name="pickup_scan_action">Scan</string>
     <string name="pickup_lookup">Cek</string>
     <string name="pickup_confirm">Konfirmasi pickup</string>
     <string name="pickup_location">Lokasi</string>

@@ -22,6 +22,7 @@ export interface ImportInboundOrderPayload {
 }
 
 export type InboundOrderStatus = 'ACTIVE' | 'CANCELLED';
+export type OrderPickupStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 
 export interface InboundOrderListRow {
   id: string;
@@ -39,6 +40,11 @@ export interface InboundOrderListRow {
   status: InboundOrderStatus;
   cancelledAt: string | null;
   cancelledByUserName: string | null;
+  pickupCarrierId: string | null;
+  pickupCarrierName: string | null;
+  pickupDriverUserName: string | null;
+  plannedPickupDate: string | null;
+  pickupStatus: OrderPickupStatus;
 }
 
 export interface InboundBatch {
@@ -64,6 +70,8 @@ export interface InboundOrderVinDetail {
   arrivalStatus: OrderVinArrivalStatus;
   pickedUpAt: string | null;
   pickupLocation: string | null;
+  pickupLatitude: number | null;
+  pickupLongitude: number | null;
   pickupCarrier?: { id: string; name: string; shortName: string | null };
   pickupDriverUser?: { id: string; displayName: string };
   pickupPhotoUrls: string[] | null;
@@ -133,6 +141,18 @@ export const inboundApi = {
   // DELETE 语义：软取消 (保留订单壳，标 CANCELLED)
   cancelOrder: (orderId: string) =>
     unwrap<{ ok: boolean }>(apiClient.delete(`/inbound/orders/${orderId}`)),
+  // HQ / ORG_ADMIN 分派提货承运商；driver 可选；传 null 解除分派
+  assignPickup: (
+    orderId: string,
+    payload: {
+      pickupCarrierId?: string | null;
+      pickupDriverUserId?: string | null;
+      plannedPickupDate?: string;
+    },
+  ) =>
+    unwrap<{ id: string; pickupStatus: OrderPickupStatus }>(
+      apiClient.patch(`/inbound/orders/${orderId}/pickup-assignment`, payload),
+    ),
   // 已取消订单重新导入 VIN (恢复 ACTIVE + 追加)
   reactivateOrder: (
     orderId: string,

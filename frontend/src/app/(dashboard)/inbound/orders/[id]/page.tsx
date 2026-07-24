@@ -26,8 +26,10 @@ import {
   EditOutlined,
   FileImageOutlined,
   ImportOutlined,
+  TruckOutlined,
 } from '@ant-design/icons';
 import Link from 'next/link';
+import { AssignPickupModal } from '@/components/inbound/AssignPickupModal';
 import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   inboundApi,
@@ -51,6 +53,14 @@ interface OrderHead {
   status: 'ACTIVE' | 'CANCELLED';
   cancelledAt: string | null;
   cancelledByUser?: { id: string; displayName: string } | null;
+  // 提货分派 (第一批后端加的字段)
+  pickupCarrierId: string | null;
+  pickupCarrier?: { id: string; name: string; shortName: string | null } | null;
+  pickupDriverUser?: { id: string; displayName: string } | null;
+  plannedPickupDate: string | null;
+  pickupStatus: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+  pickupStartedAt: string | null;
+  pickupCompletedAt: string | null;
   customer?: { id: string; name: string };
   destinationYard?: { id: string; name: string; code: string };
   organization?: { id: string; name: string; code: string };
@@ -79,7 +89,7 @@ function buildEvidenceSections(
         },
         {
           label: t('inbound.detail.evidence.location'),
-          value: vin.pickupLocation,
+          value: formatPickupLocation(vin),
         },
         {
           label: t('inbound.detail.evidence.carrier'),
@@ -123,6 +133,18 @@ function buildEvidenceSections(
   ];
 }
 
+function formatPickupLocation(vin: InboundOrderVinDetail): string | null {
+  const gps =
+    vin.pickupLatitude != null && vin.pickupLongitude != null
+      ? `${vin.pickupLatitude.toFixed(6)}, ${vin.pickupLongitude.toFixed(6)}`
+      : null;
+  return [vin.pickupLocation, gps].filter(Boolean).join(' / ') || null;
+}
+
+function formatCoordinate(value: number | null | undefined): string {
+  return value == null ? '-' : value.toFixed(6);
+}
+
 export function InboundOrderDetail({ id }: { id: string }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -151,6 +173,9 @@ export function InboundOrderDetail({ id }: { id: string }) {
   // 编辑 VIN Modal
   const [editing, setEditing] = useState<InboundOrderVinDetail | null>(null);
   const [editForm] = Form.useForm();
+
+  // 分派提货 Modal
+  const [assignPickupOpen, setAssignPickupOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!id) return;
@@ -252,6 +277,16 @@ export function InboundOrderDetail({ id }: { id: string }) {
                 {t('inbound.detail.reactivate')}
               </Button>
             </Link>
+          )}
+          {canEdit && !isCancelled && (
+            <Button
+              icon={<TruckOutlined />}
+              onClick={() => setAssignPickupOpen(true)}
+            >
+              {order?.pickupCarrierId
+                ? t('inbound.detail.reassignPickup')
+                : t('inbound.detail.assignPickup')}
+            </Button>
           )}
           {canCancelOrder && (
             <Popconfirm
@@ -359,6 +394,31 @@ export function InboundOrderDetail({ id }: { id: string }) {
           <Descriptions.Item label={t('inbound.detail.importedAt')}>
             {order?.createdAt ? new Date(order.createdAt).toLocaleString() : '-'}
           </Descriptions.Item>
+          <Descriptions.Item label={t('inbound.detail.pickupCarrier')}>
+            {order?.pickupCarrier ? (
+              <Space size={4}>
+                <Tag color="blue">
+                  {order.pickupCarrier.shortName ?? order.pickupCarrier.name}
+                </Tag>
+                <Tag
+                  color={
+                    order.pickupStatus === 'COMPLETED'
+                      ? 'green'
+                      : order.pickupStatus === 'IN_PROGRESS'
+                        ? 'processing'
+                        : 'default'
+                  }
+                >
+                  {t(`inbound.detail.pickupStatus.${order.pickupStatus}`)}
+                </Tag>
+              </Space>
+            ) : (
+              <Tag>{t('inbound.detail.pickupNotAssigned')}</Tag>
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label={t('inbound.detail.plannedPickupDate')}>
+            {order?.plannedPickupDate ?? '-'}
+          </Descriptions.Item>
           <Descriptions.Item label={t('inbound.detail.remark')} span={2}>
             {order?.remark ?? '-'}
           </Descriptions.Item>
@@ -460,6 +520,18 @@ export function InboundOrderDetail({ id }: { id: string }) {
                 // EXPECTED：还没提也没到
                 return <Tag color="default">{t('inbound.detail.awaitingPickup')}</Tag>;
               },
+            },
+            {
+              title: t('inbound.detail.pickupLatitude'),
+              width: 120,
+              render: (_: unknown, r: InboundOrderVinDetail) =>
+                formatCoordinate(r.pickupLatitude),
+            },
+            {
+              title: t('inbound.detail.pickupLongitude'),
+              width: 120,
+              render: (_: unknown, r: InboundOrderVinDetail) =>
+                formatCoordinate(r.pickupLongitude),
             },
             {
               title: t('inbound.detail.slot'),
@@ -594,6 +666,22 @@ export function InboundOrderDetail({ id }: { id: string }) {
       >
         {evidenceVin && <EvidenceViewer sections={evidenceSections} />}
       </Drawer>
+
+      <AssignPickupModal
+        open={assignPickupOpen}
+        orderId={id}
+        current={
+          order
+            ? {
+                pickupCarrierId: order.pickupCarrierId,
+                pickupDriverUserName: order.pickupDriverUser?.displayName ?? null,
+                plannedPickupDate: order.plannedPickupDate,
+              }
+            : undefined
+        }
+        onClose={() => setAssignPickupOpen(false)}
+        onSaved={load}
+      />
     </div>
   );
 }

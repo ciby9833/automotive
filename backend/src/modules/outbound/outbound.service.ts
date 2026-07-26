@@ -15,6 +15,8 @@ import { YardSlot, YardSlotStatus } from '../yards/entities/yard-slot.entity';
 import { Waybill } from '../waybills/entities/waybill.entity';
 import { WaybillVin } from '../waybills/entities/waybill-vin.entity';
 import { Carrier } from '../carriers/entities/carrier.entity';
+import { Driver } from '../carriers/entities/driver.entity';
+import { Vehicle } from '../carriers/entities/vehicle.entity';
 import { CustomerAddress } from '../customers/entities/customer-address.entity';
 import { TransportType } from '../../common/enums/order-type.enum';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
@@ -41,6 +43,10 @@ export class OutboundService {
     private readonly yardRepo: Repository<Yard>,
     @InjectRepository(Carrier)
     private readonly carrierRepo: Repository<Carrier>,
+    @InjectRepository(Driver)
+    private readonly driverRepo: Repository<Driver>,
+    @InjectRepository(Vehicle)
+    private readonly vehicleRepo: Repository<Vehicle>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
     private readonly audit: AuditService,
@@ -49,6 +55,7 @@ export class OutboundService {
   // ============ 1. Excel 导入 ============
   // 一份 Excel = 一张出库订单 + N 条 VIN
   // 与入库不同：出库 VIN 必须已经在系统里 (客户不能凭空发一台我们没入过库的车)
+  // 始发仓不再由用户选择：每台 VIN 的当前所在库位 = 权威始发仓，跨仓 Excel 自动聚合。
   async importOutboundOrder(
     dto: ImportOutboundOrderDto,
     scope: EffectiveScope,
@@ -58,12 +65,18 @@ export class OutboundService {
     orderCode: string;
     matched: number;
     missing: string[];
+    alreadyBound: string[];
+    alreadyAllocated: string[];
+    originYards: Array<{
+      yardId: string | null;
+      yardName: string;
+      yardCode: string | null;
+      vinCount: number;
+    }>;
   }> {
-    const yard = await this.yardRepo.findOne({
-      where: { id: dto.originYardId },
-    });
-    if (!yard) throw new NotFoundException('始发场地不存在');
-    this.scopeService.assertOrgWritable(scope, yard.organizationId);
+    if (scope.type !== 'ORG') {
+      throw new ForbiddenException('外部账号无权导入出库单');
+    }
 
     // 入参内自我去重
     const seen = new Set<string>();
@@ -73,15 +86,19 @@ export class OutboundService {
       return true;
     });
 
-    // 出库 VIN 必须已存在系统 (入库过) 且属于同一客户
-    const existing = await this.orderVinsRepo.find({
-      where: { vin: In(uniqueVins.map((v) => v.vin)) },
-      relations: { order: true },
-    });
+    // 出库 VIN 必须已存在系统 (入库过) 且属于同一客户；顺带把 slot.yard 拿上以推导始发仓
+    const existing = await this.orderVinsRepo
+      .createQueryBuilder('v')
+      .leftJoinAndSelect('v.order', 'origOrder')
+      .leftJoinAndSelect('v.slot', 'slot')
+      .leftJoinAndSelect('slot.yard', 'yard')
+      .where('v.vin IN (:...vins)', { vins: uniqueVins.map((r) => r.vin) })
+      .getMany();
     const existingMap = new Map(existing.map((e) => [e.vin, e]));
     const missing: string[] = [];
-    const alreadyBound: string[] = []; // 已绑定别的出库单未开单
-    const alreadyAllocated: string[] = []; // 已被某张 waybill 选走
+    const alreadyBound: string[] = [];
+    const alreadyAllocated: string[] = [];
+    const outOfScope: string[] = []; // 跨机构：VIN 所属入库 org 不在当前用户 scope 内
     const toUpdate: Array<{ vin: OrderVin; row: (typeof uniqueVins)[number] }> =
       [];
     for (const row of uniqueVins) {
@@ -105,6 +122,12 @@ export class OutboundService {
         alreadyBound.push(row.vin);
         continue;
       }
+      // 跨机构：VIN 的入库归属机构必须在当前用户 scope 内
+      const vinOrgId = found.order?.organizationId;
+      if (!vinOrgId || !scope.orgIds.includes(vinOrgId)) {
+        outOfScope.push(row.vin);
+        continue;
+      }
       toUpdate.push({ vin: found, row });
     }
 
@@ -112,6 +135,8 @@ export class OutboundService {
       const parts: string[] = [];
       if (missing.length > 0)
         parts.push(`未入库/客户不匹配 ${missing.length} 台`);
+      if (outOfScope.length > 0)
+        parts.push(`跨机构无权处理 ${outOfScope.length} 台`);
       if (alreadyBound.length > 0)
         parts.push(
           `已绑定其他出库单 ${alreadyBound.length} 台 (${alreadyBound.slice(0, 3).join(',')}${alreadyBound.length > 3 ? '...' : ''})`,
@@ -123,20 +148,49 @@ export class OutboundService {
       );
     }
 
+    // Order.organizationId：取任一匹配 VIN 的入库归属机构。
+    // 前置的 scope 校验已经保证所有 VIN 落在 scope.orgIds 内，因此不会因单张出库单
+    // 跨机构而无法定位归属；如果客户真的跨国下单，会在扫码时分拆为多个出库单。
+    const orderOrgId = toUpdate[0].vin.order!.organizationId;
+
+    // 按 slot.yard 聚合，未到仓 VIN (slot 为空) 汇总到"未到仓"桶
+    const yardBucket = new Map<
+      string,
+      { yardId: string | null; yardName: string; yardCode: string | null; vinCount: number }
+    >();
+    for (const { vin } of toUpdate) {
+      const y = vin.slot?.yard;
+      const key = y?.id ?? '__unarrived__';
+      const entry = yardBucket.get(key);
+      if (entry) {
+        entry.vinCount += 1;
+      } else {
+        yardBucket.set(key, {
+          yardId: y?.id ?? null,
+          yardName: y?.name ?? '未到仓',
+          yardCode: y?.code ?? null,
+          vinCount: 1,
+        });
+      }
+    }
+    const originYards = Array.from(yardBucket.values());
+
     const result = await this.dataSource.transaction(async (mgr) => {
       const orderCode = `OUT-${Date.now()}${randomUUID().slice(0, 4).toUpperCase()}`;
       const orderRepo = mgr.getRepository(Order);
       const vinRepo = mgr.getRepository(OrderVin);
 
-      // 出库单头：destination_yard_id 在 DELIVERY 场景里存的是"始发仓 id"
-      // (语义反着用是历史包袱：字段建于入库时代)。真正的目的地在 order_vins.dealer_code
+      // 出库单头 destinationYardId：只有全部 VIN 在同一仓时才写单一始发仓 (兼容旧展示)；
+      // 跨仓场景保留 null，权威始发仓在 order_vins.slot.yard 上按 VIN 各自读。
+      const singleYardId =
+        originYards.length === 1 ? originYards[0].yardId : null;
       const orderData: Partial<Order> = {
         orderCode,
         customerOrderNo: dto.customerOrderNo,
-        organizationId: yard.organizationId,
+        organizationId: orderOrgId,
         customerId: dto.customerId,
         transportType: TransportType.DELIVERY,
-        destinationYardId: dto.originYardId,
+        destinationYardId: singleYardId,
         remark: dto.remark,
       };
       const savedOrder = await orderRepo.save(orderRepo.create(orderData));
@@ -159,9 +213,11 @@ export class OutboundService {
         missing,
         alreadyBound,
         alreadyAllocated,
+        originYards,
       };
     });
 
+    // 订单级汇总
     await this.audit.log({
       operationType: OperationType.OUTBOUND_ORDER_IMPORT,
       orderId: result.orderId,
@@ -170,11 +226,35 @@ export class OutboundService {
         orderCode: result.orderCode,
         matched: result.matched,
         missingCount: missing.length,
+        outOfScopeCount: outOfScope.length,
         alreadyBoundCount: alreadyBound.length,
         alreadyAllocatedCount: alreadyAllocated.length,
+        originYards,
       },
     });
-    return result;
+    // VIN 级节点：每台车都要在 timeline 上出现"进入出库单"事件
+    await this.audit.logMany(
+      toUpdate.map(({ vin, row }) => ({
+        operationType: OperationType.OUTBOUND_ORDER_IMPORT,
+        orderId: result.orderId,
+        vin: vin.vin,
+        yardId: vin.slot?.yardId ?? null,
+        slotId: vin.slotId ?? null,
+        operatorUserId,
+        payload: {
+          orderCode: result.orderCode,
+          dealerCode: row.dealerCode,
+          dealerName: row.dealerName,
+          towType: row.towType,
+          groupCode: row.groupCode,
+        },
+      })),
+    );
+    // outOfScope 合并进 missing 交给前端展示（对操作员而言等价于"匹配不到"）
+    return {
+      ...result,
+      missing: [...result.missing, ...outOfScope],
+    };
   }
 
   // ============ 2. 出库订单列表 ============
@@ -218,19 +298,76 @@ export class OutboundService {
     const orders = await qb.getMany();
     if (orders.length === 0) return [];
 
-    return orders.map((o) => ({
-      id: o.id,
-      orderCode: o.orderCode,
-      customerOrderNo: o.customerOrderNo,
-      customerName: o.customer?.name ?? '-',
-      originYardName: o.destinationYard?.name ?? '-',
-      organizationId: o.organizationId,
-      organizationName: o.organization?.name ?? '-',
-      createdAt: o.createdAt,
-      status: o.status,
-      cancelledAt: o.cancelledAt,
-      cancelledByUserName: o.cancelledByUser?.displayName ?? null,
-    }));
+    // 一次聚合出所有出库单的仓分布，避免 N+1
+    // 未到仓的 VIN (slot 为空) 单独归到 __unarrived__，前端按 null yardId 识别
+    const orderIds = orders.map((o) => o.id);
+    type YardRow = {
+      outbound_order_id: string;
+      yard_id: string | null;
+      yard_name: string | null;
+      yard_code: string | null;
+      vin_count: string;
+    };
+    const yardRows = await this.orderVinsRepo
+      .createQueryBuilder('v')
+      .leftJoin('v.slot', 'slot')
+      .leftJoin('slot.yard', 'yard')
+      .select('v.outbound_order_id', 'outbound_order_id')
+      .addSelect('yard.id', 'yard_id')
+      .addSelect('yard.name', 'yard_name')
+      .addSelect('yard.code', 'yard_code')
+      .addSelect('COUNT(v.id)', 'vin_count')
+      .where('v.outbound_order_id IN (:...ids)', { ids: orderIds })
+      .groupBy('v.outbound_order_id')
+      .addGroupBy('yard.id')
+      .addGroupBy('yard.name')
+      .addGroupBy('yard.code')
+      .getRawMany<YardRow>();
+
+    const yardsByOrder = new Map<
+      string,
+      Array<{
+        yardId: string | null;
+        yardName: string;
+        yardCode: string | null;
+        vinCount: number;
+      }>
+    >();
+    for (const r of yardRows) {
+      const list = yardsByOrder.get(r.outbound_order_id) ?? [];
+      list.push({
+        yardId: r.yard_id,
+        yardName: r.yard_name ?? '未到仓',
+        yardCode: r.yard_code,
+        vinCount: Number(r.vin_count),
+      });
+      yardsByOrder.set(r.outbound_order_id, list);
+    }
+
+    return orders.map((o) => {
+      const originYards = yardsByOrder.get(o.id) ?? [];
+      const summary =
+        originYards.length === 0
+          ? '-'
+          : originYards.length === 1
+            ? originYards[0].yardName
+            : `${originYards.length} 个场地`;
+      return {
+        id: o.id,
+        orderCode: o.orderCode,
+        customerOrderNo: o.customerOrderNo,
+        customerName: o.customer?.name ?? '-',
+        originYardName: o.destinationYard?.name ?? summary, // 兼容旧字段：单仓时展示仓名，跨仓时展示"N 个场地"
+        originYardSummary: summary,
+        originYards,
+        organizationId: o.organizationId,
+        organizationName: o.organization?.name ?? '-',
+        createdAt: o.createdAt,
+        status: o.status,
+        cancelledAt: o.cancelledAt,
+        cancelledByUserName: o.cancelledByUser?.displayName ?? null,
+      };
+    });
   }
 
   async getOutboundOrderDetail(id: string, scope: EffectiveScope) {
@@ -263,7 +400,30 @@ export class OutboundService {
       .orderBy('v.dealer_code', 'ASC')
       .addOrderBy('v.vin', 'ASC')
       .getMany();
-    return { order, vins };
+
+    // 聚合始发仓分布：每台 VIN 的当前 slot.yard 才是权威始发仓
+    const yardBucket = new Map<
+      string,
+      { yardId: string | null; yardName: string; yardCode: string | null; vinCount: number }
+    >();
+    for (const v of vins) {
+      const y = v.slot?.yard;
+      const key = y?.id ?? '__unarrived__';
+      const entry = yardBucket.get(key);
+      if (entry) {
+        entry.vinCount += 1;
+      } else {
+        yardBucket.set(key, {
+          yardId: y?.id ?? null,
+          yardName: y?.name ?? '未到仓',
+          yardCode: y?.code ?? null,
+          vinCount: 1,
+        });
+      }
+    }
+    const originYards = Array.from(yardBucket.values());
+
+    return { order, vins, originYards };
   }
 
   // ============ 3. 可用于开单的 VIN 池 ============
@@ -279,7 +439,7 @@ export class OutboundService {
       outboundOrderId?: string;
     },
   ): Promise<OrderVin[]> {
-    // 校验 outbound 订单存在（如果传了）；实际过滤走 outbound_order_id FK
+    // 出库单前置校验：存在 + DELIVERY + 未取消 + 归属当前 scope
     if (filters.outboundOrderId) {
       const outOrder = await this.ordersRepo.findOne({
         where: {
@@ -288,6 +448,15 @@ export class OutboundService {
         },
       });
       if (!outOrder) throw new NotFoundException('出库订单不存在');
+      if (outOrder.status === OrderStatus.CANCELLED) {
+        throw new BadRequestException('出库单已取消，无法开单');
+      }
+      if (scope.type === 'ORG' && !scope.orgIds.includes(outOrder.organizationId)) {
+        throw new ForbiddenException('无权访问此出库单');
+      }
+      if (scope.type === 'CUSTOMER' && outOrder.customerId !== scope.customerId) {
+        throw new ForbiddenException('无权访问此出库单');
+      }
     }
 
     const qb = this.orderVinsRepo
@@ -337,7 +506,85 @@ export class OutboundService {
     return qb.getMany();
   }
 
+  // ============ 3b. 出库单中"不可开单"的 VIN + 原因 ============
+  // 用于前端"不可开单 VIN"抽屉：让业务员看清为什么某台车没出现在开单池
+  async listBlockedVinsForOutbound(
+    outboundOrderId: string,
+    scope: EffectiveScope,
+  ): Promise<
+    Array<{
+      id: string;
+      vin: string;
+      dealerCode: string | null;
+      dealerName: string | null;
+      reason: 'NOT_ARRIVED' | 'NO_SLOT' | 'ALREADY_ALLOCATED' | 'MISSING_DEALER';
+      slotCode: string | null;
+      yardName: string | null;
+    }>
+  > {
+    // 前置校验：与 available 一致
+    const outOrder = await this.ordersRepo.findOne({
+      where: {
+        id: outboundOrderId,
+        transportType: TransportType.DELIVERY,
+      },
+    });
+    if (!outOrder) throw new NotFoundException('出库订单不存在');
+    if (scope.type === 'ORG' && !scope.orgIds.includes(outOrder.organizationId)) {
+      throw new ForbiddenException('无权访问此出库单');
+    }
+    if (scope.type === 'CUSTOMER' && outOrder.customerId !== scope.customerId) {
+      throw new ForbiddenException('无权访问此出库单');
+    }
+
+    const vins = await this.orderVinsRepo
+      .createQueryBuilder('v')
+      .leftJoinAndSelect('v.slot', 'slot')
+      .leftJoinAndSelect('slot.yard', 'yard')
+      .where('v.outbound_order_id = :oid', { oid: outboundOrderId })
+      .orderBy('v.vin', 'ASC')
+      .getMany();
+
+    const blocked: Array<{
+      id: string;
+      vin: string;
+      dealerCode: string | null;
+      dealerName: string | null;
+      reason: 'NOT_ARRIVED' | 'NO_SLOT' | 'ALREADY_ALLOCATED' | 'MISSING_DEALER';
+      slotCode: string | null;
+      yardName: string | null;
+    }> = [];
+    for (const v of vins) {
+      // 检查优先级：已开单 > 未到仓 > 无库位 > 缺经销商；命中即入桶
+      let reason:
+        | 'NOT_ARRIVED'
+        | 'NO_SLOT'
+        | 'ALREADY_ALLOCATED'
+        | 'MISSING_DEALER'
+        | null = null;
+      if (v.isAllocated) reason = 'ALREADY_ALLOCATED';
+      else if (v.arrivalStatus !== OrderVinArrivalStatus.ARRIVED)
+        reason = 'NOT_ARRIVED';
+      else if (!v.slotId || !v.slot?.yardId) reason = 'NO_SLOT';
+      else if (!v.dealerCode) reason = 'MISSING_DEALER';
+      if (!reason) continue;
+      blocked.push({
+        id: v.id,
+        vin: v.vin,
+        dealerCode: v.dealerCode,
+        dealerName: v.dealerName,
+        reason,
+        slotCode: v.slot?.code ?? null,
+        yardName: v.slot?.yard?.name ?? null,
+      });
+    }
+    return blocked;
+  }
+
   // ============ 4. 开单：生成 Waybill ============
+  // 强约束：以 outboundOrderId 为上下文，VIN 必须全部属于该出库单 +
+  // 已到仓 + 未开单 + 有库位 + 同一仓 + 同一 dealerCode。
+  // 始发仓从 VIN 当前 slot.yard 反推，客户端传的 originYardId 被忽略。
   async planWaybill(
     dto: PlanWaybillDto,
     scope: EffectiveScope,
@@ -346,30 +593,63 @@ export class OutboundService {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('仅内部账号可开单');
     }
-    const yard = await this.yardRepo.findOne({
-      where: { id: dto.originYardId },
-    });
-    if (!yard) throw new NotFoundException('始发场地不存在');
-    this.scopeService.assertOrgWritable(scope, yard.organizationId);
 
+    // 出库单前置校验：存在 + 是 DELIVERY + 未取消 + 归属当前 scope
+    const outOrder = await this.ordersRepo.findOne({
+      where: {
+        id: dto.outboundOrderId,
+        transportType: TransportType.DELIVERY,
+      },
+    });
+    if (!outOrder) throw new NotFoundException('出库订单不存在');
+    if (outOrder.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('出库单已取消，不能开单');
+    }
+    this.scopeService.assertOrgWritable(scope, outOrder.organizationId);
+
+    // 承运商：存在 + 启用
     const carrier = await this.carrierRepo.findOne({
       where: { id: dto.carrierId },
     });
     if (!carrier) throw new NotFoundException('承运商不存在');
+    if (!carrier.isActive) {
+      throw new BadRequestException('承运商已停用，不能开单');
+    }
+    // 司机：存在 + 启用 + 归属该承运商
+    if (dto.driverId) {
+      const driver = await this.driverRepo.findOne({
+        where: { id: dto.driverId },
+      });
+      if (!driver) throw new NotFoundException('司机不存在');
+      if (!driver.isActive) throw new BadRequestException('司机已停用');
+      if (driver.carrierId !== dto.carrierId) {
+        throw new BadRequestException('司机不属于此承运商');
+      }
+    }
+    // 拖车：存在 + 启用 + 归属该承运商
+    if (dto.vehicleId) {
+      const vehicle = await this.vehicleRepo.findOne({
+        where: { id: dto.vehicleId },
+      });
+      if (!vehicle) throw new NotFoundException('拖车不存在');
+      if (!vehicle.isActive) throw new BadRequestException('拖车已停用');
+      if (vehicle.carrierId !== dto.carrierId) {
+        throw new BadRequestException('拖车不属于此承运商');
+      }
+    }
 
-    const { savedWaybill, plannedVins } = await this.dataSource.transaction(async (mgr) => {
+    const { savedWaybill, plannedVins, derivedYard } = await this.dataSource.transaction(async (mgr) => {
       const vinRepo = mgr.getRepository(OrderVin);
       const waybillRepo = mgr.getRepository(Waybill);
       const waybillVinRepo = mgr.getRepository(WaybillVin);
       const slotRepo = mgr.getRepository(YardSlot);
 
-      // 锁行：并发开单同一 VIN 时，让第二个事务在此等待
-      // Postgres 不允许 FOR UPDATE 落到 LEFT JOIN 的可空 side，所以只锁 order_vins 主表
-      // slot / origOrder 关联通过 setLock 的第三参 lockTables 排除
+      // 锁行：并发开单同一 VIN 时让第二个事务在此等待
       const vins = await vinRepo
         .createQueryBuilder('v')
         .setLock('pessimistic_write', undefined, ['v'])
         .leftJoinAndSelect('v.slot', 'slot')
+        .leftJoinAndSelect('slot.yard', 'slotYard')
         .leftJoinAndSelect('v.order', 'origOrder')
         .where('v.id IN (:...ids)', { ids: dto.orderVinIds })
         .getMany();
@@ -377,35 +657,75 @@ export class OutboundService {
       if (vins.length !== dto.orderVinIds.length) {
         throw new BadRequestException('部分 VIN 不存在');
       }
-      const dealerNames = new Set<string>();
+
+      // 6 项刚性校验 + 一致性收口
+      const yardIds = new Set<string>();
+      const dealerCodes = new Set<string>();
       for (const v of vins) {
+        // 1) 属于本次出库单
+        if (v.outboundOrderId !== dto.outboundOrderId) {
+          throw new BadRequestException(
+            `VIN ${v.vin} 不属于本次出库单，请刷新后重选`,
+          );
+        }
+        // 2) 已到仓
         if (v.arrivalStatus !== OrderVinArrivalStatus.ARRIVED) {
           throw new BadRequestException(`VIN ${v.vin} 未到仓，不能开单`);
         }
+        // 3) 未开单
         if (v.isAllocated) {
           throw new ConflictException(`VIN ${v.vin} 已被开单，请刷新页面`);
         }
+        // 4) 有库位（即有始发仓事实）
+        if (!v.slotId || !v.slot?.yardId) {
+          throw new BadRequestException(
+            `VIN ${v.vin} 无当前库位，无法确定始发仓`,
+          );
+        }
+        // 5) org 在 scope 内（防越权）
+        const orgId = v.slot.yard?.organizationId ?? v.order?.organizationId;
+        if (!orgId || !scope.orgIds.includes(orgId)) {
+          throw new ForbiddenException(`VIN ${v.vin} 跨机构无权开单`);
+        }
+        // 6) 有 dealerCode（出库单导入时应已写入；缺失即数据异常）
         if (!v.dealerCode) {
           throw new BadRequestException(
-            `VIN ${v.vin} 未指定经销店，请客户先出单再开单`,
+            `VIN ${v.vin} 缺经销商编码，请先补 dealerCode 再开单`,
           );
         }
-        if (v.slot?.yardId && v.slot.yardId !== dto.originYardId) {
-          throw new BadRequestException(
-            `VIN ${v.vin} 不在指定的始发场地`,
-          );
-        }
-        dealerNames.add(v.dealerName ?? v.dealerCode);
+        yardIds.add(v.slot.yardId);
+        dealerCodes.add(v.dealerCode);
       }
-      // 一张 Waybill 只允许送同一经销店 — 业务规则
-      if (dealerNames.size > 1) {
+
+      // 一致性收口：同一 waybill 只允许同仓 + 同经销商
+      if (yardIds.size > 1) {
         throw new BadRequestException(
-          '一张运单只能派往同一经销店，请分单',
+          `一张运单只能来自同一始发仓，当前选中 ${yardIds.size} 个仓，请按仓筛选后分单`,
+        );
+      }
+      if (dealerCodes.size > 1) {
+        throw new BadRequestException(
+          `一张运单只能派往同一经销店，当前选中 ${dealerCodes.size} 个 dealerCode，请按经销商筛选后分单`,
+        );
+      }
+
+      // 始发仓反推：以 VIN 库位事实为准，忽略客户端传值
+      const derivedYardId = [...yardIds][0];
+      const derivedYard = await mgr
+        .getRepository(Yard)
+        .findOne({ where: { id: derivedYardId } });
+      if (!derivedYard) {
+        // slot.yardId 有 FK 保证，理论上不会走到这里；防御性处理
+        throw new NotFoundException('始发仓数据缺失');
+      }
+      // 组织归属再次校验（VIN 已过 scope，但仓归属仍需与出库单匹配以保证账目一致）
+      if (derivedYard.organizationId !== outOrder.organizationId) {
+        throw new BadRequestException(
+          '始发仓与出库单归属机构不一致，请重新导入或联系管理员',
         );
       }
 
       // 目的门店：优先前端手选 (destinationDealerId)，其次按 dealer_code 自动匹配
-      // 都空则不绑，业务员靠 recipient_name / recipient_phone 手填补救
       const dealerCode = vins[0].dealerCode;
       const customerId = vins[0].order?.customerId;
       let destDealer: CustomerAddress | null = null;
@@ -420,23 +740,22 @@ export class OutboundService {
         });
       }
 
-      // 建 Waybill：类型显式化以规避 TypeORM.create 的数组重载解析
+      // 建 Waybill
       const waybillCode = `WB${Date.now()}${randomUUID().slice(0, 4).toUpperCase()}`;
       const waybillData: Partial<Waybill> = {
         waybillCode,
-        organizationId: yard.organizationId,
+        organizationId: derivedYard.organizationId,
         customerWaybillCode: dto.customerWaybillCode ?? undefined,
         transportType: TransportType.DELIVERY,
         orderId: null,
-        originYardId: dto.originYardId,
-        originText: yard.name,
+        originYardId: derivedYard.id,
+        originText: derivedYard.name,
         destinationYardId: null,
         destinationDealerId: destDealer?.id ?? null,
         carrierId: dto.carrierId,
         driverId: dto.driverId ?? null,
         vehicleId: dto.vehicleId ?? null,
         towType: dto.towType ?? null,
-        // 收件人：优先前端手填，其次门店联系人兜底 (方便签收电话联络)
         recipientName: dto.recipientName ?? destDealer?.contactName ?? null,
         recipientPhone: dto.recipientPhone ?? destDealer?.contactPhone ?? null,
         remark: dto.remark ?? undefined,
@@ -461,7 +780,7 @@ export class OutboundService {
       // 释放 slot 不在这里做：车物理上还在场地，等启运扫码时才真离开
       void slotRepo;
 
-      return { savedWaybill, plannedVins: vins };
+      return { savedWaybill, plannedVins: vins, derivedYard };
     });
 
     // 事务外为每台车打一条审计日志，追溯时按 vin 也能查到"开单事件"
@@ -470,11 +789,14 @@ export class OutboundService {
         operationType: OperationType.WAYBILL_PLAN,
         orderId: v.outboundOrderId ?? null,
         vin: v.vin,
+        waybillId: savedWaybill.id,
+        yardId: derivedYard.id,
+        slotId: v.slotId ?? null,
         operatorUserId,
         payload: {
-          waybillId: savedWaybill.id,
           waybillCode: savedWaybill.waybillCode,
           carrierId: dto.carrierId,
+          dealerCode: v.dealerCode,
         },
       });
     }

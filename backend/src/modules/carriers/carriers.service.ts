@@ -13,11 +13,15 @@ import { Carrier } from './entities/carrier.entity';
 import { Driver } from './entities/driver.entity';
 import { Vehicle } from './entities/vehicle.entity';
 import { User } from '../users/entities/user.entity';
+import { Waybill } from '../waybills/entities/waybill.entity';
+import { WaybillStatus } from '../../common/enums/waybill-status.enum';
 import { CreateCarrierDto } from './dto/create-carrier.dto';
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { CreateCarrierUserDto } from './dto/create-carrier-user.dto';
 import { UpdateCarrierUserDto } from './dto/update-carrier-user.dto';
+import { UpdateDriverDto } from './dto/update-driver.dto';
+import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
@@ -35,6 +39,8 @@ export class CarriersService {
     private readonly vehiclesRepository: Repository<Vehicle>,
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
+    @InjectRepository(Waybill)
+    private readonly waybillsRepository: Repository<Waybill>,
     private readonly scopeService: ScopeService,
     private readonly audit: AuditService,
   ) {}
@@ -76,20 +82,46 @@ export class CarriersService {
     carrierId: string,
     dto: CreateDriverDto,
     scope: EffectiveScope,
+    operatorUserId?: string,
   ): Promise<Driver> {
+    this.assertCarrierUserManagable(scope);
     await this.findOne(carrierId, scope);
     const driver = this.driversRepository.create({ ...dto, carrierId });
-    return this.driversRepository.save(driver);
+    const saved = await this.driversRepository.save(driver);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_DRIVER_CREATE,
+      operatorUserId,
+      payload: {
+        carrierId,
+        driverId: saved.id,
+        name: saved.name,
+        phone: saved.phone,
+      },
+    });
+    return saved;
   }
 
   async addVehicle(
     carrierId: string,
     dto: CreateVehicleDto,
     scope: EffectiveScope,
+    operatorUserId?: string,
   ): Promise<Vehicle> {
+    this.assertCarrierUserManagable(scope);
     await this.findOne(carrierId, scope);
     const vehicle = this.vehiclesRepository.create({ ...dto, carrierId });
-    return this.vehiclesRepository.save(vehicle);
+    const saved = await this.vehiclesRepository.save(vehicle);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_VEHICLE_CREATE,
+      operatorUserId,
+      payload: {
+        carrierId,
+        vehicleId: saved.id,
+        plateNumber: saved.plateNumber,
+        towType: saved.towType,
+      },
+    });
+    return saved;
   }
 
   findByIdUnscoped(id: string): Promise<Carrier | null> {
@@ -97,10 +129,18 @@ export class CarriersService {
   }
 
   // 分派运单时使用：拉某承运商的司机 / 拖车列表
-  async listDrivers(carrierId: string, scope: EffectiveScope): Promise<Driver[]> {
+  // 默认 includeInactive=false，只返回可分派的；管理页传 true 拉全量
+  async listDrivers(
+    carrierId: string,
+    scope: EffectiveScope,
+    includeInactive = false,
+  ): Promise<Driver[]> {
     await this.findOne(carrierId, scope);
+    const where = includeInactive
+      ? { carrierId }
+      : { carrierId, isActive: true };
     return this.driversRepository.find({
-      where: { carrierId },
+      where,
       order: { name: 'ASC' },
     });
   }
@@ -108,12 +148,202 @@ export class CarriersService {
   async listVehicles(
     carrierId: string,
     scope: EffectiveScope,
+    includeInactive = false,
   ): Promise<Vehicle[]> {
     await this.findOne(carrierId, scope);
+    const where = includeInactive
+      ? { carrierId }
+      : { carrierId, isActive: true };
     return this.vehiclesRepository.find({
-      where: { carrierId },
+      where,
       order: { plateNumber: 'ASC' },
     });
+  }
+
+  // ============ Driver / Vehicle 编辑 · 禁启用 · 删除 ============
+  // 禁用 = 保留历史 + 后续分派下拉不显示
+  // 删除 = 硬删；有在途运单（NOT_ARRIVED）引用时拒绝，避免责任链断裂
+  async updateDriver(
+    carrierId: string,
+    driverId: string,
+    dto: UpdateDriverDto,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<Driver> {
+    this.assertCarrierUserManagable(scope);
+    const driver = await this.getDriverOrThrow(carrierId, driverId, scope);
+    const before = {
+      name: driver.name,
+      phone: driver.phone,
+      licenseNo: driver.licenseNo,
+    };
+    Object.assign(driver, {
+      ...(dto.name !== undefined && { name: dto.name }),
+      ...(dto.phone !== undefined && { phone: dto.phone ?? null }),
+      ...(dto.licenseNo !== undefined && { licenseNo: dto.licenseNo ?? null }),
+      ...(dto.bankAccountName !== undefined && {
+        bankAccountName: dto.bankAccountName ?? null,
+      }),
+      ...(dto.bankAccountNo !== undefined && {
+        bankAccountNo: dto.bankAccountNo ?? null,
+      }),
+      ...(dto.bankName !== undefined && { bankName: dto.bankName ?? null }),
+    });
+    const saved = await this.driversRepository.save(driver);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_DRIVER_UPDATE,
+      operatorUserId,
+      payload: { carrierId, driverId, before, patch: dto },
+    });
+    return saved;
+  }
+
+  async setDriverActive(
+    carrierId: string,
+    driverId: string,
+    active: boolean,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<Driver> {
+    this.assertCarrierUserManagable(scope);
+    const driver = await this.getDriverOrThrow(carrierId, driverId, scope);
+    if (driver.isActive === active) return driver;
+    driver.isActive = active;
+    const saved = await this.driversRepository.save(driver);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_DRIVER_UPDATE,
+      operatorUserId,
+      payload: { carrierId, driverId, isActive: active },
+    });
+    return saved;
+  }
+
+  async deleteDriver(
+    carrierId: string,
+    driverId: string,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<void> {
+    this.assertCarrierUserManagable(scope);
+    const driver = await this.getDriverOrThrow(carrierId, driverId, scope);
+    const activeUsage = await this.waybillsRepository.count({
+      where: { driverId, status: WaybillStatus.NOT_ARRIVED },
+    });
+    if (activeUsage > 0) {
+      throw new BadRequestException(
+        `司机在 ${activeUsage} 张未到达运单里使用中，无法删除；请先撤销运单或改派`,
+      );
+    }
+    await this.driversRepository.delete(driver.id);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_DRIVER_DELETE,
+      operatorUserId,
+      payload: { carrierId, driverId, name: driver.name },
+    });
+  }
+
+  async updateVehicle(
+    carrierId: string,
+    vehicleId: string,
+    dto: UpdateVehicleDto,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<Vehicle> {
+    this.assertCarrierUserManagable(scope);
+    const vehicle = await this.getVehicleOrThrow(carrierId, vehicleId, scope);
+    const before = {
+      plateNumber: vehicle.plateNumber,
+      towType: vehicle.towType,
+    };
+    if (dto.plateNumber !== undefined) vehicle.plateNumber = dto.plateNumber;
+    if (dto.towType !== undefined) vehicle.towType = dto.towType ?? null;
+    const saved = await this.vehiclesRepository.save(vehicle);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_VEHICLE_UPDATE,
+      operatorUserId,
+      payload: { carrierId, vehicleId, before, patch: dto },
+    });
+    return saved;
+  }
+
+  async setVehicleActive(
+    carrierId: string,
+    vehicleId: string,
+    active: boolean,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<Vehicle> {
+    this.assertCarrierUserManagable(scope);
+    const vehicle = await this.getVehicleOrThrow(carrierId, vehicleId, scope);
+    if (vehicle.isActive === active) return vehicle;
+    vehicle.isActive = active;
+    const saved = await this.vehiclesRepository.save(vehicle);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_VEHICLE_UPDATE,
+      operatorUserId,
+      payload: { carrierId, vehicleId, isActive: active },
+    });
+    return saved;
+  }
+
+  async deleteVehicle(
+    carrierId: string,
+    vehicleId: string,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<void> {
+    this.assertCarrierUserManagable(scope);
+    const vehicle = await this.getVehicleOrThrow(carrierId, vehicleId, scope);
+    const activeUsage = await this.waybillsRepository.count({
+      where: { vehicleId, status: WaybillStatus.NOT_ARRIVED },
+    });
+    if (activeUsage > 0) {
+      throw new BadRequestException(
+        `拖车在 ${activeUsage} 张未到达运单里使用中，无法删除；请先撤销运单或改派`,
+      );
+    }
+    await this.vehiclesRepository.delete(vehicle.id);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_VEHICLE_DELETE,
+      operatorUserId,
+      payload: {
+        carrierId,
+        vehicleId,
+        plateNumber: vehicle.plateNumber,
+      },
+    });
+  }
+
+  private async getDriverOrThrow(
+    carrierId: string,
+    driverId: string,
+    scope: EffectiveScope,
+  ): Promise<Driver> {
+    await this.findOne(carrierId, scope);
+    const driver = await this.driversRepository.findOne({
+      where: { id: driverId },
+    });
+    if (!driver) throw new NotFoundException('司机不存在');
+    if (driver.carrierId !== carrierId) {
+      throw new NotFoundException('司机不属于此承运商');
+    }
+    return driver;
+  }
+
+  private async getVehicleOrThrow(
+    carrierId: string,
+    vehicleId: string,
+    scope: EffectiveScope,
+  ): Promise<Vehicle> {
+    await this.findOne(carrierId, scope);
+    const vehicle = await this.vehiclesRepository.findOne({
+      where: { id: vehicleId },
+    });
+    if (!vehicle) throw new NotFoundException('拖车不存在');
+    if (vehicle.carrierId !== carrierId) {
+      throw new NotFoundException('拖车不属于此承运商');
+    }
+    return vehicle;
   }
 
   // ============ 承运商账号管理 ============

@@ -132,18 +132,35 @@ export class InboundService {
       };
     });
 
+    // 订单级汇总日志
     await this.audit.log({
       operationType: OperationType.INBOUND_ORDER_IMPORT,
       orderId: result.orderId,
+      yardId: dto.destinationYardId,
       operatorUserId,
       payload: {
         orderCode: result.orderCode,
         created: result.created,
         skipped: result.skipped,
         customerId: dto.customerId,
-        destinationYardId: dto.destinationYardId,
       },
     });
+    // VIN 级节点：每台车都要在 timeline 上出现"预期到仓"的起点
+    await this.audit.logMany(
+      toInsert.map((v) => ({
+        operationType: OperationType.INBOUND_ORDER_IMPORT,
+        orderId: result.orderId,
+        vin: v.vin,
+        yardId: dto.destinationYardId,
+        operatorUserId,
+        payload: {
+          orderCode: result.orderCode,
+          brand: v.brand,
+          model: v.model,
+          color: v.color,
+        },
+      })),
+    );
     return result;
   }
 
@@ -385,13 +402,14 @@ export class InboundService {
       operationType: OperationType.PICKUP_SCAN,
       orderId: vin.orderId,
       vin: vin.vin,
+      attachmentUrls: dto.photoUrls ?? null,
       operatorUserId: user.userId,
+      eventAt: vin.pickedUpAt ?? new Date(),
       payload: {
         location: vin.pickupLocation,
         pickupLatitude: vin.pickupLatitude,
         pickupLongitude: vin.pickupLongitude,
         carrierId: user.carrierId,
-        photoKeys: dto.photoUrls ?? null,
         remark: dto.remark ?? null,
       },
     });
@@ -568,11 +586,13 @@ export class InboundService {
       operationType: OperationType.INBOUND_SCAN,
       orderId: saved.orderId,
       vin: saved.vin,
+      yardId: saved.slot?.yardId ?? null,
+      slotId: saved.slot?.id ?? null,
+      attachmentUrls: dto.photoUrls ?? null,
       operatorUserId: user.userId,
+      eventAt: saved.arrivedAt ?? new Date(),
       payload: {
         slotCode: saved.slot?.code ?? null,
-        yardId: saved.slot?.yardId ?? null,
-        photoKeys: dto.photoUrls,
         vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
         remark: dto.remark ?? null,
       },
@@ -725,7 +745,11 @@ export class InboundService {
       operationType: OperationType.INBOUND_UNEXPECTED,
       orderId: strayOrder.id,
       vin: saved.vin,
+      yardId: saved.slot?.yardId ?? null,
+      slotId: saved.slot?.id ?? null,
+      attachmentUrls: dto.photoUrls ?? null,
       operatorUserId: user.userId,
+      eventAt: saved.arrivedAt ?? new Date(),
       payload: {
         strayOrderCode,
         customerId: dto.customerId,
@@ -734,6 +758,7 @@ export class InboundService {
         model: dto.model ?? null,
         color: dto.color ?? null,
         motorNo: dto.motorNo ?? null,
+        vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
         remark: dto.remark ?? null,
       },
     });
@@ -1389,14 +1414,15 @@ export class InboundService {
       operationType: OperationType.PICKUP_SCAN,
       orderId: affectedOrderId,
       vin: saved.vin,
+      attachmentUrls: dto.photoUrls ?? null,
       operatorUserId: user.userId,
+      eventAt: saved.pickedUpAt ?? new Date(),
       payload: {
         taskOrderId: orderId,
         outOfOrder,
         location: saved.pickupLocation,
         pickupLatitude: saved.pickupLatitude,
         pickupLongitude: saved.pickupLongitude,
-        photoKeys: dto.photoUrls ?? null,
         remark: dto.remark ?? null,
       },
     });

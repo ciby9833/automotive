@@ -6,20 +6,23 @@ import { OperationLog } from './entities/operation-log.entity';
 import { OperationType } from '../../common/enums/operation-type.enum';
 import { ScanAction } from '../../common/enums/waybill-status.enum';
 
-// 时间线统一节点：合并 OperationLog + WaybillStatusLog 两张表
-// 前端渲染只关心 kind + operationOrAction + operator + createdAt + payload
+// 归一化后的时间线节点：前端不需知道来源是哪张表。
+// occurredAt 是权威事件时间（operation.event_at ?? created_at；scan 走 created_at）；
+// createdAt 只作调试用途保留，用于展示"补录延迟"。
 export interface TimelineEntry {
   source: 'operation' | 'waybill_scan';
+  occurredAt: Date;
   createdAt: Date;
   type: OperationType | ScanAction;
   vin: string | null;
   orderId: string | null;
   waybillId: string | null;
-  yardId: string | null;
+  yard: { id: string; name: string; code: string } | null;
+  slot: { id: string; code: string } | null;
   operator: { id: string; displayName: string } | null;
-  attachmentUrls?: string[] | null;
+  attachmentUrls: string[] | null;
   payload: Record<string, unknown> | null;
-  remark?: string | null;
+  remark: string | null;
 }
 
 @Injectable()
@@ -48,14 +51,13 @@ export class TrackingService {
     return logs;
   }
 
-  // 全生命周期时间线：按 vin / order 聚合两张审计表并按时间排序
-  // 支持三种查询入口：VIN 车架号、订单号(orderCode)、订单 id
+  // VIN 全生命周期：operation_logs + waybill_status_logs 归一化按 occurredAt 排序
   async timelineByVin(vin: string): Promise<TimelineEntry[]> {
     const [opLogs, scanLogs] = await Promise.all([
       this.opLogsRepository.find({
         where: { vin },
-        relations: ['operator'],
-        order: { createdAt: 'ASC' },
+        relations: ['operator', 'yard', 'slot'],
+        order: { eventAt: 'ASC' },
       }),
       this.logsRepository.find({
         where: { vin },
@@ -69,11 +71,13 @@ export class TrackingService {
   async timelineByOrderId(orderId: string): Promise<TimelineEntry[]> {
     const opLogs = await this.opLogsRepository.find({
       where: { orderId },
-      relations: ['operator'],
-      order: { createdAt: 'ASC' },
+      relations: ['operator', 'yard', 'slot'],
+      order: { eventAt: 'ASC' },
     });
     // waybill_status_logs 没直接挂 orderId；如果需要按订单聚合运单事件，取其 VIN 列表再回查
-    const vins = Array.from(new Set(opLogs.map((l) => l.vin).filter((v): v is string => !!v)));
+    const vins = Array.from(
+      new Set(opLogs.map((l) => l.vin).filter((v): v is string => !!v)),
+    );
     const scanLogs = vins.length
       ? await this.logsRepository
           .createQueryBuilder('l')
@@ -93,34 +97,51 @@ export class TrackingService {
     const merged: TimelineEntry[] = [
       ...opLogs.map<TimelineEntry>((o) => ({
         source: 'operation',
+        occurredAt: o.eventAt ?? o.createdAt,
         createdAt: o.createdAt,
         type: o.operationType,
         vin: o.vin,
         orderId: o.orderId,
-        waybillId: (o.payload as { waybillId?: string } | null)?.waybillId ?? null,
-        yardId: null,
+        waybillId:
+          o.waybillId ??
+          (o.payload as { waybillId?: string } | null)?.waybillId ??
+          null,
+        yard: o.yard
+          ? { id: o.yard.id, name: o.yard.name, code: o.yard.code }
+          : null,
+        slot: o.slot ? { id: o.slot.id, code: o.slot.code } : null,
         operator: o.operator
           ? { id: o.operator.id, displayName: o.operator.displayName }
           : null,
+        // 旧数据兜底：老日志把照片放 payload.photoKeys；新代码统一在顶层 attachment_urls
+        attachmentUrls:
+          o.attachmentUrls ??
+          ((o.payload as { photoKeys?: string[] } | null)?.photoKeys ?? null),
         payload: o.payload,
+        remark:
+          (o.payload as { remark?: string } | null)?.remark ?? null,
       })),
       ...scanLogs.map<TimelineEntry>((s) => ({
         source: 'waybill_scan',
+        occurredAt: s.createdAt,
         createdAt: s.createdAt,
         type: s.action,
         vin: s.vin,
         orderId: null,
         waybillId: s.waybillId,
-        yardId: s.yardId,
+        yard: s.yard
+          ? { id: s.yard.id, name: s.yard.name, code: s.yard.code }
+          : null,
+        slot: null,
         operator: s.operator
           ? { id: s.operator.id, displayName: s.operator.displayName }
           : null,
         attachmentUrls: s.attachmentUrls,
         payload: s.vehicleCheckInfo as Record<string, unknown> | null,
-        remark: s.remark,
+        remark: s.remark ?? null,
       })),
     ];
-    merged.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    merged.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());
     return merged;
   }
 }

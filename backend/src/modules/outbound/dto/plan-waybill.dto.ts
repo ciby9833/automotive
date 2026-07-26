@@ -12,13 +12,15 @@ import {
 } from 'class-validator';
 import { VehicleTowType } from '../../../common/enums/order-type.enum';
 
-// 开单：从库存里选一批 VIN，指定承运商/司机/拖车，生成 Waybill(DELIVERY)
-// 后端会：
-// 1. 校验每 VIN 都已到仓 (arrivalStatus=ARRIVED) 且未被分配 (isAllocated=false)
-// 2. 创建 Waybill(transportType=DELIVERY, orderId=选定 VIN 的订单，若全同订单)
-// 3. 复制 VIN 快照到 waybill_vins
-// 4. 标记 OrderVin.isAllocated = true
+// 开单：以出库导入订单为上下文，从其 VIN 池挑一批开单
+// 强约束：所有 VIN 必须属于同一 outboundOrderId + 同一 slot.yard + 同一 dealerCode，
+// 且已到仓 + 未开单。始发仓由 VIN 当前库位反推，客户端传值被忽略。
 export class PlanWaybillDto {
+  // 出库导入订单 id：本次开单的上下文。缺失或与 VIN 归属不匹配都拒绝
+  @ApiProperty({ description: '出库导入订单 id（本次开单必须限定于该出库单内）' })
+  @IsUUID()
+  outboundOrderId: string;
+
   @ApiProperty({ description: '选定的 OrderVin id 列表' })
   @IsArray()
   @ArrayMinSize(1)
@@ -26,9 +28,11 @@ export class PlanWaybillDto {
   @IsUUID('4', { each: true })
   orderVinIds: string[];
 
-  @ApiProperty({ description: '始发场地 (车所在仓)' })
+  // 兼容旧客户端：接受但服务端不信任，最终始发仓一律以 slot.yard 为准
+  @ApiProperty({ required: false, deprecated: true, description: '已废弃：始发仓由 VIN 当前库位自动推导' })
+  @IsOptional()
   @IsUUID()
-  originYardId: string;
+  originYardId?: string;
 
   @ApiProperty({ description: '承运商' })
   @IsUUID()

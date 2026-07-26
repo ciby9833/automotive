@@ -19,6 +19,10 @@ export interface Driver {
   name: string;
   phone: string | null;
   licenseNo: string | null;
+  bankAccountName: string | null;
+  bankAccountNo: string | null;
+  bankName: string | null;
+  isActive: boolean;
   carrierId: string;
 }
 
@@ -26,6 +30,7 @@ export interface Vehicle {
   id: string;
   plateNumber: string;
   towType: string | null;
+  isActive: boolean;
   carrierId: string;
 }
 
@@ -41,16 +46,86 @@ export const carriersApi = {
     contactPhone?: string;
     email?: string;
   }) => unwrap<Carrier>(apiClient.post('/carriers', dto)),
-  listDrivers: (carrierId: string) =>
-    unwrap<Driver[]>(apiClient.get(`/carriers/${carrierId}/drivers`)),
-  listVehicles: (carrierId: string) =>
-    unwrap<Vehicle[]>(apiClient.get(`/carriers/${carrierId}/vehicles`)),
+  listDrivers: (carrierId: string, includeInactive = false) =>
+    unwrap<Driver[]>(
+      apiClient.get(`/carriers/${carrierId}/drivers`, {
+        params: includeInactive ? { includeInactive: 'true' } : undefined,
+      }),
+    ),
+  listVehicles: (carrierId: string, includeInactive = false) =>
+    unwrap<Vehicle[]>(
+      apiClient.get(`/carriers/${carrierId}/vehicles`, {
+        params: includeInactive ? { includeInactive: 'true' } : undefined,
+      }),
+    ),
   addDriver: (
     carrierId: string,
-    dto: { name: string; phone?: string; licenseNo?: string },
+    dto: {
+      name: string;
+      phone?: string;
+      licenseNo?: string;
+      bankAccountName?: string;
+      bankAccountNo?: string;
+      bankName?: string;
+    },
   ) => unwrap<Driver>(apiClient.post(`/carriers/${carrierId}/drivers`, dto)),
+  updateDriver: (
+    carrierId: string,
+    driverId: string,
+    dto: Partial<{
+      name: string;
+      phone: string | null;
+      licenseNo: string | null;
+      bankAccountName: string | null;
+      bankAccountNo: string | null;
+      bankName: string | null;
+    }>,
+  ) =>
+    unwrap<Driver>(
+      apiClient.patch(`/carriers/${carrierId}/drivers/${driverId}`, dto),
+    ),
+  deactivateDriver: (carrierId: string, driverId: string) =>
+    unwrap<Driver>(
+      apiClient.patch(
+        `/carriers/${carrierId}/drivers/${driverId}/deactivate`,
+      ),
+    ),
+  reactivateDriver: (carrierId: string, driverId: string) =>
+    unwrap<Driver>(
+      apiClient.patch(
+        `/carriers/${carrierId}/drivers/${driverId}/reactivate`,
+      ),
+    ),
+  deleteDriver: (carrierId: string, driverId: string) =>
+    unwrap<{ ok: boolean }>(
+      apiClient.delete(`/carriers/${carrierId}/drivers/${driverId}`),
+    ),
   addVehicle: (carrierId: string, dto: { plateNumber: string; towType?: string }) =>
     unwrap<Vehicle>(apiClient.post(`/carriers/${carrierId}/vehicles`, dto)),
+  updateVehicle: (
+    carrierId: string,
+    vehicleId: string,
+    dto: Partial<{ plateNumber: string; towType: string | null }>,
+  ) =>
+    unwrap<Vehicle>(
+      apiClient.patch(`/carriers/${carrierId}/vehicles/${vehicleId}`, dto),
+    ),
+  deactivateVehicle: (carrierId: string, vehicleId: string) =>
+    unwrap<Vehicle>(
+      apiClient.patch(
+        `/carriers/${carrierId}/vehicles/${vehicleId}/deactivate`,
+      ),
+    ),
+  reactivateVehicle: (carrierId: string, vehicleId: string) =>
+    unwrap<Vehicle>(
+      apiClient.patch(
+        `/carriers/${carrierId}/vehicles/${vehicleId}/reactivate`,
+      ),
+    ),
+  deleteVehicle: (carrierId: string, vehicleId: string) =>
+    unwrap<{ ok: boolean }>(
+      apiClient.delete(`/carriers/${carrierId}/vehicles/${vehicleId}`),
+    ),
 
   // ============ 承运商账号管理 ============
   listUsers: (

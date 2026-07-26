@@ -19,27 +19,26 @@ import type { UploadProps } from 'antd';
 import { DownloadOutlined, InboxOutlined } from '@ant-design/icons';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { customersApi, Customer } from '@/lib/api/customers';
-import { yardsApi, Yard } from '@/lib/api/yards';
-import { outboundApi, OutboundVinRow } from '@/lib/api/outbound';
+import {
+  outboundApi,
+  OutboundVinRow,
+  OutboundOriginYard,
+} from '@/lib/api/outbound';
 import { parseOutboundExcel } from '@/lib/outbound/parse-excel';
 import { downloadOutboundTemplate } from '@/lib/outbound/generate-template';
 import { useAuthStore } from '@/lib/auth/store';
-import { useOrganizations } from '@/lib/organization/useOrganizations';
 import { useTranslation } from '@/i18n/useTranslation';
-import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 
 // 出库订单导入向导
 // 1. 上传客户 (BYD) 提供的发货 Excel → 解析 dealer/towType/group
-// 2. 填订单头 (客户/始发仓/客户单号/备注)
-// 3. 提交 → 后端匹配已入库 VIN，写入 dealer 属性
+// 2. 填订单头 (客户/客户单号/备注)
+// 3. 提交 → 后端匹配已入库 VIN，按 VIN 当前所在库位自动聚合始发仓
 export default function OutboundImportPage() {
   const router = useRouter();
-  const { t, locale } = useTranslation();
+  const { t } = useTranslation();
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
-  const organizations = useOrganizations();
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [yards, setYards] = useState<Yard[]>([]);
 
   const [file, setFile] = useState<File | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
@@ -52,6 +51,7 @@ export default function OutboundImportPage() {
     missing: string[];
     alreadyBound: string[];
     alreadyAllocated: string[];
+    originYards: OutboundOriginYard[];
   } | null>(null);
   const [parseInfo, setParseInfo] = useState<{
     total: number;
@@ -65,7 +65,6 @@ export default function OutboundImportPage() {
 
   useEffect(() => {
     customersApi.list().then(setCustomers).catch(() => undefined);
-    yardsApi.list().then(setYards).catch(() => undefined);
   }, [activeOrgId]);
 
   const uploadProps: UploadProps = {
@@ -119,7 +118,6 @@ export default function OutboundImportPage() {
 
   const onSubmit = async (values: {
     customerId: string;
-    originYardId: string;
     customerOrderNo?: string;
     remark?: string;
   }) => {
@@ -131,7 +129,6 @@ export default function OutboundImportPage() {
     try {
       const res = await outboundApi.importOrder({
         customerId: values.customerId,
-        originYardId: values.originYardId,
         customerOrderNo: values.customerOrderNo,
         remark: values.remark,
         vins: rows,
@@ -167,6 +164,7 @@ export default function OutboundImportPage() {
         missing: res.missing ?? [],
         alreadyBound: res.alreadyBound ?? [],
         alreadyAllocated: res.alreadyAllocated ?? [],
+        originYards: res.originYards ?? [],
       });
       if (bound === 0 && allocated === 0 && res.missing.length === 0) {
         router.push(`/outbound/orders/${res.orderId}`);
@@ -204,6 +202,21 @@ export default function OutboundImportPage() {
           })}
           description={
             <div style={{ fontSize: 12, lineHeight: 1.7 }}>
+              {lastImportResult.originYards.length > 0 && (
+                <div style={{ marginBottom: 4 }}>
+                  <Tag color="cyan">
+                    {t('outbound.import.resultYardBreakdown', {
+                      n: lastImportResult.originYards.length,
+                    })}
+                  </Tag>
+                  {lastImportResult.originYards.map((y) => (
+                    <Tag key={y.yardId ?? '__unarrived__'} color="cyan">
+                      {y.yardName}
+                      {y.yardCode ? ` (${y.yardCode})` : ''} · {y.vinCount}
+                    </Tag>
+                  ))}
+                </div>
+              )}
               {lastImportResult.missing.length > 0 && (
                 <div>
                   <Tag color="default">
@@ -404,21 +417,13 @@ export default function OutboundImportPage() {
               options={customers.map((c) => ({ value: c.id, label: c.name }))}
             />
           </Form.Item>
-          <Form.Item
-            label={t('outbound.import.originYard')}
-            name="originYardId"
-            rules={[{ required: true }]}
-            extra={t('outbound.import.originYardHint')}
-          >
-            <Select
-              showSearch
-              optionFilterProp="label"
-              options={yards.map((y) => ({
-                value: y.id,
-                label: `${orgNameFromRecord(y, y.organizationId, organizations, locale)} · ${y.name} (${y.code})`,
-              }))}
-            />
-          </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={t('outbound.import.originYardAutoTitle')}
+            description={t('outbound.import.originYardAutoHint')}
+          />
           <Form.Item
             label={t('outbound.import.customerOrderNo')}
             name="customerOrderNo"

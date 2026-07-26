@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -23,6 +24,8 @@ import { CreateDriverDto } from './dto/create-driver.dto';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { CreateCarrierUserDto } from './dto/create-carrier-user.dto';
 import { UpdateCarrierUserDto } from './dto/update-carrier-user.dto';
+import { UpdateDriverDto } from './dto/update-driver.dto';
+import { UpdateVehicleDto } from './dto/update-vehicle.dto';
 import { Permissions } from '../../common/decorators/permissions.decorator';
 import { Permission } from '../../common/enums/permission.enum';
 
@@ -72,9 +75,14 @@ export class CarriersController {
   async listDrivers(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Query('includeInactive') includeInactive?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.carriersService.listDrivers(id, scope);
+    return this.carriersService.listDrivers(
+      id,
+      scope,
+      includeInactive === 'true' || includeInactive === '1',
+    );
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
@@ -85,7 +93,71 @@ export class CarriersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.carriersService.addDriver(id, dto, scope);
+    return this.carriersService.addDriver(id, dto, scope, user.userId);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Patch(':id/drivers/:driverId')
+  async updateDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('driverId', ParseUUIDPipe) driverId: string,
+    @Body() dto: UpdateDriverDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.updateDriver(
+      id,
+      driverId,
+      dto,
+      scope,
+      user.userId,
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Patch(':id/drivers/:driverId/deactivate')
+  async deactivateDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('driverId', ParseUUIDPipe) driverId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.setDriverActive(
+      id,
+      driverId,
+      false,
+      scope,
+      user.userId,
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Patch(':id/drivers/:driverId/reactivate')
+  async reactivateDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('driverId', ParseUUIDPipe) driverId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.setDriverActive(
+      id,
+      driverId,
+      true,
+      scope,
+      user.userId,
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Delete(':id/drivers/:driverId')
+  async deleteDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('driverId', ParseUUIDPipe) driverId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    await this.carriersService.deleteDriver(id, driverId, scope, user.userId);
+    return { ok: true };
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
@@ -93,9 +165,14 @@ export class CarriersController {
   async listVehicles(
     @Param('id') id: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Query('includeInactive') includeInactive?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.carriersService.listVehicles(id, scope);
+    return this.carriersService.listVehicles(
+      id,
+      scope,
+      includeInactive === 'true' || includeInactive === '1',
+    );
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
@@ -106,7 +183,71 @@ export class CarriersController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.carriersService.addVehicle(id, dto, scope);
+    return this.carriersService.addVehicle(id, dto, scope, user.userId);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Patch(':id/vehicles/:vehicleId')
+  async updateVehicle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('vehicleId', ParseUUIDPipe) vehicleId: string,
+    @Body() dto: UpdateVehicleDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.updateVehicle(
+      id,
+      vehicleId,
+      dto,
+      scope,
+      user.userId,
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Patch(':id/vehicles/:vehicleId/deactivate')
+  async deactivateVehicle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('vehicleId', ParseUUIDPipe) vehicleId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.setVehicleActive(
+      id,
+      vehicleId,
+      false,
+      scope,
+      user.userId,
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Patch(':id/vehicles/:vehicleId/reactivate')
+  async reactivateVehicle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('vehicleId', ParseUUIDPipe) vehicleId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.setVehicleActive(
+      id,
+      vehicleId,
+      true,
+      scope,
+      user.userId,
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Delete(':id/vehicles/:vehicleId')
+  async deleteVehicle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('vehicleId', ParseUUIDPipe) vehicleId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    await this.carriersService.deleteVehicle(id, vehicleId, scope, user.userId);
+    return { ok: true };
   }
 
   // ============ 承运商账号管理 ============

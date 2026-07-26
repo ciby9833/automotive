@@ -9,21 +9,22 @@ export interface WaybillStatusLog {
   remark: string | null;
 }
 
-// 全生命周期时间线单条记录 (合并 OperationLog + WaybillStatusLog)
-// source: 用于 UI 区分节点类型
-// type: OperationType 或 ScanAction 之一 (字符串枚举)
+// 全生命周期时间线单条记录 (归一化 OperationLog + WaybillStatusLog)
+// occurredAt = 业务发生时间 (排序权威)；createdAt = 记录写入时间 (调试)
 export interface TimelineEntry {
   source: 'operation' | 'waybill_scan';
+  occurredAt: string;
   createdAt: string;
   type: string;
   vin: string | null;
   orderId: string | null;
   waybillId: string | null;
-  yardId: string | null;
+  yard: { id: string; name: string; code: string } | null;
+  slot: { id: string; code: string } | null;
   operator: { id: string; displayName: string } | null;
-  attachmentUrls?: string[] | null;
+  attachmentUrls: string[] | null;
   payload: Record<string, unknown> | null;
-  remark?: string | null;
+  remark: string | null;
 }
 
 export const trackingApi = {

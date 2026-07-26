@@ -14,12 +14,19 @@ export interface OutboundVinRow {
   groupCode?: string;
 }
 
+// 始发仓不再作为导入必填：VIN 各自的当前所在库位就是权威始发仓
 export interface ImportOutboundOrderPayload {
   customerId: string;
-  originYardId: string;
   customerOrderNo?: string;
   remark?: string;
   vins: OutboundVinRow[];
+}
+
+export interface OutboundOriginYard {
+  yardId: string | null; // null = 未到仓桶
+  yardName: string;
+  yardCode: string | null;
+  vinCount: number;
 }
 
 export type OutboundOrderStatus = 'ACTIVE' | 'CANCELLED';
@@ -29,7 +36,9 @@ export interface OutboundOrderListRow {
   orderCode: string;
   customerOrderNo: string | null;
   customerName: string;
-  originYardName: string;
+  originYardName: string; // 兼容旧字段：单仓时=仓名，跨仓时="N 个场地"
+  originYardSummary: string;
+  originYards: OutboundOriginYard[];
   organizationId: string;
   organizationName: string;
   createdAt: string;
@@ -61,8 +70,8 @@ export interface OutboundOrderVinDetail {
 }
 
 export interface PlanWaybillPayload {
+  outboundOrderId: string; // 必填：本次开单锁定的出库单
   orderVinIds: string[];
-  originYardId: string;
   carrierId: string;
   driverId?: string;
   vehicleId?: string;
@@ -74,6 +83,22 @@ export interface PlanWaybillPayload {
   remark?: string;
 }
 
+export type BlockedReason =
+  | 'NOT_ARRIVED'
+  | 'NO_SLOT'
+  | 'ALREADY_ALLOCATED'
+  | 'MISSING_DEALER';
+
+export interface BlockedVinRow {
+  id: string;
+  vin: string;
+  dealerCode: string | null;
+  dealerName: string | null;
+  reason: BlockedReason;
+  slotCode: string | null;
+  yardName: string | null;
+}
+
 export const outboundApi = {
   importOrder: (payload: ImportOutboundOrderPayload) =>
     unwrap<{
@@ -83,6 +108,7 @@ export const outboundApi = {
       missing: string[];
       alreadyBound?: string[];
       alreadyAllocated?: string[];
+      originYards: OutboundOriginYard[];
     }>(apiClient.post('/outbound/orders/import', payload)),
 
   listOrders: (params?: {
@@ -96,9 +122,11 @@ export const outboundApi = {
     ),
 
   orderDetail: (id: string) =>
-    unwrap<{ order: unknown; vins: OutboundOrderVinDetail[] }>(
-      apiClient.get(`/outbound/orders/${id}`),
-    ),
+    unwrap<{
+      order: unknown;
+      vins: OutboundOrderVinDetail[];
+      originYards: OutboundOriginYard[];
+    }>(apiClient.get(`/outbound/orders/${id}`)),
 
   listAvailable: (params: {
     customerId?: string;
@@ -114,6 +142,13 @@ export const outboundApi = {
   plan: (payload: PlanWaybillPayload) =>
     unwrap<{ id: string; waybillCode: string }>(
       apiClient.post('/outbound/plan', payload),
+    ),
+
+  listBlocked: (outboundOrderId: string) =>
+    unwrap<BlockedVinRow[]>(
+      apiClient.get('/outbound/plan/blocked', {
+        params: { outboundOrderId },
+      }),
     ),
 
   // DELETE 语义：软取消出库单 (Order 打 CANCELLED + 释放 VIN 出库属性；数据保留供追溯)

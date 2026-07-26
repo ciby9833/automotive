@@ -104,7 +104,11 @@ export const yardsApi = {
     vin?: string;
     organizationId?: string;
     yardId?: string;
+    slotCode?: string;
+    orderCode?: string;
     minStayDays?: number;
+    dateFrom?: string;
+    dateTo?: string;
   }) => unwrap<VinInventoryRow[]>(apiClient.get('/yards/inventory/vin', { params })),
   // VIN 全生命周期：orderVin + 出库运单 + 事件流水
   vinLifecycle: (vin: string) =>

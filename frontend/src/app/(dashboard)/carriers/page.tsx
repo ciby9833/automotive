@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { Button, Drawer, Form, Input, Modal, Select, Space, Table, Tag, message } from 'antd';
-import { TeamOutlined } from '@ant-design/icons';
+import { CarOutlined, TeamOutlined } from '@ant-design/icons';
 import { carriersApi, Carrier } from '@/lib/api/carriers';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -11,6 +11,7 @@ import { localizedOrganizationName } from '@/i18n/organizationNames';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 import { GenerateInviteButton } from '@/components/invitations/GenerateInviteButton';
 import { CarrierUsersPanel } from '@/components/carriers/CarrierUsersPanel';
+import { CarrierFleetPanel } from '@/components/carriers/CarrierFleetPanel';
 import { Role } from '@/lib/auth/role';
 import { OrgFilter } from '@/components/layout/OrgFilter';
 
@@ -20,6 +21,7 @@ export default function CarriersPage() {
   const [open, setOpen] = useState(false);
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
   const [usersDrawer, setUsersDrawer] = useState<Carrier | null>(null);
+  const [fleetDrawer, setFleetDrawer] = useState<Carrier | null>(null);
   const [form] = Form.useForm();
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const role = useAuthStore((s) => s.user?.role);
@@ -94,6 +96,14 @@ export default function CarriersPage() {
             onClick={() => setUsersDrawer(record)}
           >
             {t('carriers.viewUsers')}
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            icon={<CarOutlined />}
+            onClick={() => setFleetDrawer(record)}
+          >
+            {t('carriers.viewFleet')}
           </Button>
           <GenerateInviteButton targetType="CARRIER" targetId={record.id} />
         </Space>
@@ -179,6 +189,25 @@ export default function CarriersPage() {
           <CarrierUsersPanel
             carrierId={usersDrawer.id}
             carrierName={usersDrawer.name}
+          />
+        )}
+      </Drawer>
+
+      <Drawer
+        title={
+          fleetDrawer
+            ? `${t('carriers.fleetDrawerTitle')} · ${fleetDrawer.name}`
+            : t('carriers.fleetDrawerTitle')
+        }
+        open={!!fleetDrawer}
+        onClose={() => setFleetDrawer(null)}
+        width={960}
+        destroyOnClose
+      >
+        {fleetDrawer && (
+          <CarrierFleetPanel
+            carrierId={fleetDrawer.id}
+            carrierName={fleetDrawer.name}
           />
         )}
       </Drawer>

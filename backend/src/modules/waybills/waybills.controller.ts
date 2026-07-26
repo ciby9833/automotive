@@ -61,6 +61,12 @@ export class WaybillsController {
     @Query('status') status?: WaybillStatus,
     @Query('originYardId') originYardId?: string,
     @Query('transportType') transportType?: TransportType,
+    @Query('waybillCode') waybillCode?: string,
+    @Query('customerWaybillCode') customerWaybillCode?: string,
+    @Query('carrierId') carrierId?: string,
+    @Query('destinationDealerId') destinationDealerId?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.waybillsService.findAll(scope, {
@@ -68,6 +74,12 @@ export class WaybillsController {
       status,
       originYardId,
       transportType,
+      waybillCode,
+      customerWaybillCode,
+      carrierId,
+      destinationDealerId,
+      dateFrom,
+      dateTo,
     });
   }
 
@@ -174,10 +186,7 @@ export class WaybillsController {
     @Body() dto: AssignWaybillDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.waybillsService.assignWaybill(id, dto, {
-      userId: user.userId,
-      role: user.role,
-      carrierId: user.carrierId,
-    });
+    const scope = await this.scopeService.resolve(user);
+    return this.waybillsService.assignWaybill(id, dto, scope, user.userId);
   }
 }

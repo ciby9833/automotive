@@ -8,6 +8,7 @@ import {
   Card,
   Col,
   Divider,
+  Drawer,
   Form,
   Input,
   Row,
@@ -22,6 +23,7 @@ import {
   outboundApi,
   OutboundOrderListRow,
   OutboundOrderVinDetail,
+  BlockedVinRow,
   VehicleTowType,
 } from '@/lib/api/outbound';
 import { customersApi, Customer, CustomerAddress } from '@/lib/api/customers';
@@ -51,6 +53,8 @@ function OutboundPlanInner() {
   const [yardId, setYardId] = useState<string | undefined>();
   const [dealerCode, setDealerCode] = useState<string | undefined>();
   const [groupCode, setGroupCode] = useState<string | undefined>();
+  const [blocked, setBlocked] = useState<BlockedVinRow[]>([]);
+  const [blockedOpen, setBlockedOpen] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([]);
   const [carrierId, setCarrierId] = useState<string | undefined>();
@@ -100,6 +104,18 @@ function OutboundPlanInner() {
     reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, yardId, dealerCode, groupCode, outboundOrderId]);
+
+  // 选出库单时并行拉"不可开单"列表；换单/清单时清空
+  useEffect(() => {
+    if (!outboundOrderId) {
+      setBlocked([]);
+      return;
+    }
+    outboundApi
+      .listBlocked(outboundOrderId)
+      .then(setBlocked)
+      .catch(() => setBlocked([]));
+  }, [outboundOrderId]);
 
   // 从选中的 VIN 推导：经销店集合、始发仓集合
   const selected = useMemo(
@@ -172,6 +188,41 @@ function OutboundPlanInner() {
     }));
   }, [available]);
 
+  // 出库单上下文里的分组统计：按仓 / 按经销商 / 按分组各多少可开 VIN
+  // 用于顶部快速筛选卡：点某个仓 → 一键把 yardId 过滤条件设上，选中即分单
+  const yardStats = useMemo(() => {
+    const m = new Map<string, { id: string; name: string; count: number }>();
+    for (const v of available) {
+      const y = v.slot?.yard;
+      if (!y) continue;
+      const entry = m.get(y.id);
+      if (entry) entry.count += 1;
+      else m.set(y.id, { id: y.id, name: `${y.name} (${y.code})`, count: 1 });
+    }
+    return Array.from(m.values());
+  }, [available]);
+  const dealerStats = useMemo(() => {
+    const m = new Map<string, { code: string; label: string; count: number }>();
+    for (const v of available) {
+      if (!v.dealerCode) continue;
+      const entry = m.get(v.dealerCode);
+      const label = v.dealerName ?? v.dealerCode;
+      if (entry) entry.count += 1;
+      else m.set(v.dealerCode, { code: v.dealerCode, label, count: 1 });
+    }
+    return Array.from(m.values());
+  }, [available]);
+  const groupStats = useMemo(() => {
+    const m = new Map<string, { code: string; count: number }>();
+    for (const v of available) {
+      if (!v.groupCode) continue;
+      const entry = m.get(v.groupCode);
+      if (entry) entry.count += 1;
+      else m.set(v.groupCode, { code: v.groupCode, count: 1 });
+    }
+    return Array.from(m.values());
+  }, [available]);
+
   const groupOptions = useMemo(() => {
     const s = new Set<string>();
     for (const v of available) if (v.groupCode) s.add(v.groupCode);
@@ -180,6 +231,7 @@ function OutboundPlanInner() {
 
   const validationError = useMemo(() => {
     if (selected.length === 0) return null;
+    if (!outboundOrderId) return t('outbound.plan.needOutboundOrder');
     if (dealerSet.size > 1) return t('outbound.plan.errMultiDealer');
     if (yardSet.size > 1) return t('outbound.plan.errMultiYard');
     if (!carrierId) return t('outbound.plan.errNoCarrier');
@@ -187,6 +239,7 @@ function OutboundPlanInner() {
     return null;
   }, [
     selected.length,
+    outboundOrderId,
     dealerSet.size,
     yardSet.size,
     carrierId,
@@ -196,11 +249,15 @@ function OutboundPlanInner() {
 
   const submit = async () => {
     if (validationError || selected.length === 0 || !carrierId) return;
+    if (!outboundOrderId) {
+      message.warning(t('outbound.plan.needOutboundOrder'));
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await outboundApi.plan({
+        outboundOrderId,
         orderVinIds: selected.map((v) => v.id),
-        originYardId: inferredOriginYardId!,
         carrierId,
         driverId: driverId ?? undefined,
         vehicleId: vehicleId ?? undefined,
@@ -227,6 +284,9 @@ function OutboundPlanInner() {
       setVehicleId(null);
       setRemark('');
       reload();
+      if (outboundOrderId) {
+        outboundApi.listBlocked(outboundOrderId).then(setBlocked).catch(() => undefined);
+      }
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
@@ -286,7 +346,6 @@ function OutboundPlanInner() {
                 style={{ width: 200 }}
                 value={customerId}
                 onChange={setCustomerId}
-                disabled={!!outboundOrderId}
                 options={customers.map((c) => ({ value: c.id, label: c.name }))}
               />
               <Select
@@ -297,7 +356,6 @@ function OutboundPlanInner() {
                 style={{ width: 200 }}
                 value={yardId}
                 onChange={setYardId}
-                disabled={!!outboundOrderId}
                 options={yards.map((y) => ({
                   value: y.id,
                   label: `${y.name} (${y.code})`,
@@ -311,7 +369,6 @@ function OutboundPlanInner() {
                 style={{ width: 220 }}
                 value={dealerCode}
                 onChange={setDealerCode}
-                disabled={!!outboundOrderId}
                 options={dealerOptions}
               />
               <Select
@@ -320,17 +377,87 @@ function OutboundPlanInner() {
                 style={{ width: 140 }}
                 value={groupCode}
                 onChange={setGroupCode}
-                disabled={!!outboundOrderId}
                 options={groupOptions}
               />
             </Space>
             {outboundOrderId && (
-              <Alert
-                type="info"
-                showIcon
-                message={t('outbound.plan.lockedByOrderHint')}
-                style={{ marginBottom: 12 }}
-              />
+              <div
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 6,
+                  padding: '10px 12px',
+                  marginBottom: 12,
+                  fontSize: 12,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ color: '#475569' }}>
+                    {t('outbound.plan.contextTitle')}
+                  </span>
+                  {blocked.length > 0 && (
+                    <Button
+                      size="small"
+                      type="link"
+                      danger
+                      onClick={() => setBlockedOpen(true)}
+                    >
+                      {t('outbound.plan.viewBlocked', { n: blocked.length })}
+                    </Button>
+                  )}
+                </div>
+                <Space wrap size={4}>
+                  <span style={{ color: '#94a3b8' }}>{t('outbound.plan.groupByYard')}:</span>
+                  {yardStats.map((y) => (
+                    <Tag
+                      key={y.id}
+                      color={yardId === y.id ? 'blue' : undefined}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => setYardId(yardId === y.id ? undefined : y.id)}
+                    >
+                      {y.name} · {y.count}
+                    </Tag>
+                  ))}
+                </Space>
+                <div style={{ marginTop: 4 }}>
+                  <Space wrap size={4}>
+                    <span style={{ color: '#94a3b8' }}>{t('outbound.plan.groupByDealer')}:</span>
+                    {dealerStats.map((d) => (
+                      <Tag
+                        key={d.code}
+                        color={dealerCode === d.code ? 'purple' : undefined}
+                        style={{ cursor: 'pointer' }}
+                        onClick={() =>
+                          setDealerCode(dealerCode === d.code ? undefined : d.code)
+                        }
+                      >
+                        {d.label} · {d.count}
+                      </Tag>
+                    ))}
+                  </Space>
+                </div>
+                {groupStats.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <Space wrap size={4}>
+                      <span style={{ color: '#94a3b8' }}>
+                        {t('outbound.plan.groupByGroup')}:
+                      </span>
+                      {groupStats.map((g) => (
+                        <Tag
+                          key={g.code}
+                          color={groupCode === g.code ? 'green' : undefined}
+                          style={{ cursor: 'pointer' }}
+                          onClick={() =>
+                            setGroupCode(groupCode === g.code ? undefined : g.code)
+                          }
+                        >
+                          {g.code} · {g.count}
+                        </Tag>
+                      ))}
+                    </Space>
+                  </div>
+                )}
+              </div>
             )}
 
             <Table
@@ -598,6 +725,59 @@ function OutboundPlanInner() {
           </Card>
         </Col>
       </Row>
+
+      <Drawer
+        title={t('outbound.plan.blockedTitle')}
+        width={640}
+        open={blockedOpen}
+        onClose={() => setBlockedOpen(false)}
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('outbound.plan.blockedHint')}
+        />
+        <Table
+          rowKey="id"
+          size="small"
+          dataSource={blocked}
+          pagination={false}
+          columns={[
+            { title: 'VIN', dataIndex: 'vin', width: 180 },
+            {
+              title: t('outbound.plan.dealer'),
+              render: (_, r) =>
+                r.dealerName ?? r.dealerCode ?? '-',
+            },
+            {
+              title: t('outbound.plan.blockedReason'),
+              dataIndex: 'reason',
+              render: (v: BlockedVinRow['reason']) => {
+                const cfg: Record<string, { color: string; label: string }> = {
+                  NOT_ARRIVED: { color: 'default', label: t('outbound.plan.reasonNotArrived') },
+                  NO_SLOT: { color: 'orange', label: t('outbound.plan.reasonNoSlot') },
+                  ALREADY_ALLOCATED: { color: 'blue', label: t('outbound.plan.reasonAllocated') },
+                  MISSING_DEALER: { color: 'red', label: t('outbound.plan.reasonMissingDealer') },
+                };
+                const c = cfg[v];
+                return <Tag color={c.color}>{c.label}</Tag>;
+              },
+            },
+            {
+              title: t('outbound.plan.slot'),
+              render: (_, r) =>
+                r.slotCode ? (
+                  <Tag color="green">
+                    {r.yardName ? `${r.yardName}·` : ''}{r.slotCode}
+                  </Tag>
+                ) : (
+                  '-'
+                ),
+            },
+          ]}
+        />
+      </Drawer>
     </div>
   );
 }

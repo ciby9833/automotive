@@ -95,6 +95,21 @@ export class OutboundController {
     });
   }
 
+  // 出库单里"不可开单的 VIN + 原因"：给业务员看清为什么某台车没进池
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.OUTBOUND_PLAN)
+  @Get('plan/blocked')
+  async listBlocked(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('outboundOrderId', ParseUUIDPipe) outboundOrderId: string,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.outboundService.listBlockedVinsForOutbound(
+      outboundOrderId,
+      scope,
+    );
+  }
+
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
   @Permissions(Permission.OUTBOUND_PLAN)
   @Post('plan')

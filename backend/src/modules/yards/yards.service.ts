@@ -253,6 +253,8 @@ export class YardsService {
         operationType: OperationType.INBOUND_UNDO,
         orderId: result.affectedOrderId,
         vin: result.releasedVin,
+        yardId: result.saved.yardId,
+        slotId: result.saved.id,
         operatorUserId,
         payload: { slotCode: result.slotCode },
       });
@@ -299,14 +301,19 @@ export class YardsService {
       this.slotsRepository.save(from),
       this.slotsRepository.save(to),
     ]);
+    // YARD_MOVE 顶层 slot_id = 目标库位（用于"这个位停过啥"报表）；
+    // 起始库位 id/code 保留在 payload 以便前端显示 "A-01 → A-02"
     await this.audit.log({
       operationType: OperationType.YARD_MOVE,
       vin,
+      yardId: from.yardId,
+      slotId: to.id,
       operatorUserId,
       payload: {
+        fromSlotId: from.id,
         fromSlotCode: from.code,
+        toSlotId: to.id,
         toSlotCode: to.code,
-        yardId: from.yardId,
       },
     });
     return { from: savedFrom, to: savedTo };
@@ -321,14 +328,25 @@ export class YardsService {
       vin?: string;
       organizationId?: string;
       yardId?: string;
+      slotCode?: string;
+      orderCode?: string;
       minStayDays?: number;
+      // 按 slot.assigned_at 时间范围过滤；前端默认传当月区间
+      dateFrom?: string;
+      dateTo?: string;
     },
   ): Promise<VinInventoryRow[]> {
     if (scope.type !== 'ORG') {
       // CARRIER / CUSTOMER 的 VIN 库存 P0 阶段暂不支持——他们的口径不同
-      // (客户看的是"我下单的 VIN 到了哪个仓"，承运商看的是"我要提的 VIN 现在哪儿")；
-      // 这些视角要专门的接口，不套用内部 scope。
       return [];
+    }
+    // 机构过滤：显式传时校验必须在 scope 内（前端 OrgFilter 也做了限制，双保险）
+    let orgIds = scope.orgIds;
+    if (filters.organizationId) {
+      if (!scope.orgIds.includes(filters.organizationId)) {
+        throw new ForbiddenException('无权按该机构筛选');
+      }
+      orgIds = [filters.organizationId];
     }
     const qb = this.slotsRepository
       .createQueryBuilder('slot')
@@ -336,11 +354,7 @@ export class YardsService {
       .leftJoin('order_vins', 'ov', 'ov.vin = slot.currentVin')
       .leftJoin('orders', 'ord', 'ord.id = ov.order_id')
       .where('slot.status = :status', { status: YardSlotStatus.OCCUPIED })
-      .andWhere('yard.organization_id IN (:...orgIds)', {
-        orgIds: filters.organizationId
-          ? [filters.organizationId]
-          : scope.orgIds,
-      })
+      .andWhere('yard.organization_id IN (:...orgIds)', { orgIds })
       .select([
         'slot.id AS "slotId"',
         'slot.code AS "slotCode"',
@@ -361,6 +375,24 @@ export class YardsService {
     }
     if (filters.yardId) {
       qb.andWhere('yard.id = :yardId', { yardId: filters.yardId });
+    }
+    if (filters.slotCode) {
+      qb.andWhere('slot.code ILIKE :slotCode', {
+        slotCode: `%${filters.slotCode}%`,
+      });
+    }
+    if (filters.orderCode) {
+      qb.andWhere('ord."orderCode" ILIKE :orderCode', {
+        orderCode: `%${filters.orderCode}%`,
+      });
+    }
+    if (filters.dateFrom) {
+      qb.andWhere('slot.assigned_at >= :dateFrom', {
+        dateFrom: filters.dateFrom,
+      });
+    }
+    if (filters.dateTo) {
+      qb.andWhere('slot.assigned_at <= :dateTo', { dateTo: filters.dateTo });
     }
     if (scope.role === Role.YARD_STAFF && scope.scopeYardId) {
       qb.andWhere('yard.id = :yardStaffYardId', {
@@ -580,6 +612,7 @@ export class YardsService {
           return {
             success: {
               orderId: orderVin.orderId,
+              slotId: targetSlot.id,
               slotCode: targetSlot.code,
               wasExpected,
             },
@@ -603,10 +636,11 @@ export class YardsService {
               : OperationType.YARD_MOVE,
             orderId: moveResult.success.orderId,
             vin: row.vin,
+            yardId,
+            slotId: moveResult.success.slotId,
             operatorUserId,
             payload: {
               slotCode: moveResult.success.slotCode,
-              yardId,
               bulk: true,
             },
           });

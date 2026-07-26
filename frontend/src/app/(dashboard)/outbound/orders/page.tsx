@@ -104,7 +104,28 @@ export default function OutboundOrdersPage() {
           { title: t('outbound.orders.customer'), dataIndex: 'customerName' },
           {
             title: t('outbound.orders.originYard'),
-            dataIndex: 'originYardName',
+            render: (_, r) => {
+              if (!r.originYards || r.originYards.length === 0) {
+                return r.originYardName ?? '-';
+              }
+              if (r.originYards.length === 1) {
+                return r.originYards[0].yardName;
+              }
+              return (
+                <Space size={4} wrap>
+                  <Tag color="cyan">
+                    {t('outbound.orders.originYardMulti', {
+                      n: r.originYards.length,
+                    })}
+                  </Tag>
+                  {r.originYards.map((y) => (
+                    <Tag key={y.yardId ?? '__unarrived__'}>
+                      {y.yardName} · {y.vinCount}
+                    </Tag>
+                  ))}
+                </Space>
+              );
+            },
           },
           {
             title: t('outbound.orders.createdAt'),

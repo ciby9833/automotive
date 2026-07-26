@@ -78,10 +78,12 @@ export class ImportOutboundOrderDto {
   @IsUUID()
   customerId: string;
 
-  // 出库场景的"始发仓" = 极兔仓库 (车已在库存里)
-  @ApiProperty()
+  // 已废弃：始发仓由 VIN 当前所在库位自动推导，不再由用户选择。
+  // 保留字段仅兼容旧客户端调用，服务端不使用。
+  @ApiProperty({ required: false, deprecated: true })
+  @IsOptional()
   @IsUUID()
-  originYardId: string;
+  originYardId?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()

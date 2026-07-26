@@ -198,14 +198,22 @@ export class YardsController {
     @Query('vin') vin?: string,
     @Query('organizationId') organizationId?: string,
     @Query('yardId') yardId?: string,
+    @Query('slotCode') slotCode?: string,
+    @Query('orderCode') orderCode?: string,
     @Query('minStayDays') minStayDays?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.yardsService.vinInventory(scope, {
       vin,
       organizationId,
       yardId,
+      slotCode,
+      orderCode,
       minStayDays: minStayDays ? Number(minStayDays) : undefined,
+      dateFrom,
+      dateTo,
     });
   }
 }

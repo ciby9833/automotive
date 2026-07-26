@@ -12,6 +12,8 @@ import { Waybill } from './entities/waybill.entity';
 import { WaybillVin } from './entities/waybill-vin.entity';
 import { OrderVin } from '../orders/entities/order-vin.entity';
 import { YardSlot, YardSlotStatus } from '../yards/entities/yard-slot.entity';
+import { Driver } from '../carriers/entities/driver.entity';
+import { Vehicle } from '../carriers/entities/vehicle.entity';
 import { CreateWaybillDto } from './dto/create-waybill.dto';
 import { ScanDto } from './dto/scan.dto';
 import { TransportType } from '../../common/enums/order-type.enum';
@@ -62,6 +64,10 @@ export class WaybillsService {
     private readonly waybillsRepository: Repository<Waybill>,
     @InjectRepository(WaybillVin)
     private readonly waybillVinsRepository: Repository<WaybillVin>,
+    @InjectRepository(Driver)
+    private readonly driversRepository: Repository<Driver>,
+    @InjectRepository(Vehicle)
+    private readonly vehiclesRepository: Repository<Vehicle>,
     private readonly dataSource: DataSource,
     private readonly trackingService: TrackingService,
     private readonly trackingGateway: TrackingGateway,
@@ -115,6 +121,12 @@ export class WaybillsService {
       status?: WaybillStatus;
       originYardId?: string;
       transportType?: TransportType;
+      waybillCode?: string;
+      customerWaybillCode?: string;
+      carrierId?: string;
+      destinationDealerId?: string;
+      dateFrom?: string;
+      dateTo?: string;
     },
   ): Promise<Waybill[]> {
     const qb = this.waybillsRepository
@@ -140,6 +152,30 @@ export class WaybillsService {
       qb.andWhere('waybill.transportType = :__tt', {
         __tt: filters.transportType,
       });
+    }
+    if (filters?.waybillCode) {
+      qb.andWhere('waybill.waybillCode ILIKE :__wc', {
+        __wc: `%${filters.waybillCode}%`,
+      });
+    }
+    if (filters?.customerWaybillCode) {
+      qb.andWhere('waybill.customerWaybillCode ILIKE :__cwc', {
+        __cwc: `%${filters.customerWaybillCode}%`,
+      });
+    }
+    if (filters?.carrierId) {
+      qb.andWhere('waybill.carrierId = :__cid', { __cid: filters.carrierId });
+    }
+    if (filters?.destinationDealerId) {
+      qb.andWhere('waybill.destinationDealerId = :__ddid', {
+        __ddid: filters.destinationDealerId,
+      });
+    }
+    if (filters?.dateFrom) {
+      qb.andWhere('waybill.createdAt >= :__df', { __df: filters.dateFrom });
+    }
+    if (filters?.dateTo) {
+      qb.andWhere('waybill.createdAt <= :__dt', { __dt: filters.dateTo });
     }
     return qb.getMany();
   }
@@ -470,9 +506,10 @@ export class WaybillsService {
       await this.audit.log({
         operationType: OperationType.WAYBILL_CANCEL,
         vin,
+        waybillId: id,
+        yardId: waybill.originYardId ?? null,
         operatorUserId,
         payload: {
-          waybillId: id,
           waybillCode: waybill.waybillCode,
         },
       });
@@ -675,22 +712,13 @@ export class WaybillsService {
   async assignWaybill(
     waybillId: string,
     dto: { driverId?: string | null; vehicleId?: string | null },
-    user: {
-      userId: string;
-      role: Role;
-      carrierId?: string | null;
-    },
+    scope: EffectiveScope,
+    operatorUserId: string,
   ): Promise<Waybill> {
     const waybill = await this.findByIdUnscoped(waybillId);
     if (!waybill) throw new NotFoundException('运单不存在');
 
-    if (
-      user.role !== Role.HQ_ADMIN &&
-      user.role !== Role.ORG_ADMIN &&
-      !(user.role === Role.CARRIER_STAFF && waybill.carrierId === user.carrierId)
-    ) {
-      throw new ForbiddenException('无权分派此运单');
-    }
+    this.assertCanAssignWaybill(waybill, scope);
 
     if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
       throw new BadRequestException(
@@ -703,22 +731,24 @@ export class WaybillsService {
 
     // 校验司机/车辆归属：必须属于此运单的承运商，防跨供应商乱指
     if (dto.driverId) {
-      const driver = await this.dataSource
-        .getRepository('drivers')
-        .findOne({ where: { id: dto.driverId } });
+      const driver = await this.driversRepository.findOne({
+        where: { id: dto.driverId },
+      });
       if (!driver) throw new NotFoundException('司机不存在');
-      if ((driver as { carrierId?: string }).carrierId !== waybill.carrierId) {
+      if (driver.carrierId !== waybill.carrierId) {
         throw new BadRequestException('司机不属于此运单的承运商');
       }
+      if (!driver.isActive) throw new BadRequestException('司机已停用，无法分派');
     }
     if (dto.vehicleId) {
-      const vehicle = await this.dataSource
-        .getRepository('vehicles')
-        .findOne({ where: { id: dto.vehicleId } });
+      const vehicle = await this.vehiclesRepository.findOne({
+        where: { id: dto.vehicleId },
+      });
       if (!vehicle) throw new NotFoundException('拖车不存在');
-      if ((vehicle as { carrierId?: string }).carrierId !== waybill.carrierId) {
+      if (vehicle.carrierId !== waybill.carrierId) {
         throw new BadRequestException('拖车不属于此运单的承运商');
       }
+      if (!vehicle.isActive) throw new BadRequestException('拖车已停用，无法分派');
     }
 
     const before = { driverId: waybill.driverId, vehicleId: waybill.vehicleId };
@@ -732,9 +762,10 @@ export class WaybillsService {
       await this.audit.log({
         operationType: OperationType.WAYBILL_ASSIGN,
         vin: wv.vin,
-        operatorUserId: user.userId,
+        waybillId,
+        yardId: waybill.originYardId ?? null,
+        operatorUserId,
         payload: {
-          waybillId,
           waybillCode: waybill.waybillCode,
           before,
           after: { driverId: saved.driverId, vehicleId: saved.vehicleId },
@@ -743,5 +774,32 @@ export class WaybillsService {
     }
 
     return saved;
+  }
+
+  private assertCanAssignWaybill(
+    waybill: Waybill,
+    scope: EffectiveScope,
+  ): void {
+    if (scope.type === 'ORG') {
+      if (scope.role !== Role.HQ_ADMIN && scope.role !== Role.ORG_ADMIN) {
+        throw new ForbiddenException('无权分派此运单');
+      }
+      if (!scope.orgIds.includes(waybill.organizationId)) {
+        throw new ForbiddenException('无权分派此运单');
+      }
+      return;
+    }
+
+    if (scope.type === 'CARRIER') {
+      if (
+        scope.role === Role.CARRIER_STAFF &&
+        waybill.carrierId === scope.carrierId
+      ) {
+        return;
+      }
+      throw new ForbiddenException('无权分派此运单');
+    }
+
+    throw new ForbiddenException('无权分派此运单');
   }
 }

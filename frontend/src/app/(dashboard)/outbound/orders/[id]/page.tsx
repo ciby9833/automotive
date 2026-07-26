@@ -19,7 +19,11 @@ import {
 } from 'antd';
 import { DeleteOutlined, PartitionOutlined } from '@ant-design/icons';
 import { PageHeader } from '@/components/layout/PageHeader';
-import { outboundApi, OutboundOrderVinDetail } from '@/lib/api/outbound';
+import {
+  outboundApi,
+  OutboundOrderVinDetail,
+  OutboundOriginYard,
+} from '@/lib/api/outbound';
 import { useTranslation } from '@/i18n/useTranslation';
 import { Permission, usePermission } from '@/lib/auth/permissions';
 
@@ -44,6 +48,7 @@ export function OutboundOrderDetail({ id }: { id: string }) {
   const canImport = usePermission(Permission.OUTBOUND_IMPORT);
   const [order, setOrder] = useState<OrderHead | null>(null);
   const [vins, setVins] = useState<OutboundOrderVinDetail[]>([]);
+  const [originYards, setOriginYards] = useState<OutboundOriginYard[]>([]);
   const [loading, setLoading] = useState(false);
 
   const load = () => {
@@ -54,6 +59,7 @@ export function OutboundOrderDetail({ id }: { id: string }) {
       .then((data) => {
         setOrder(data.order as OrderHead);
         setVins(data.vins ?? []);
+        setOriginYards(data.originYards ?? []);
       })
       .catch(() => message.error(t('outbound.detail.loadFailed')))
       .finally(() => setLoading(false));
@@ -185,9 +191,18 @@ export function OutboundOrderDetail({ id }: { id: string }) {
             {order?.customerOrderNo ?? '-'}
           </Descriptions.Item>
           <Descriptions.Item label={t('outbound.detail.originYard')}>
-            {order?.destinationYard
-              ? `${order.destinationYard.name} (${order.destinationYard.code})`
-              : '-'}
+            {originYards.length === 0 ? (
+              '-'
+            ) : (
+              <Space size={4} wrap>
+                {originYards.map((y) => (
+                  <Tag key={y.yardId ?? '__unarrived__'} color="cyan">
+                    {y.yardName}
+                    {y.yardCode ? ` (${y.yardCode})` : ''} · {y.vinCount}
+                  </Tag>
+                ))}
+              </Space>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label={t('outbound.detail.organization')}>
             {order?.organization?.name ?? '-'}
@@ -245,7 +260,10 @@ export function OutboundOrderDetail({ id }: { id: string }) {
               title: t('outbound.detail.slot'),
               render: (_, r) =>
                 r.slot ? (
-                  <Tag color="green">{r.slot.code}</Tag>
+                  <Tag color="green">
+                    {r.slot.yard?.code ? `${r.slot.yard.code}·` : ''}
+                    {r.slot.code}
+                  </Tag>
                 ) : (
                   <span style={{ color: '#94a3b8' }}>-</span>
                 ),

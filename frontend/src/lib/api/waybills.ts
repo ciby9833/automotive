@@ -75,6 +75,12 @@ export const waybillsApi = {
     status?: WaybillStatus;
     originYardId?: string;
     transportType?: TransportType;
+    waybillCode?: string;
+    customerWaybillCode?: string;
+    carrierId?: string;
+    destinationDealerId?: string;
+    dateFrom?: string;
+    dateTo?: string;
   }) => unwrap<Waybill[]>(apiClient.get('/waybills', { params })),
   get: (id: string) => unwrap<Waybill>(apiClient.get(`/waybills/${id}`)),
   lookup: (vin: string) =>

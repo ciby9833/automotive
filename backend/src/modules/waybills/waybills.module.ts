@@ -4,6 +4,8 @@ import { Waybill } from './entities/waybill.entity';
 import { WaybillVin } from './entities/waybill-vin.entity';
 import { OrderVin } from '../orders/entities/order-vin.entity';
 import { YardSlot } from '../yards/entities/yard-slot.entity';
+import { Driver } from '../carriers/entities/driver.entity';
+import { Vehicle } from '../carriers/entities/vehicle.entity';
 import { WaybillsService } from './waybills.service';
 import { WaybillsController } from './waybills.controller';
 import { TrackingModule } from '../tracking/tracking.module';
@@ -14,7 +16,14 @@ import { EmailModule } from '../email/email.module';
 // (车物理离开了始发仓，slot 变 VACANT 才能被下一台车用；WaybillsService 通过 mgr.getRepository 拿)
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Waybill, WaybillVin, OrderVin, YardSlot]),
+    TypeOrmModule.forFeature([
+      Waybill,
+      WaybillVin,
+      OrderVin,
+      YardSlot,
+      Driver,
+      Vehicle,
+    ]),
     TrackingModule,
     QueueModule,
     EmailModule,

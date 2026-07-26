@@ -164,6 +164,7 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
     ]},
     { key: 'setup', i18nKey: 'nav.group.setup', items: [
       { key: 'my-carrier-users', i18nKey: 'nav.myCarrierUsers', path: '/my-carrier/users' },
+      { key: 'my-carrier-fleet', i18nKey: 'nav.myCarrierFleet', path: '/my-carrier/fleet' },
     ]},
   ],
   // 司机：提货扫描 + 签收扫描是每天的核心动作

@@ -180,10 +180,29 @@ systemctl reload nginx
 cd /var/www/automotive_alms
 git pull
 
+# 后端：build 后跑 migration，然后 reload（graceful）
 cd backend && npm ci && npm run build && npm run migration:run
-cd ../frontend && npm ci && npm run build
-pm2 restart all
+pm2 reload tms-backend
+
+# 前端：走安全升级脚本（不会触发用户端 chunk 404）
+cd /var/www/automotive_alms
+bash deploy/upgrade-frontend.sh
 ```
+
+> ⚠️ **不要再用 `cd frontend && npm run build && pm2 restart tms-frontend`。**
+> 直接覆盖 `.next` 会删掉老 hash chunk 文件，任何还开着页面的用户 tab 一操作就
+> `This page couldn't load`（chunk 404）。用 `upgrade-frontend.sh` 才能保留老
+> chunks 30 天，让已打开 tab 平滑过渡到新版本。
+
+### 关于列名混用（`createdAt` vs `created_at`）
+
+早期 prod 库是 `synchronize=true` 建的（列名 camelCase），后期 migration 用 snake_case。
+`1785500000000-NormalizeTimestampColumns` 会一次性把 prod 库的所有 camelCase 时间列
+rename 成 snake_case，dev 库自动 no-op。**跑过一次之后所有 raw SQL 只用 snake_case
+即可。**
+
+新写 migration 时如果需要引用 `created_at`/`updated_at`，直接用即可。
+新写 entity 继承 `BaseEntity` 会自动带 `@CreateDateColumn({name:'created_at'})` 映射。
 
 ---
 
@@ -196,7 +215,10 @@ pm2 restart all
 | 图片上传后 404 | `docker ps` 看 tms-minio Up；检查 `.env` 的 `STORAGE_ENDPOINT` |
 | CORS 拒绝 | `backend/.env` 的 `CORS_ORIGIN` 是否包含实际访问入口 |
 | DB 连不上 | 系统 PG 的 `pg_hba.conf` 里 `127.0.0.1` 那行 auth 方式 |
-| 迁移失败 | 检查 postgis / uuid-ossp 扩展是否已装到 tms 库 |
+| 迁移失败 · `column createdAt does not exist` | prod 里是 snake_case、dev 里是 camelCase 或反之 —— 检查是否漏跑 `NormalizeTimestampColumns` |
+| 迁移失败 · postgis / uuid-ossp | 检查扩展是否已装到 tms 库 (`CREATE EXTENSION IF NOT EXISTS ...`) |
+| `This page couldn't load` + chunk 404 | 部署没走 `upgrade-frontend.sh`；同时前端已内置 ChunkErrorReloader，会自动 reload 一次 |
+| 长期堆积老 chunk 文件 | `find /var/www/automotive_alms/frontend/.next/static -type f -mtime +30 -delete`（可放 cron 每周跑） |
 
 ---
 

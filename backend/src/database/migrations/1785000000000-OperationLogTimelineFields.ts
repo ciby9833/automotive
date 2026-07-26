@@ -25,10 +25,30 @@ export class OperationLogTimelineFields1785000000000
       `ALTER TABLE "operation_logs" ADD COLUMN IF NOT EXISTS "attachment_urls" text[]`,
     );
 
-    // 老数据 event_at 兜底 = created_at，保证按 event_at 排序时旧行也有值
-    await queryRunner.query(
-      `UPDATE "operation_logs" SET "event_at" = "created_at" WHERE "event_at" IS NULL`,
-    );
+    // 老数据 event_at 兜底 = 创建时间，保证按 event_at 排序时旧行也有值。
+    // 历史遗留：早期 (synchronize=true) 生成的表列名是 "createdAt"（camelCase），
+    // 后来的 migration 用 "created_at"（snake_case）。同一个 codebase 会遇到两种。
+    // 用 information_schema 探测再动态回填，两种命名都兼容。
+    await queryRunner.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'operation_logs'
+            AND column_name = 'created_at'
+        ) THEN
+          UPDATE "operation_logs" SET "event_at" = "created_at" WHERE "event_at" IS NULL;
+        ELSIF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'operation_logs'
+            AND column_name = 'createdAt'
+        ) THEN
+          UPDATE "operation_logs" SET "event_at" = "createdAt" WHERE "event_at" IS NULL;
+        END IF;
+      END $$;
+    `);
 
     // FK 都设 SET NULL：仓/库位/运单实体被删时，日志不阻塞
     await queryRunner.query(

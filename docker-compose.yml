@@ -10,6 +10,22 @@ services:
     volumes:
       - tms_postgres_data:/var/lib/postgresql/data
 
+  postgres-timescale:
+    profiles:
+      - timescale
+    # Optional local DB for validating TimescaleDB hypertables.
+    # Use a separate volume; do not reuse the PostGIS image data directory.
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_USER: tms
+      POSTGRES_PASSWORD: tms
+      POSTGRES_DB: tms
+      PGDATA: /home/postgres/pgdata/data
+    ports:
+      - "5443:5432"
+    volumes:
+      - tms_timescale_data:/home/postgres/pgdata
+
   redis:
     image: redis:7-alpine
     ports:
@@ -29,4 +45,5 @@ services:
 
 volumes:
   tms_postgres_data:
+  tms_timescale_data:
   tms_minio_data:

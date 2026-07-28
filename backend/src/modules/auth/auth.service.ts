@@ -340,6 +340,9 @@ export class AuthService {
     customerId: string | null;
   }) {
     const account = await this.usersService.findById(user.userId);
+    if (!account || !account.isActive) {
+      throw new UnauthorizedException('账号不存在或已停用');
+    }
     let accountUnit: AccountUnit | null = null;
 
     if (!user.preAuth && user.activeOrgId) {

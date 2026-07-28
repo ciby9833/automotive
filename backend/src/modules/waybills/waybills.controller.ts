@@ -51,6 +51,7 @@ export class WaybillsController {
     Role.HQ_ADMIN,
     Role.ORG_ADMIN,
     Role.YARD_STAFF,
+    Role.CARRIER_DRIVER,
     Role.CARRIER_STAFF,
     Role.CUSTOMER,
   )
@@ -119,11 +120,22 @@ export class WaybillsController {
   scan(@Body() dto: ScanDto, @CurrentUser() user: AuthenticatedUser) {
     const operatorYardId =
       user.role === Role.YARD_STAFF ? user.scopeYardId : null;
-    return this.waybillsService.scan(dto, user.userId, operatorYardId);
+    return this.waybillsService.scan(dto, {
+      userId: user.userId,
+      role: user.role,
+      carrierId: user.carrierId,
+      operatorYardId,
+    });
   }
 
   // 单台 VIN 装车 (逐台扫码+拍照，不改运单状态)
-  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Roles(
+    Role.HQ_ADMIN,
+    Role.ORG_ADMIN,
+    Role.YARD_STAFF,
+    Role.CARRIER_DRIVER,
+    Role.CARRIER_STAFF,
+  )
   @Post(':id/vins/:vin/load')
   async loadVin(
     @Param('id', ParseUUIDPipe) id: string,
@@ -135,11 +147,12 @@ export class WaybillsController {
       userId: user.userId,
       role: user.role,
       scopeYardId: user.scopeYardId,
+      carrierId: user.carrierId,
     });
   }
 
   // 撤销单台 VIN 装车 (扫错车/换车位时用)
-  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF, Role.CARRIER_STAFF)
   @Delete(':id/vins/:vin/load')
   async unloadVin(
     @Param('id', ParseUUIDPipe) id: string,
@@ -150,11 +163,18 @@ export class WaybillsController {
       userId: user.userId,
       role: user.role,
       scopeYardId: user.scopeYardId,
+      carrierId: user.carrierId,
     });
   }
 
   // 整单启运出闸：全部装完后一次性触发状态翻转 + slot 释放
-  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Roles(
+    Role.HQ_ADMIN,
+    Role.ORG_ADMIN,
+    Role.YARD_STAFF,
+    Role.CARRIER_DRIVER,
+    Role.CARRIER_STAFF,
+  )
   @Post(':id/depart')
   async depart(
     @Param('id', ParseUUIDPipe) id: string,
@@ -165,6 +185,7 @@ export class WaybillsController {
       userId: user.userId,
       role: user.role,
       scopeYardId: user.scopeYardId,
+      carrierId: user.carrierId,
     });
   }
 

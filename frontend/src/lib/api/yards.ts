@@ -41,6 +41,7 @@ export interface YardSlot {
   currentVin: string | null;
   assignedAt: string | null;
   isLocked: boolean;
+  lockedAt: string | null;
 }
 
 export interface YardStats {

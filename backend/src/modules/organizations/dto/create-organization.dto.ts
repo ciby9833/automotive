@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
 } from 'class-validator';
 import { Currency } from '../../../common/enums/currency.enum';
 
@@ -28,4 +29,13 @@ export class CreateOrganizationDto {
   @IsOptional()
   @IsUUID()
   parentId?: string;
+
+  // 新机构必须显式声明运营日历，禁止按国家代码或服务器时区猜测。
+  @ApiProperty({ example: 'Asia/Jakarta' })
+  @IsString()
+  timezone: string;
+
+  @ApiProperty({ example: '02:00:00' })
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/)
+  businessDayCutoff: string;
 }

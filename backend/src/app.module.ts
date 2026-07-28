@@ -20,6 +20,7 @@ import { QueueModule } from './modules/queue/queue.module';
 import { InvitationsModule } from './modules/invitations/invitations.module';
 import { InboundModule } from './modules/inbound/inbound.module';
 import { ScopeModule } from './common/scope/scope.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { ScopeModule } from './common/scope/scope.module';
     InvitationsModule,
     InboundModule,
     OutboundModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

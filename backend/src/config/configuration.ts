@@ -46,4 +46,8 @@ export default () => ({
   },
   // 找回密码等邮件里拼重置链接用，需配置成前端实际访问地址
   frontendUrl: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+  snapshot: {
+    // 仅控制“检查是否到达机构日切时间”的频率；真实日切由机构策略表决定。
+    schedulerCron: process.env.SNAPSHOT_SCHEDULER_CRON ?? '0 * * * * *',
+  },
 });

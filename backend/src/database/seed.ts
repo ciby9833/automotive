@@ -12,6 +12,7 @@ import { UserOrganizationMembership } from '../modules/users/entities/user-organ
 import { Yard } from '../modules/yards/entities/yard.entity';
 import { Carrier } from '../modules/carriers/entities/carrier.entity';
 import { Customer } from '../modules/customers/entities/customer.entity';
+import { OrganizationOperatingPolicy } from '../modules/organizations/entities/organization-operating-policy.entity';
 
 // 本地/演示环境初始化数据：
 //   HQ 作为 organizations 根节点(code='HQ', parentId=null)
@@ -33,6 +34,9 @@ async function seed() {
   const yardRepo = dataSource.getRepository(Yard);
   const carrierRepo = dataSource.getRepository(Carrier);
   const customerRepo = dataSource.getRepository(Customer);
+  const operatingPolicyRepo = dataSource.getRepository(
+    OrganizationOperatingPolicy,
+  );
 
   // 1. HQ 根节点
   let hq = await organizationsService.findRoot();
@@ -72,6 +76,40 @@ async function seed() {
     throw new Error('国家节点未初始化成功');
   }
   console.log('ensured 5 country organizations under HQ');
+
+  const timezoneByCode: Record<string, string> = {
+    HQ: 'UTC',
+    ID: 'Asia/Jakarta',
+    MY: 'Asia/Kuala_Lumpur',
+    TH: 'Asia/Bangkok',
+    VN: 'Asia/Ho_Chi_Minh',
+    PH: 'Asia/Manila',
+  };
+  const allOrganizations = await organizationsService.findAllUnscoped();
+  for (const organization of allOrganizations) {
+    const existingPolicy = await operatingPolicyRepo.findOne({
+      where: { organizationId: organization.id },
+    });
+    if (!existingPolicy) {
+      const now = new Date();
+      await operatingPolicyRepo.save(
+        operatingPolicyRepo.create({
+          organizationId: organization.id,
+          timezone: timezoneByCode[organization.code] ?? 'UTC',
+          businessDayCutoff: '02:00:00',
+          snapshotEnabled: true,
+          snapshotStartedAt: now,
+          longStayDays: 7,
+          lockTimeoutHours: 24,
+          utilizationWarningPercent: 80,
+          utilizationCriticalPercent: 90,
+          expectedArrivalWarningHours: 24,
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+    }
+  }
 
   // 3. 内部账号 + memberships
   //    - admin: HQ_ADMIN, 挂 HQ 节点

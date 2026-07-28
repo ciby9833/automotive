@@ -71,8 +71,6 @@
     <string name="pickup_location_hint">Pelabuhan / pabrik</string>
     <string name="pickup_remark">Catatan</string>
     <string name="pickup_remark_optional">Catatan opsional</string>
-    <string name="pickup_photo_keys">Key foto</string>
-    <string name="pickup_photo_keys_hint">Pisahkan dengan koma</string>
     <string name="pickup_can_pickup">Siap</string>
     <string name="pickup_cannot_pickup">Ditolak</string>
     <string name="pickup_success">Pickup selesai</string>

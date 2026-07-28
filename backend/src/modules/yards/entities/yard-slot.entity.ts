@@ -44,4 +44,8 @@ export class YardSlot extends BaseEntity {
   // 是否被业务锁定(如客户扣留、司法查封)；日常运营看板可显示，避免误操作
   @Column({ default: false })
   isLocked: boolean;
+
+  // 锁定起点必须独立记录，不能用 updatedAt 推算（移位/维护会改变 updatedAt）。
+  @Column({ name: 'locked_at', type: 'timestamptz', nullable: true })
+  lockedAt: Date | null;
 }

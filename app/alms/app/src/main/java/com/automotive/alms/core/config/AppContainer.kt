@@ -7,7 +7,10 @@ import com.automotive.alms.core.network.ApiClient
 import com.automotive.alms.core.network.AuthInterceptor
 import com.automotive.alms.core.permission.PermissionManager
 import com.automotive.alms.feature.auth.data.AuthRepository
+import com.automotive.alms.feature.inbound.data.InboundRepository
 import com.automotive.alms.feature.pickup.data.PickupRepository
+import com.automotive.alms.feature.tracking.data.TrackingRepository
+import com.automotive.alms.feature.waybill.data.WaybillRepository
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -41,8 +44,12 @@ class AppContainer(context: Context) {
         baseUrl = BuildConfig.API_BASE_URL,
         httpClient = httpClient,
         json = json,
+        onUnauthorized = { sessionStore.clear() },
     )
 
     val authRepository = AuthRepository(apiClient, sessionStore)
     val pickupRepository = PickupRepository(apiClient)
+    val inboundRepository = InboundRepository(apiClient)
+    val waybillRepository = WaybillRepository(apiClient)
+    val trackingRepository = TrackingRepository(apiClient)
 }

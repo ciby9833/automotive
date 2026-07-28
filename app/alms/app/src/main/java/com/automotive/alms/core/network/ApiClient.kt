@@ -15,6 +15,7 @@ class ApiClient(
     @PublishedApi internal val baseUrl: String,
     @PublishedApi internal val httpClient: OkHttpClient,
     @PublishedApi internal val json: Json,
+    @PublishedApi internal val onUnauthorized: () -> Unit = {},
 ) {
     @PublishedApi
     internal val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -69,6 +70,9 @@ class ApiClient(
         httpClient.newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
+                if (response.code == 401) {
+                    onUnauthorized()
+                }
                 throw parseError(response.code, raw)
             }
             val envelope = json.decodeFromString<ApiEnvelope<T>>(raw)

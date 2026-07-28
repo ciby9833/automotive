@@ -1,7 +1,18 @@
-import { Controller, Get, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
 import { TrackingService } from './tracking.service';
+import { DriverPositionBatchDto } from './dto/driver-position-batch.dto';
 
 // 车架号 / 订单全生命周期轨迹跟踪
 @ApiTags('tracking')
@@ -26,5 +37,13 @@ export class TrackingController {
   @Get('timeline/order/:orderId')
   timelineByOrder(@Param('orderId', ParseUUIDPipe) orderId: string) {
     return this.trackingService.timelineByOrderId(orderId);
+  }
+
+  @Post('positions/batch')
+  saveDriverPositions(
+    @Body() dto: DriverPositionBatchDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.trackingService.saveDriverPositionBatch(dto, user);
   }
 }

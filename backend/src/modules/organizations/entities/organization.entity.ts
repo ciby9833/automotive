@@ -1,6 +1,14 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToOne,
+} from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Currency } from '../../../common/enums/currency.enum';
+import { OrganizationOperatingPolicy } from './organization-operating-policy.entity';
 
 // 总部/大区/国家统一为 Organization 树节点：HQ 作为根(parentId=null, code='HQ')，
 // 国家/大区作为子节点(parentId=HQ.id)。权限子孙查询走 recursive CTE，
@@ -29,4 +37,7 @@ export class Organization extends BaseEntity {
 
   @Column({ default: true })
   isActive: boolean;
+
+  @OneToOne(() => OrganizationOperatingPolicy, (policy) => policy.organization)
+  operatingPolicy: OrganizationOperatingPolicy;
 }

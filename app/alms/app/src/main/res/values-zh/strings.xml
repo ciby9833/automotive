@@ -71,8 +71,6 @@
     <string name="pickup_location_hint">港口 / 工厂</string>
     <string name="pickup_remark">备注</string>
     <string name="pickup_remark_optional">备注（可选）</string>
-    <string name="pickup_photo_keys">照片 Key</string>
-    <string name="pickup_photo_keys_hint">多个对象 Key 用逗号分隔</string>
     <string name="pickup_can_pickup">可提货</string>
     <string name="pickup_cannot_pickup">不可提货</string>
     <string name="pickup_success">提货完成</string>

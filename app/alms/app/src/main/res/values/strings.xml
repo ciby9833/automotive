@@ -71,8 +71,6 @@
     <string name="pickup_location_hint">Port / factory</string>
     <string name="pickup_remark">Remark</string>
     <string name="pickup_remark_optional">Remark optional</string>
-    <string name="pickup_photo_keys">Photo keys</string>
-    <string name="pickup_photo_keys_hint">Comma separated object keys</string>
     <string name="pickup_can_pickup">Ready</string>
     <string name="pickup_cannot_pickup">Blocked</string>
     <string name="pickup_success">Pickup completed</string>

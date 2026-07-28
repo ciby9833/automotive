@@ -55,6 +55,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,6 +86,7 @@ import com.automotive.alms.feature.pickup.model.PickupOrderScanRequest
 import com.automotive.alms.feature.pickup.model.PickupOrderScanResult
 import com.automotive.alms.feature.pickup.model.PickupOrderSummary
 import com.automotive.alms.feature.pickup.model.PickupVin
+import com.automotive.alms.feature.tracking.service.DriverLocationService
 import java.io.File
 import java.io.ByteArrayOutputStream
 import java.time.LocalDateTime
@@ -210,6 +212,18 @@ fun PickupScanScreen(
         ensureGpsRefresh(force = true)
     }
 
+    DisposableEffect(detail?.order?.id) {
+        val orderId = detail?.order?.id
+        if (orderId != null) {
+            DriverLocationService.start(context, waybillId = null, orderId = orderId)
+        }
+        onDispose {
+            if (orderId != null) {
+                DriverLocationService.stop(context)
+            }
+        }
+    }
+
     // 页面每次进入 RESUMED (前后台切回 / 从详情页返回) 自动刷新任务池，
     // 解决"App 一直开着看不到新分派的订单"痛点。
     // 只在列表视图 (selectedOrderId==null) 时触发，避免用户在扫码流程中被打断。
@@ -281,7 +295,7 @@ fun PickupScanScreen(
                 operatorName = loginResult.operatorName(),
                 accountUnitName = loginResult.accountUnitName(),
                 onSubmitScan = { vin, location, remark, photos ->
-                    val orderId = selectedOrderId ?: error("Missing order")
+                    val orderId = selectedOrderId ?: kotlin.error("Missing order")
                     repository.scanOrder(
                         orderId = orderId,
                         request = PickupOrderScanRequest(
@@ -615,7 +629,7 @@ private fun PickupEvidenceContent(
         error = null
         scope.launch {
             runCatching {
-                val watermark = pendingWatermark ?: error(gpsRequired)
+                val watermark = pendingWatermark ?: kotlin.error(gpsRequired)
                 val bytes = context.readWatermarkedJpeg(capturedUri, watermark)
                 EvidencePhoto(
                     uploadedFile = onUploadPhoto(bytes),
@@ -987,7 +1001,7 @@ private suspend fun Context.readWatermarkedJpeg(
 ): ByteArray = withContext(Dispatchers.IO) {
     val bitmap = contentResolver.openInputStream(uri)?.use { input ->
         BitmapFactory.decodeStream(input)
-    } ?: error("Photo file is empty")
+    } ?: kotlin.error("Photo file is empty")
     bitmap.withWatermark(watermark).toJpegBytes()
 }
 

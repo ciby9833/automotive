@@ -1,10 +1,14 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WaybillStatusLog } from './entities/waybill-status-log.entity';
 import { OperationLog } from './entities/operation-log.entity';
+import { DriverPosition } from './entities/driver-position.entity';
+import { DriverPositionBatchDto } from './dto/driver-position-batch.dto';
 import { OperationType } from '../../common/enums/operation-type.enum';
 import { ScanAction } from '../../common/enums/waybill-status.enum';
+import { Role } from '../../common/enums/role.enum';
+import type { AuthenticatedUser } from '../auth/auth.types';
 
 // 归一化后的时间线节点：前端不需知道来源是哪张表。
 // occurredAt 是权威事件时间（operation.event_at ?? created_at；scan 走 created_at）；
@@ -34,7 +38,42 @@ export class TrackingService {
     private readonly logsRepository: Repository<WaybillStatusLog>,
     @InjectRepository(OperationLog)
     private readonly opLogsRepository: Repository<OperationLog>,
+    @InjectRepository(DriverPosition)
+    private readonly driverPositionsRepository: Repository<DriverPosition>,
   ) {}
+
+  async saveDriverPositionBatch(
+    dto: DriverPositionBatchDto,
+    user: AuthenticatedUser,
+  ): Promise<{ accepted: number }> {
+    if (user.role !== Role.CARRIER_DRIVER && user.role !== Role.CARRIER_STAFF) {
+      throw new ForbiddenException('仅承运商账号可上报位置');
+    }
+    if (!user.carrierId) {
+      throw new ForbiddenException('账号未绑定承运商');
+    }
+
+    const rows = dto.positions.map((p) =>
+      this.driverPositionsRepository.create({
+        capturedAt: new Date(p.capturedAt),
+        driverUserId: user.userId,
+        carrierId: user.carrierId,
+        waybillId: p.waybillId ?? null,
+        orderId: p.orderId ?? null,
+        vin: p.vin ?? null,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        accuracy: p.accuracy ?? null,
+        speed: p.speed ?? null,
+        heading: p.heading ?? null,
+        batteryLevel: p.batteryLevel ?? null,
+        isCharging: p.isCharging ?? null,
+        source: p.source ?? 'app',
+      }),
+    );
+    await this.driverPositionsRepository.save(rows, { chunk: 200 });
+    return { accepted: rows.length };
+  }
 
   // 事务外调用，失败不阻塞业务：DB 层面的问题（enum 缺值 / 权限 / 网络抖动）
   // 都不应该让"装车成功了但接口 500"的故事重演。返回 null 表明记录失败但业务已成。

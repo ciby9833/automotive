@@ -1,4 +1,13 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -9,6 +18,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { OrganizationsService } from './organizations.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
+import { UpdateOperatingPolicyDto } from './dto/update-operating-policy.dto';
 
 @ApiTags('organizations')
 @ApiBearerAuth()
@@ -35,5 +45,16 @@ export class OrganizationsController {
   async findAll(@CurrentUser() user: AuthenticatedUser) {
     const scope = await this.scopeService.resolve(user);
     return this.organizationsService.findAll(scope);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Patch(':id/operating-policy')
+  async updateOperatingPolicy(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOperatingPolicyDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.organizationsService.updateOperatingPolicy(id, dto, scope);
   }
 }

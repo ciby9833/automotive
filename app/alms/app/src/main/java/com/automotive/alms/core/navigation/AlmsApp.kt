@@ -1,6 +1,7 @@
 package com.automotive.alms.core.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.navigation.compose.NavHost
@@ -8,6 +9,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.automotive.alms.core.config.AppContainer
 import com.automotive.alms.core.model.LoginMode
+import com.automotive.alms.core.network.ApiException
+import kotlinx.coroutines.launch
 import com.automotive.alms.feature.auth.presentation.LoginScreen
 import com.automotive.alms.feature.auth.presentation.OrgSelectScreen
 import com.automotive.alms.feature.home.presentation.HomeScreen
@@ -26,6 +29,23 @@ fun AlmsApp(container: AppContainer) {
         session.loginResult?.mode == LoginMode.NEEDS_SELECTION -> AppRoute.OrgSelect
         session.isAuthenticated -> AppRoute.Home
         else -> AppRoute.Login
+    }
+
+    LaunchedEffect(session.isAuthenticated, session.loginResult?.mode) {
+        if (!session.isAuthenticated) {
+            navController.navigate(AppRoute.Login.path) {
+                popUpTo(0) { inclusive = true }
+            }
+        } else {
+            launch {
+                runCatching { container.authRepository.me() }
+                    .onFailure {
+                        if ((it as? ApiException)?.statusCode == 401) {
+                            container.sessionStore.clear()
+                        }
+                    }
+            }
+        }
     }
 
     NavHost(
@@ -71,14 +91,24 @@ fun AlmsApp(container: AppContainer) {
                 },
             )
         }
-        composable(AppRoute.InboundScan.path) { InboundScanScreen() }
+        composable(AppRoute.InboundScan.path) {
+            InboundScanScreen(
+                repository = container.inboundRepository,
+                loginResult = session.loginResult,
+            )
+        }
         composable(AppRoute.PickupScan.path) {
             PickupScanScreen(
                 repository = container.pickupRepository,
                 loginResult = session.loginResult,
             )
         }
-        composable(AppRoute.WaybillList.path) { WaybillListScreen() }
+        composable(AppRoute.WaybillList.path) {
+            WaybillListScreen(
+                repository = container.waybillRepository,
+                loginResult = session.loginResult,
+            )
+        }
         composable(AppRoute.YardInventory.path) { YardInventoryScreen() }
         composable(AppRoute.OutboundOrders.path) { OutboundOrdersScreen() }
     }

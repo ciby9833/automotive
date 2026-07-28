@@ -6,7 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
+import {
+  DEFAULT_PAGE_SIZE,
+  EXPORT_MAX_ROWS,
+  PaginatedResult,
+} from '../../common/dto/paginated.dto';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { Yard } from './entities/yard.entity';
 import { YardSlot, YardSlotStatus } from './entities/yard-slot.entity';
@@ -331,14 +336,19 @@ export class YardsService {
       slotCode?: string;
       orderCode?: string;
       minStayDays?: number;
-      // 按 slot.assigned_at 时间范围过滤；前端默认传当月区间
       dateFrom?: string;
       dateTo?: string;
+      page?: number;
+      pageSize?: number;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      all?: boolean;
     },
-  ): Promise<VinInventoryRow[]> {
+  ): Promise<PaginatedResult<VinInventoryRow>> {
+    const page = filters.page ?? 1;
+    const pageSize = filters.pageSize ?? DEFAULT_PAGE_SIZE;
     if (scope.type !== 'ORG') {
-      // CARRIER / CUSTOMER 的 VIN 库存 P0 阶段暂不支持——他们的口径不同
-      return [];
+      return { items: [], total: 0, page, pageSize };
     }
     // 机构过滤：显式传时校验必须在 scope 内（前端 OrgFilter 也做了限制，双保险）
     let orgIds = scope.orgIds;
@@ -348,13 +358,80 @@ export class YardsService {
       }
       orgIds = [filters.organizationId];
     }
+    // 排序白名单；stayDays 不是列，用 assigned_at 反向映射（stayDays DESC = assigned_at ASC）
+    const sortKey = filters.sortBy ?? 'assignedAt';
+    const rawOrder: 'ASC' | 'DESC' = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
+    const { sortColumn, sortOrder } = ((): {
+      sortColumn: string;
+      sortOrder: 'ASC' | 'DESC';
+    } => {
+      if (sortKey === 'stayDays') {
+        // stayDays 越大表示 assigned_at 越早
+        return {
+          sortColumn: 'slot.assigned_at',
+          sortOrder: rawOrder === 'DESC' ? 'ASC' : 'DESC',
+        };
+      }
+      if (sortKey === 'slotCode') return { sortColumn: 'slot.code', sortOrder: rawOrder };
+      if (sortKey === 'yardName') return { sortColumn: 'yard.name', sortOrder: rawOrder };
+      return { sortColumn: 'slot.assigned_at', sortOrder: rawOrder };
+    })();
+
+    // 基础 qb：只应用过滤，供 count / 取数据两次使用
+    const applyFilters = (qb: SelectQueryBuilder<YardSlot>) => {
+      qb.where('slot.status = :status', { status: YardSlotStatus.OCCUPIED })
+        .andWhere('yard.organization_id IN (:...orgIds)', { orgIds });
+      if (filters.vin) {
+        qb.andWhere('slot.currentVin ILIKE :vin', { vin: `%${filters.vin}%` });
+      }
+      if (filters.yardId) {
+        qb.andWhere('yard.id = :yardId', { yardId: filters.yardId });
+      }
+      if (filters.slotCode) {
+        qb.andWhere('slot.code ILIKE :slotCode', { slotCode: `%${filters.slotCode}%` });
+      }
+      if (filters.orderCode) {
+        qb.andWhere('ord."orderCode" ILIKE :orderCode', { orderCode: `%${filters.orderCode}%` });
+      }
+      if (filters.dateFrom) {
+        qb.andWhere('slot.assigned_at >= :dateFrom', { dateFrom: filters.dateFrom });
+      }
+      if (filters.dateTo) {
+        qb.andWhere('slot.assigned_at <= :dateTo', { dateTo: filters.dateTo });
+      }
+      // minStayDays 下推到 SQL: stayDays >= N ⇒ assigned_at <= NOW() - N days
+      if (filters.minStayDays && filters.minStayDays > 0) {
+        qb.andWhere(
+          `slot.assigned_at <= NOW() - INTERVAL '${Math.floor(filters.minStayDays)} day'`,
+        );
+      }
+      if (scope.role === Role.YARD_STAFF && scope.scopeYardId) {
+        qb.andWhere('yard.id = :yardStaffYardId', {
+          yardStaffYardId: scope.scopeYardId,
+        });
+      }
+    };
+
+    // 计总：单独构建一个 count qb，避免 raw select 干扰 COUNT
+    const countQb = this.slotsRepository
+      .createQueryBuilder('slot')
+      .innerJoin('slot.yard', 'yard')
+      .leftJoin('order_vins', 'ov', 'ov.vin = slot.currentVin')
+      .leftJoin('orders', 'ord', 'ord.id = ov.order_id');
+    applyFilters(countQb);
+    const total = await countQb.getCount();
+    if (filters.all && total > EXPORT_MAX_ROWS) {
+      throw new ForbiddenException(
+        `导出结果 ${total} 条超过上限 ${EXPORT_MAX_ROWS}，请缩短时间范围或加过滤条件`,
+      );
+    }
+
+    // 取数据
     const qb = this.slotsRepository
       .createQueryBuilder('slot')
       .innerJoin('slot.yard', 'yard')
       .leftJoin('order_vins', 'ov', 'ov.vin = slot.currentVin')
       .leftJoin('orders', 'ord', 'ord.id = ov.order_id')
-      .where('slot.status = :status', { status: YardSlotStatus.OCCUPIED })
-      .andWhere('yard.organization_id IN (:...orgIds)', { orgIds })
       .select([
         'slot.id AS "slotId"',
         'slot.code AS "slotCode"',
@@ -369,35 +446,11 @@ export class YardsService {
         'ov."vehicleType" AS "vehicleType"',
         'ord."orderCode" AS "orderCode"',
       ])
-      .orderBy('slot.assigned_at', 'DESC', 'NULLS LAST');
-    if (filters.vin) {
-      qb.andWhere('slot.currentVin ILIKE :vin', { vin: `%${filters.vin}%` });
-    }
-    if (filters.yardId) {
-      qb.andWhere('yard.id = :yardId', { yardId: filters.yardId });
-    }
-    if (filters.slotCode) {
-      qb.andWhere('slot.code ILIKE :slotCode', {
-        slotCode: `%${filters.slotCode}%`,
-      });
-    }
-    if (filters.orderCode) {
-      qb.andWhere('ord."orderCode" ILIKE :orderCode', {
-        orderCode: `%${filters.orderCode}%`,
-      });
-    }
-    if (filters.dateFrom) {
-      qb.andWhere('slot.assigned_at >= :dateFrom', {
-        dateFrom: filters.dateFrom,
-      });
-    }
-    if (filters.dateTo) {
-      qb.andWhere('slot.assigned_at <= :dateTo', { dateTo: filters.dateTo });
-    }
-    if (scope.role === Role.YARD_STAFF && scope.scopeYardId) {
-      qb.andWhere('yard.id = :yardStaffYardId', {
-        yardStaffYardId: scope.scopeYardId,
-      });
+      .orderBy(sortColumn, sortOrder, 'NULLS LAST')
+      .addOrderBy('slot.id', 'DESC');
+    applyFilters(qb);
+    if (!filters.all) {
+      qb.offset((page - 1) * pageSize).limit(pageSize);
     }
     const rows = await qb.getRawMany<{
       slotId: string;
@@ -415,12 +468,11 @@ export class YardsService {
     }>();
 
     const now = Date.now();
-    return rows
+    const items = rows
       .map((r) => {
         const stayDays = r.assignedAt
           ? Math.floor((now - new Date(r.assignedAt).getTime()) / 86400000)
           : 0;
-        if (filters.minStayDays && stayDays < filters.minStayDays) return null;
         return {
           vin: r.vin,
           yardId: r.yardId,
@@ -436,8 +488,8 @@ export class YardsService {
           vehicleType: r.vehicleType,
           orderCode: r.orderCode,
         } satisfies VinInventoryRow;
-      })
-      .filter((r): r is VinInventoryRow => r !== null);
+      });
+    return { items, total, page, pageSize };
   }
 
   findByIdUnscoped(id: string): Promise<Yard | null> {

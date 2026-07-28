@@ -28,6 +28,11 @@ import { OperationType } from '../../common/enums/operation-type.enum';
 import { OrderStatus } from '../../common/enums/order-status.enum';
 import { ImportOutboundOrderDto } from './dto/import-outbound-order.dto';
 import { PlanWaybillDto } from './dto/plan-waybill.dto';
+import {
+  DEFAULT_PAGE_SIZE,
+  EXPORT_MAX_ROWS,
+  resolveSortColumn,
+} from '../../common/dto/paginated.dto';
 
 // 出库业务：客户 Excel 导入 → 出库订单 → 开单 (planWaybill) → 运单
 // 与 inbound 对称：一份 Excel = 一张 Order(DELIVERY) + N 条 OrderVin (预填经销店/拖车类型/分组)
@@ -281,8 +286,27 @@ export class OutboundService {
       customerOrderNo?: string;
       organizationId?: string;
       status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
+      page?: number;
+      pageSize?: number;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      all?: boolean;
     },
   ) {
+    const page = filters.page ?? 1;
+    const pageSize = filters.pageSize ?? DEFAULT_PAGE_SIZE;
+    const sortColumn = resolveSortColumn(
+      filters.sortBy,
+      {
+        orderCode: 'order.orderCode',
+        customerOrderNo: 'order.customerOrderNo',
+        createdAt: 'order.createdAt',
+      },
+      'order.createdAt',
+    );
+    const sortOrder: 'ASC' | 'DESC' =
+      filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
+
     const qb = this.ordersRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.customer', 'customer')
@@ -290,7 +314,8 @@ export class OutboundService {
       .leftJoinAndSelect('order.organization', 'organization')
       .leftJoinAndSelect('order.cancelledByUser', 'cancelledByUser')
       .where('order.transportType = :type', { type: TransportType.DELIVERY })
-      .orderBy('order.createdAt', 'DESC');
+      .orderBy(sortColumn, sortOrder)
+      .addOrderBy('order.id', 'DESC');
     this.scopeService.applyScopeToQuery(qb, 'order', scope, {
       customerIdCol: 'customerId',
       narrowToOrgId: filters.organizationId,
@@ -311,8 +336,18 @@ export class OutboundService {
     } else {
       qb.andWhere('order.status = :active', { active: OrderStatus.ACTIVE });
     }
-    const orders = await qb.getMany();
-    if (orders.length === 0) return [];
+    if (filters.all) {
+      const totalOnly = await qb.getCount();
+      if (totalOnly > EXPORT_MAX_ROWS) {
+        throw new BadRequestException(
+          `导出结果 ${totalOnly} 条超过上限 ${EXPORT_MAX_ROWS}，请缩短时间范围或加过滤条件`,
+        );
+      }
+    } else {
+      qb.skip((page - 1) * pageSize).take(pageSize);
+    }
+    const [orders, total] = await qb.getManyAndCount();
+    if (orders.length === 0) return { items: [], total, page, pageSize };
 
     // 一次聚合出所有出库单的仓分布，避免 N+1
     // 未到仓的 VIN (slot 为空) 单独归到 __unarrived__，前端按 null yardId 识别
@@ -360,7 +395,7 @@ export class OutboundService {
       yardsByOrder.set(r.outbound_order_id, list);
     }
 
-    return orders.map((o) => {
+    const items = orders.map((o) => {
       const originYards = yardsByOrder.get(o.id) ?? [];
       const summary =
         originYards.length === 0
@@ -373,7 +408,7 @@ export class OutboundService {
         orderCode: o.orderCode,
         customerOrderNo: o.customerOrderNo,
         customerName: o.customer?.name ?? '-',
-        originYardName: o.destinationYard?.name ?? summary, // 兼容旧字段：单仓时展示仓名，跨仓时展示"N 个场地"
+        originYardName: o.destinationYard?.name ?? summary,
         originYardSummary: summary,
         originYards,
         organizationId: o.organizationId,
@@ -384,6 +419,7 @@ export class OutboundService {
         cancelledByUserName: o.cancelledByUser?.displayName ?? null,
       };
     });
+    return { items, total, page, pageSize };
   }
 
   async getOutboundOrderDetail(id: string, scope: EffectiveScope) {

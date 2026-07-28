@@ -1,4 +1,5 @@
 import { apiClient, unwrap } from './client';
+import type { Paginated } from './pagination';
 
 export type OrderVinArrivalStatus = 'EXPECTED' | 'ARRIVED' | 'CANCELLED';
 
@@ -107,7 +108,12 @@ export const inboundApi = {
     customerOrderNo?: string;
     organizationId?: string;
     status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
-  }) => unwrap<InboundOrderListRow[]>(apiClient.get('/inbound/orders', { params })),
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    all?: boolean;
+  }) => unwrap<Paginated<InboundOrderListRow>>(apiClient.get('/inbound/orders', { params })),
   orderDetail: (
     id: string,
     params?: { keyword?: string; status?: OrderVinArrivalStatus },

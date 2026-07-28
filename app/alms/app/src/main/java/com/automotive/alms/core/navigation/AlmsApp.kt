@@ -83,6 +83,10 @@ fun AlmsApp(container: AppContainer) {
                 sessionStore = container.sessionStore,
                 permissionManager = container.permissionManager,
                 onOpenPickup = { navController.navigate(AppRoute.PickupScan.path) },
+                onOpenInbound = { navController.navigate(AppRoute.InboundScan.path) },
+                onOpenWaybills = { navController.navigate(AppRoute.WaybillList.path) },
+                onOpenInventory = { navController.navigate(AppRoute.YardInventory.path) },
+                onOpenOutbound = { navController.navigate(AppRoute.OutboundOrders.path) },
                 onLogout = {
                     container.authRepository.logoutLocal()
                     navController.navigate(AppRoute.Login.path) {

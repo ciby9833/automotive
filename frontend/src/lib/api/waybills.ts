@@ -1,4 +1,5 @@
 import { apiClient, unwrap } from './client';
+import type { Paginated } from './pagination';
 
 export type TransportType = 'TRANSFER' | 'REALLOCATION' | 'DELIVERY';
 export type WaybillStatus = 'NOT_ARRIVED' | 'IN_TRANSIT' | 'ARRIVED';
@@ -82,7 +83,12 @@ export const waybillsApi = {
     dateFrom?: string;
     dateTo?: string;
     vin?: string;
-  }) => unwrap<Waybill[]>(apiClient.get('/waybills', { params })),
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    all?: boolean;
+  }) => unwrap<Paginated<Waybill>>(apiClient.get('/waybills', { params })),
   get: (id: string) => unwrap<Waybill>(apiClient.get(`/waybills/${id}`)),
   lookup: (vin: string) =>
     unwrap<{ vin: string; isSigned: boolean; waybill: Waybill }>(

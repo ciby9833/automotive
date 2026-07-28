@@ -48,6 +48,7 @@ android {
                 ?: "http://10.0.2.2:3001"
             buildConfigField("String", "API_BASE_URL", "\"$devUrl\"")
             buildConfigField("String", "ENV_NAME", "\"dev\"")
+            manifestPlaceholders["appLabel"] = "ALMS Dev"
             applicationIdSuffix = ".dev"
             versionNameSuffix = "-dev"
         }
@@ -58,6 +59,7 @@ android {
                 ?: "https://staging.example.com"
             buildConfigField("String", "API_BASE_URL", "\"$stagingUrl\"")
             buildConfigField("String", "ENV_NAME", "\"staging\"")
+            manifestPlaceholders["appLabel"] = "ALMS Staging"
             applicationIdSuffix = ".staging"
             versionNameSuffix = "-staging"
         }
@@ -66,6 +68,7 @@ android {
             // 生产 URL 硬编码在此，出包时不允许被 local.properties 覆盖（安全）
             buildConfigField("String", "API_BASE_URL", "\"http://8.215.32.251:8080/api\"")
             buildConfigField("String", "ENV_NAME", "\"prod\"")
+            manifestPlaceholders["appLabel"] = "ALMS"
         }
     }
 

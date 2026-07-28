@@ -73,6 +73,10 @@ fun HomeScreen(
     sessionStore: SessionStore,
     permissionManager: PermissionManager,
     onOpenPickup: () -> Unit,
+    onOpenInbound: () -> Unit,
+    onOpenWaybills: () -> Unit,
+    onOpenInventory: () -> Unit,
+    onOpenOutbound: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val session by sessionStore.state.collectAsState()
@@ -120,7 +124,16 @@ fun HomeScreen(
                     userName = user?.displayName.orEmpty(),
                     role = user?.role,
                     actions = actions,
-                    onOpenPickup = onOpenPickup,
+                    onOpenAction = { route ->
+                        when (route) {
+                            AppRoute.InboundScan -> onOpenInbound()
+                            AppRoute.PickupScan -> onOpenPickup()
+                            AppRoute.WaybillList -> onOpenWaybills()
+                            AppRoute.YardInventory -> onOpenInventory()
+                            AppRoute.OutboundOrders -> onOpenOutbound()
+                            else -> Unit
+                        }
+                    },
                 )
 
                 MainTab.Profile.key -> ProfileScreen(
@@ -141,7 +154,7 @@ private fun HomeDashboard(
     userName: String,
     role: Role?,
     actions: List<HomeAction>,
-    onOpenPickup: () -> Unit,
+    onOpenAction: (AppRoute) -> Unit,
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 156.dp),
@@ -185,12 +198,8 @@ private fun HomeDashboard(
                 subtitle = stringResource(action.subtitleRes),
                 icon = iconFor(action.route),
                 accent = accentFor(action.route),
-                enabled = action.route == AppRoute.PickupScan,
-                onClick = {
-                    if (action.route == AppRoute.PickupScan) {
-                        onOpenPickup()
-                    }
-                },
+                enabled = true,
+                onClick = { onOpenAction(action.route) },
             )
         }
     }

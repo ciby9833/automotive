@@ -64,6 +64,11 @@ export class InboundController {
     @Query('customerOrderNo') customerOrderNo?: string,
     @Query('organizationId') organizationId?: string,
     @Query('status') status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED',
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+    @Query('all') all?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.inboundService.listInboundOrders(scope, {
@@ -72,6 +77,11 @@ export class InboundController {
       customerOrderNo,
       organizationId,
       status,
+      page: page ? Math.max(1, Number(page)) : undefined,
+      pageSize: pageSize ? Math.max(1, Math.min(500, Number(pageSize))) : undefined,
+      sortBy,
+      sortOrder: sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
+      all: all === 'true' || all === '1',
     });
   }
 

@@ -198,6 +198,7 @@
     "searchCustomerWaybillCode": "Cari no SJ pelanggan",
     "searchVin": "Cari VIN",
     "exportDetail": "Ekspor detail ({n} baris)",
+    "exportDetailAll": "Ekspor detail (semua sesuai filter)",
     "exportLoadedAt": "Waktu muat",
     "exportSignStatus": "Status TTD",
     "exportSigned": "Ditandatangani",
@@ -701,7 +702,8 @@
   "common": {
     "cancel": "Batal",
     "refresh": "Muat ulang",
-    "optional": "opsional"
+    "optional": "opsional",
+    "paginationTotal": "Total {n}"
   },
   "driverPicker": {
     "driver": "Sopir",

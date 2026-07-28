@@ -30,7 +30,12 @@ import { EmailService } from '../email/email.service';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
-import { resolveSortColumn } from '../../common/dto/paginated.dto';
+import {
+  DEFAULT_PAGE_SIZE,
+  EXPORT_MAX_ROWS,
+  PaginatedResult,
+  resolveSortColumn,
+} from '../../common/dto/paginated.dto';
 
 const ACTION_RULES: Partial<
   Record<TransportType, Partial<Record<ScanAction, WaybillStatus>>>
@@ -136,7 +141,9 @@ export class WaybillsService {
       sortOrder?: 'asc' | 'desc';
       all?: boolean;
     },
-  ): Promise<Waybill[]> {
+  ): Promise<PaginatedResult<Waybill>> {
+    const page = filters?.page ?? 1;
+    const pageSize = filters?.pageSize ?? DEFAULT_PAGE_SIZE;
     // 排序白名单：只允许这些列，其他一律回落 createdAt DESC（防 SQL 注入）
     const sortColumn = resolveSortColumn(
       filters?.sortBy,
@@ -210,7 +217,21 @@ export class WaybillsService {
         { __vin: `%${filters.vin.trim()}%` },
       );
     }
-    return qb.getMany();
+    // 导出通道：all=true 跳过分页返全量；先 count 挡住超大结果避免拖垮服务
+    if (filters?.all) {
+      const total = await qb.getCount();
+      if (total > EXPORT_MAX_ROWS) {
+        throw new BadRequestException(
+          `导出结果 ${total} 条超过上限 ${EXPORT_MAX_ROWS}，请缩短时间范围或加过滤条件`,
+        );
+      }
+      const items = await qb.getMany();
+      return { items, total, page: 1, pageSize: total };
+    }
+    // 正常分页：一次 SQL 拿 items + total（getManyAndCount 会自己发 2 条 query）
+    qb.skip((page - 1) * pageSize).take(pageSize);
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total, page, pageSize };
   }
 
   async findOne(id: string, scope: EffectiveScope): Promise<Waybill> {

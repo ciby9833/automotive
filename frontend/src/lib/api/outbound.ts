@@ -1,4 +1,5 @@
 import { apiClient, unwrap } from './client';
+import type { Paginated } from './pagination';
 
 export type VehicleTowType = 'CC' | 'TOWING' | 'TANSYA';
 
@@ -118,8 +119,13 @@ export const outboundApi = {
     customerOrderNo?: string;
     organizationId?: string;
     status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    all?: boolean;
   }) =>
-    unwrap<OutboundOrderListRow[]>(
+    unwrap<Paginated<OutboundOrderListRow>>(
       apiClient.get('/outbound/orders', { params }),
     ),
 

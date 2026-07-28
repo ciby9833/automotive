@@ -47,6 +47,11 @@ function currentMonthRange(): [Dayjs, Dayjs] {
 
 export default function WaybillsPage() {
   const [waybills, setWaybills] = useState<Waybill[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState<string | undefined>();
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | undefined>();
   const [yards, setYards] = useState<Yard[]>([]);
   const [carriers, setCarriers] = useState<Carrier[]>([]);
   const [loading, setLoading] = useState(false);
@@ -75,22 +80,34 @@ export default function WaybillsPage() {
     carriersApi.list().then(setCarriers).catch(() => undefined);
   }, []);
 
+  // 汇总当前所有过滤，供 load 和 export 共用；导出走 all=true 跳过分页
+  const currentFilters = () => ({
+    organizationId: orgFilter,
+    waybillCode: waybillCode.trim() || undefined,
+    customerWaybillCode: customerWaybillCode.trim() || undefined,
+    vin: vinKeyword.trim() || undefined,
+    status,
+    originYardId,
+    destinationDealerId,
+    carrierId,
+    dateFrom: dateRange?.[0]?.toISOString(),
+    dateTo: dateRange?.[1]?.toISOString(),
+  });
+
   const load = () => {
     setLoading(true);
     waybillsApi
       .list({
-        organizationId: orgFilter,
-        waybillCode: waybillCode.trim() || undefined,
-        customerWaybillCode: customerWaybillCode.trim() || undefined,
-        vin: vinKeyword.trim() || undefined,
-        status,
-        originYardId,
-        destinationDealerId,
-        carrierId,
-        dateFrom: dateRange?.[0]?.toISOString(),
-        dateTo: dateRange?.[1]?.toISOString(),
+        ...currentFilters(),
+        page,
+        pageSize,
+        sortBy,
+        sortOrder,
       })
-      .then(setWaybills)
+      .then((res) => {
+        setWaybills(res.items);
+        setTotal(res.total);
+      })
       .catch(() => message.error(t('waybills.loadFailed')))
       .finally(() => setLoading(false));
   };
@@ -106,6 +123,25 @@ export default function WaybillsPage() {
     destinationDealerId,
     carrierId,
     dateRange,
+    page,
+    pageSize,
+    sortBy,
+    sortOrder,
+  ]);
+
+  // 过滤条件变化时回到第一页（防止 total=5 但 page=3 尴尬状态）
+  useEffect(() => {
+    setPage(1);
+  }, [
+    orgFilter,
+    status,
+    originYardId,
+    destinationDealerId,
+    carrierId,
+    dateRange,
+    waybillCode,
+    customerWaybillCode,
+    vinKeyword,
   ]);
 
   const onCancel = async (w: Waybill) => {
@@ -131,12 +167,15 @@ export default function WaybillsPage() {
     return Array.from(map.entries()).map(([id, label]) => ({ value: id, label }));
   }, [waybills]);
 
-  // 汇总导出：一单一行
-  const onExportSummary = () => {
+  // 汇总导出：走 all=true 拉当前筛选下全量（后端 100 万条硬顶），一单一行
+  const [exporting, setExporting] = useState(false);
+  const onExportSummary = async () => {
+    setExporting(true);
     try {
+      const res = await waybillsApi.list({ ...currentFilters(), all: true });
       const fname = `waybills-summary-${dayjs().format('YYYYMMDD-HHmmss')}.xlsx`;
       exportRowsToXlsx<Waybill>(
-        waybills,
+        res.items,
         [
           {
             header: t('waybills.organization'),
@@ -182,14 +221,18 @@ export default function WaybillsPage() {
         fname,
       );
     } catch (e) {
-      message.error((e as Error).message);
+      const msg = (e as { response?: { data?: { message?: string } } }).response?.data?.message;
+      message.error(msg || (e as Error).message);
+    } finally {
+      setExporting(false);
     }
   };
 
   // 明细导出：按 waybill × vin 展开，一台车一行；空 vins 的运单也保留一行
-  // 每行都带完整运单信息，方便 Excel 里按 VIN 追溯归属运单
-  const onExportDetail = () => {
+  const onExportDetail = async () => {
+    setExporting(true);
     try {
+      const res = await waybillsApi.list({ ...currentFilters(), all: true });
       type DetailRow = {
         waybill: Waybill;
         vinCode: string | null;
@@ -199,7 +242,7 @@ export default function WaybillsPage() {
         isSigned: boolean;
       };
       const flat: DetailRow[] = [];
-      for (const w of waybills) {
+      for (const w of res.items) {
         if (!w.vins || w.vins.length === 0) {
           flat.push({
             waybill: w,
@@ -278,15 +321,12 @@ export default function WaybillsPage() {
         fname,
       );
     } catch (e) {
-      message.error((e as Error).message);
+      const msg = (e as { response?: { data?: { message?: string } } }).response?.data?.message;
+      message.error(msg || (e as Error).message);
+    } finally {
+      setExporting(false);
     }
   };
-
-  // 明细行数（用于按钮标签）：一单多 VIN 会展开
-  const detailRowCount = useMemo(
-    () => waybills.reduce((n, w) => n + Math.max(w.vins?.length ?? 0, 1), 0),
-    [waybills],
-  );
 
   return (
     <div>
@@ -299,17 +339,19 @@ export default function WaybillsPage() {
           <Button
             icon={<DownloadOutlined />}
             onClick={onExportSummary}
-            disabled={waybills.length === 0}
+            loading={exporting}
+            disabled={total === 0 || exporting}
           >
-            {t('waybills.exportExcel', { n: waybills.length })}
+            {t('waybills.exportExcel', { n: total })}
           </Button>
           <Button
             type="primary"
             icon={<DownloadOutlined />}
             onClick={onExportDetail}
-            disabled={waybills.length === 0}
+            loading={exporting}
+            disabled={total === 0 || exporting}
           >
-            {t('waybills.exportDetail', { n: detailRowCount })}
+            {t('waybills.exportDetailAll')}
           </Button>
         </Space>
       </div>
@@ -394,6 +436,33 @@ export default function WaybillsPage() {
         size="small"
         loading={loading}
         dataSource={waybills}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (n) => t('common.paginationTotal', { n }),
+        }}
+        onChange={(pag, _filters, sorter) => {
+          if (pag.current && pag.current !== page) setPage(pag.current);
+          if (pag.pageSize && pag.pageSize !== pageSize) {
+            setPageSize(pag.pageSize);
+            setPage(1);
+          }
+          // 单列排序（AntD 未启用 multi-sort）
+          const s = Array.isArray(sorter) ? sorter[0] : sorter;
+          const nextSortBy =
+            s && s.order ? (s.columnKey as string | undefined) : undefined;
+          const nextSortOrder: 'asc' | 'desc' | undefined =
+            s?.order === 'ascend'
+              ? 'asc'
+              : s?.order === 'descend'
+                ? 'desc'
+                : undefined;
+          if (nextSortBy !== sortBy) setSortBy(nextSortBy);
+          if (nextSortOrder !== sortOrder) setSortOrder(nextSortOrder);
+        }}
         columns={[
           {
             title: t('waybills.organization'),
@@ -401,15 +470,25 @@ export default function WaybillsPage() {
             render: (_: unknown, r: Waybill) =>
               orgNameFromRecord(r, r.organizationId, organizations, locale),
           },
-          { title: t('waybills.waybillCode'), dataIndex: 'waybillCode', width: 200 },
+          {
+            title: t('waybills.waybillCode'),
+            dataIndex: 'waybillCode',
+            key: 'waybillCode',
+            width: 200,
+            sorter: true,
+          },
           {
             title: t('waybills.customerWaybillCode'),
             dataIndex: 'customerWaybillCode',
+            key: 'customerWaybillCode',
+            sorter: true,
             render: (v: string | null) => v ?? '-',
           },
           {
             title: t('waybills.status'),
             dataIndex: 'status',
+            key: 'status',
+            sorter: true,
             render: (v: string, r: Waybill) => (
               <Space direction="vertical" size={2}>
                 <Tag color={STATUS_COLOR[v]}>{t(`waybillStatus.${v}`)}</Tag>
@@ -471,6 +550,15 @@ export default function WaybillsPage() {
             title: t('waybills.vinCount'),
             width: 80,
             render: (_: unknown, r: Waybill) => r.vins?.length ?? 0,
+          },
+          {
+            title: t('waybills.createdAt'),
+            dataIndex: 'createdAt',
+            key: 'createdAt',
+            width: 160,
+            sorter: true,
+            defaultSortOrder: 'descend',
+            render: (v: string) => new Date(v).toLocaleString(),
           },
           {
             title: '',

@@ -198,6 +198,7 @@
     "searchCustomerWaybillCode": "Search customer waybill #",
     "searchVin": "Search VIN",
     "exportDetail": "Export detail ({n} rows)",
+    "exportDetailAll": "Export detail (all filtered)",
     "exportLoadedAt": "Loaded at",
     "exportSignStatus": "Sign status",
     "exportSigned": "Signed",
@@ -701,7 +702,8 @@
   "common": {
     "cancel": "Cancel",
     "refresh": "Refresh",
-    "optional": "optional"
+    "optional": "optional",
+    "paginationTotal": "Total {n}"
   },
   "driverPicker": {
     "driver": "Driver",

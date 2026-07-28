@@ -203,6 +203,11 @@ export class YardsController {
     @Query('minStayDays') minStayDays?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+    @Query('all') all?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.yardsService.vinInventory(scope, {
@@ -214,6 +219,11 @@ export class YardsController {
       minStayDays: minStayDays ? Number(minStayDays) : undefined,
       dateFrom,
       dateTo,
+      page: page ? Math.max(1, Number(page)) : undefined,
+      pageSize: pageSize ? Math.max(1, Math.min(500, Number(pageSize))) : undefined,
+      sortBy,
+      sortOrder: sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
+      all: all === 'true' || all === '1',
     });
   }
 }

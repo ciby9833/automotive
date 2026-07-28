@@ -28,6 +28,11 @@ export default function InboundOrdersPage() {
   const organizations = useOrganizations();
 
   const [rows, setRows] = useState<InboundOrderListRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState<string | undefined>();
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | undefined>();
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<
     'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED'
@@ -42,13 +47,21 @@ export default function InboundOrdersPage() {
         status,
         customerOrderNo: orderSearch.trim() || undefined,
         organizationId: orgFilter,
+        page,
+        pageSize,
+        sortBy,
+        sortOrder,
       })
-      .then(setRows)
+      .then((res) => {
+        setRows(res.items);
+        setTotal(res.total);
+      })
       .catch(() => message.error(t('inbound.orders.loadFailed')))
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [activeOrgId, status, orgFilter]);
+  useEffect(load, [activeOrgId, status, orgFilter, page, pageSize, sortBy, sortOrder]);
+  useEffect(() => setPage(1), [orgFilter, status, orderSearch]);
 
   const orgLabel = (id: string, fallbackName: string) => {
     const o = organizations.find((x) => x.id === id);
@@ -103,7 +116,26 @@ export default function InboundOrdersPage() {
         rowKey="id"
         loading={loading}
         dataSource={rows}
-        pagination={{ pageSize: 50 }}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (n) => t('common.paginationTotal', { n }),
+        }}
+        onChange={(pag, _f, sorter) => {
+          if (pag.current && pag.current !== page) setPage(pag.current);
+          if (pag.pageSize && pag.pageSize !== pageSize) {
+            setPageSize(pag.pageSize);
+            setPage(1);
+          }
+          const s = Array.isArray(sorter) ? sorter[0] : sorter;
+          setSortBy(s && s.order ? (s.columnKey as string) : undefined);
+          setSortOrder(
+            s?.order === 'ascend' ? 'asc' : s?.order === 'descend' ? 'desc' : undefined,
+          );
+        }}
         columns={[
           {
             title: t('inbound.orders.organization'),
@@ -113,6 +145,8 @@ export default function InboundOrdersPage() {
           {
             title: t('inbound.orders.orderCode'),
             dataIndex: 'orderCode',
+            key: 'orderCode',
+            sorter: true,
             render: (v: string, r: InboundOrderListRow) => (
               <Link href={`/inbound/orders/${r.id}`}>{v}</Link>
             ),
@@ -120,6 +154,8 @@ export default function InboundOrdersPage() {
           {
             title: t('inbound.orders.customerOrderNo'),
             dataIndex: 'customerOrderNo',
+            key: 'customerOrderNo',
+            sorter: true,
             render: (v: string | null) => v ?? '-',
           },
           {
@@ -133,15 +169,17 @@ export default function InboundOrdersPage() {
           {
             title: t('inbound.orders.expectedArrival'),
             dataIndex: 'expectedArrivalDate',
+            key: 'expectedArrivalDate',
+            sorter: true,
             render: (v: string | null) => v ?? '-',
           },
           {
             title: t('inbound.orders.importedAt'),
             dataIndex: 'createdAt',
+            key: 'createdAt',
             width: 170,
             defaultSortOrder: 'descend' as const,
-            sorter: (a: InboundOrderListRow, b: InboundOrderListRow) =>
-              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+            sorter: true,
             render: (v: string) => (v ? new Date(v).toLocaleString() : '-'),
           },
           {

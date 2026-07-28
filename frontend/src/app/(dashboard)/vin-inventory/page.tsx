@@ -30,6 +30,12 @@ const { RangePicker } = DatePicker;
 export default function VinInventoryPage() {
   const router = useRouter();
   const [rows, setRows] = useState<VinInventoryRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState<string | undefined>();
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | undefined>();
+  const [exporting, setExporting] = useState(false);
   const [yards, setYards] = useState<Yard[]>([]);
   const [loading, setLoading] = useState(false);
   const [vinFilter, setVinFilter] = useState('');
@@ -46,20 +52,29 @@ export default function VinInventoryPage() {
     yardsApi.list().then(setYards).catch(() => undefined);
   }, []);
 
+  const currentFilters = () => ({
+    vin: vinFilter.trim() || undefined,
+    organizationId: orgFilter,
+    yardId,
+    slotCode: slotCode.trim() || undefined,
+    orderCode: orderCode.trim() || undefined,
+    minStayDays: minStayDays ?? undefined,
+    dateFrom: dateRange?.[0]?.toISOString(),
+    dateTo: dateRange?.[1]?.toISOString(),
+  });
+
   const load = async () => {
     setLoading(true);
     try {
-      const list = await yardsApi.vinInventory({
-        vin: vinFilter.trim() || undefined,
-        organizationId: orgFilter,
-        yardId,
-        slotCode: slotCode.trim() || undefined,
-        orderCode: orderCode.trim() || undefined,
-        minStayDays: minStayDays ?? undefined,
-        dateFrom: dateRange?.[0]?.toISOString(),
-        dateTo: dateRange?.[1]?.toISOString(),
+      const res = await yardsApi.vinInventory({
+        ...currentFilters(),
+        page,
+        pageSize,
+        sortBy,
+        sortOrder,
       });
-      setRows(list);
+      setRows(res.items);
+      setTotal(res.total);
     } catch {
       message.error(t('vinInventory.loadFailed'));
     } finally {
@@ -70,7 +85,18 @@ export default function VinInventoryPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgId, orgFilter, yardId, minStayDays, dateRange]);
+  }, [
+    activeOrgId,
+    orgFilter,
+    yardId,
+    minStayDays,
+    dateRange,
+    page,
+    pageSize,
+    sortBy,
+    sortOrder,
+  ]);
+  useEffect(() => setPage(1), [orgFilter, yardId, minStayDays, dateRange, vinFilter, slotCode, orderCode]);
 
   const locateOnBoard = (row: VinInventoryRow) => {
     router.push(
@@ -83,11 +109,13 @@ export default function VinInventoryPage() {
     [yards],
   );
 
-  const onExport = () => {
+  const onExport = async () => {
+    setExporting(true);
     try {
+      const res = await yardsApi.vinInventory({ ...currentFilters(), all: true });
       const fname = `vin-inventory-${dayjs().format('YYYYMMDD-HHmmss')}.xlsx`;
       exportRowsToXlsx<VinInventoryRow>(
-        rows,
+        res.items,
         [
           { header: 'VIN', accessor: 'vin' },
           { header: t('vinInventory.model'), accessor: 'model' },
@@ -106,7 +134,10 @@ export default function VinInventoryPage() {
         fname,
       );
     } catch (e) {
-      message.error((e as Error).message);
+      const msg = (e as { response?: { data?: { message?: string } } }).response?.data?.message;
+      message.error(msg || (e as Error).message);
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -121,9 +152,10 @@ export default function VinInventoryPage() {
           type="primary"
           icon={<DownloadOutlined />}
           onClick={onExport}
-          disabled={rows.length === 0}
+          loading={exporting}
+          disabled={total === 0 || exporting}
         >
-          {t('vinInventory.exportExcel', { n: rows.length })}
+          {t('vinInventory.exportExcel', { n: total })}
         </Button>
       </div>
 
@@ -184,28 +216,57 @@ export default function VinInventoryPage() {
         rowKey="slotId"
         loading={loading}
         dataSource={rows}
-        pagination={{ pageSize: 50 }}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (n) => t('common.paginationTotal', { n }),
+        }}
+        onChange={(pag, _f, sorter) => {
+          if (pag.current && pag.current !== page) setPage(pag.current);
+          if (pag.pageSize && pag.pageSize !== pageSize) {
+            setPageSize(pag.pageSize);
+            setPage(1);
+          }
+          const s = Array.isArray(sorter) ? sorter[0] : sorter;
+          setSortBy(s && s.order ? (s.columnKey as string) : undefined);
+          setSortOrder(
+            s?.order === 'ascend' ? 'asc' : s?.order === 'descend' ? 'desc' : undefined,
+          );
+        }}
         columns={[
           { title: 'VIN', dataIndex: 'vin', width: 200 },
           { title: t('vinInventory.model'), dataIndex: 'model', render: (v) => v ?? '-' },
           { title: t('vinInventory.color'), dataIndex: 'color', render: (v) => v ?? '-' },
           { title: t('vinInventory.vehicleType'), dataIndex: 'vehicleType', render: (v) => v ?? '-' },
-          { title: t('vinInventory.yard'), render: (_, r) => `${r.yardName} (${r.yardCode})` },
+          {
+            title: t('vinInventory.yard'),
+            dataIndex: 'yardName',
+            key: 'yardName',
+            sorter: true,
+            render: (_: unknown, r: VinInventoryRow) => `${r.yardName} (${r.yardCode})`,
+          },
           {
             title: t('vinInventory.slot'),
             dataIndex: 'slotCode',
+            key: 'slotCode',
+            sorter: true,
             render: (v: string) => <Tag color="green">{v}</Tag>,
           },
           {
             title: t('vinInventory.stayDays'),
             dataIndex: 'stayDays',
+            key: 'stayDays',
             width: 120,
+            sorter: true,
+            defaultSortOrder: 'descend' as const,
             render: (n: number) => (
               <Tag color={n >= 30 ? 'red' : n >= 14 ? 'orange' : 'default'}>
                 {t('vinInventory.days', { n })}
               </Tag>
             ),
-            sorter: (a, b) => a.stayDays - b.stayDays,
           },
           {
             title: t('vinInventory.orderCode'),

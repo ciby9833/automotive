@@ -20,6 +20,11 @@ export default function OutboundOrdersPage() {
   const organizations = useOrganizations();
 
   const [rows, setRows] = useState<OutboundOrderListRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState<string | undefined>();
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | undefined>();
   const [loading, setLoading] = useState(false);
   const [q, setQ] = useState('');
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
@@ -34,11 +39,19 @@ export default function OutboundOrdersPage() {
         customerOrderNo: q || undefined,
         organizationId: orgFilter || undefined,
         status,
+        page,
+        pageSize,
+        sortBy,
+        sortOrder,
       })
-      .then(setRows)
+      .then((res) => {
+        setRows(res.items);
+        setTotal(res.total);
+      })
       .catch(() => message.error(t('outbound.orders.loadFailed')))
       .finally(() => setLoading(false));
-  }, [activeOrgId, orgFilter, q, status, t]);
+  }, [activeOrgId, orgFilter, q, status, page, pageSize, sortBy, sortOrder, t]);
+  useEffect(() => setPage(1), [orgFilter, q, status]);
 
   return (
     <div>
@@ -79,6 +92,26 @@ export default function OutboundOrdersPage() {
         rowKey="id"
         loading={loading}
         dataSource={rows}
+        pagination={{
+          current: page,
+          pageSize,
+          total,
+          showSizeChanger: true,
+          pageSizeOptions: ['10', '20', '50', '100'],
+          showTotal: (n) => t('common.paginationTotal', { n }),
+        }}
+        onChange={(pag, _f, sorter) => {
+          if (pag.current && pag.current !== page) setPage(pag.current);
+          if (pag.pageSize && pag.pageSize !== pageSize) {
+            setPageSize(pag.pageSize);
+            setPage(1);
+          }
+          const s = Array.isArray(sorter) ? sorter[0] : sorter;
+          setSortBy(s && s.order ? (s.columnKey as string) : undefined);
+          setSortOrder(
+            s?.order === 'ascend' ? 'asc' : s?.order === 'descend' ? 'desc' : undefined,
+          );
+        }}
         columns={[
           {
             title: t('outbound.orders.organization'),
@@ -92,6 +125,8 @@ export default function OutboundOrdersPage() {
           {
             title: t('outbound.orders.orderCode'),
             dataIndex: 'orderCode',
+            key: 'orderCode',
+            sorter: true,
             render: (v, r) => (
               <Link href={`/outbound/orders/${r.id}`}>{v}</Link>
             ),
@@ -99,6 +134,8 @@ export default function OutboundOrdersPage() {
           {
             title: t('outbound.orders.customerOrderNo'),
             dataIndex: 'customerOrderNo',
+            key: 'customerOrderNo',
+            sorter: true,
             render: (v) => v ?? '-',
           },
           { title: t('outbound.orders.customer'), dataIndex: 'customerName' },
@@ -130,6 +167,9 @@ export default function OutboundOrdersPage() {
           {
             title: t('outbound.orders.createdAt'),
             dataIndex: 'createdAt',
+            key: 'createdAt',
+            defaultSortOrder: 'descend',
+            sorter: true,
             render: (v: string) => new Date(v).toLocaleString(),
           },
           {

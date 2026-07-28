@@ -76,7 +76,8 @@ function OutboundPlanInner() {
     customersApi.list().then(setCustomers).catch(() => undefined);
     yardsApi.list().then(setYards).catch(() => undefined);
     carriersApi.list().then(setCarriers).catch(() => undefined);
-    outboundApi.listOrders().then(setOutboundOrders).catch(() => undefined);
+    // 下拉展示所有出库单：走 all=true 绕过分页
+    outboundApi.listOrders({ all: true }).then((res) => setOutboundOrders(res.items)).catch(() => undefined);
   }, []);
 
   const reload = () => {

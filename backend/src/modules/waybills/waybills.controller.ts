@@ -69,6 +69,11 @@ export class WaybillsController {
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
     @Query('vin') vin?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
+    @Query('all') all?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.waybillsService.findAll(scope, {
@@ -83,6 +88,11 @@ export class WaybillsController {
       dateFrom,
       dateTo,
       vin,
+      page: page ? Math.max(1, Number(page)) : undefined,
+      pageSize: pageSize ? Math.max(1, Math.min(500, Number(pageSize))) : undefined,
+      sortBy,
+      sortOrder: sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
+      all: all === 'true' || all === '1',
     });
   }
 

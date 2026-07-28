@@ -42,6 +42,11 @@ export default function OutboundDeparturePage() {
   );
   const [keyword, setKeyword] = useState('');
   const [rows, setRows] = useState<Waybill[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [sortBy, setSortBy] = useState<string | undefined>();
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc' | undefined>();
   const [loading, setLoading] = useState(false);
 
   // 装车抽屉
@@ -58,12 +63,23 @@ export default function OutboundDeparturePage() {
   const reload = () => {
     setLoading(true);
     waybillsApi
-      .list({ status: statusFilter, transportType: 'DELIVERY' })
-      .then(setRows)
+      .list({
+        status: statusFilter,
+        transportType: 'DELIVERY',
+        page,
+        pageSize,
+        sortBy,
+        sortOrder,
+      })
+      .then((res) => {
+        setRows(res.items);
+        setTotal(res.total);
+      })
       .catch(() => message.error(t('outbound.departure.loadFailed')))
       .finally(() => setLoading(false));
   };
-  useEffect(reload, [statusFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(reload, [statusFilter, page, pageSize, sortBy, sortOrder]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setPage(1), [statusFilter]);
 
   // 抽屉里显示的运单：从最新 rows 里拿，装车动作后 reload 会同步刷新
   useEffect(() => {
@@ -224,11 +240,33 @@ export default function OutboundDeparturePage() {
           size="small"
           loading={loading}
           dataSource={filteredRows}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: ['10', '20', '50', '100'],
+            showTotal: (n) => t('common.paginationTotal', { n }),
+          }}
+          onChange={(pag, _f, sorter) => {
+            if (pag.current && pag.current !== page) setPage(pag.current);
+            if (pag.pageSize && pag.pageSize !== pageSize) {
+              setPageSize(pag.pageSize);
+              setPage(1);
+            }
+            const s = Array.isArray(sorter) ? sorter[0] : sorter;
+            setSortBy(s && s.order ? (s.columnKey as string) : undefined);
+            setSortOrder(
+              s?.order === 'ascend' ? 'asc' : s?.order === 'descend' ? 'desc' : undefined,
+            );
+          }}
           columns={[
             {
               title: t('outbound.departure.waybillCode'),
               dataIndex: 'waybillCode',
+              key: 'waybillCode',
               width: 200,
+              sorter: true,
             },
             {
               title: t('outbound.departure.status'),
@@ -299,7 +337,6 @@ export default function OutboundDeparturePage() {
               },
             },
           ]}
-          pagination={{ pageSize: 20 }}
         />
       </Card>
 

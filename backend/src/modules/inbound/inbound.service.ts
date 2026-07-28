@@ -37,6 +37,12 @@ import { Carrier } from '../carriers/entities/carrier.entity';
 import { User } from '../users/entities/user.entity';
 import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
+import {
+  DEFAULT_PAGE_SIZE,
+  EXPORT_MAX_ROWS,
+  PaginatedResult,
+  resolveSortColumn,
+} from '../../common/dto/paginated.dto';
 
 // 极兔入库流程后端服务：Excel 导入 → 提货扫描 → 到仓入库扫描
 @Injectable()
@@ -173,9 +179,14 @@ export class InboundService {
       customerOrderNo?: string;
       organizationId?: string;
       status?: 'ALL' | 'PENDING' | 'COMPLETED' | 'CANCELLED';
+      page?: number;
+      pageSize?: number;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      all?: boolean;
     },
   ): Promise<
-    Array<{
+    PaginatedResult<{
       id: string;
       orderCode: string;
       customerOrderNo: string | null;
@@ -198,6 +209,21 @@ export class InboundService {
       pickupStatus: OrderPickupStatus;
     }>
   > {
+    const page = filters.page ?? 1;
+    const pageSize = filters.pageSize ?? DEFAULT_PAGE_SIZE;
+    const sortColumn = resolveSortColumn(
+      filters.sortBy,
+      {
+        orderCode: 'order.orderCode',
+        customerOrderNo: 'order.customerOrderNo',
+        createdAt: 'order.createdAt',
+        plannedPickupDate: 'order.plannedPickupDate',
+        expectedArrivalDate: 'order.expectedArrivalDate',
+      },
+      'order.createdAt',
+    );
+    const sortOrder: 'ASC' | 'DESC' =
+      filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
     const qb = this.ordersRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.customer', 'customer')
@@ -207,7 +233,8 @@ export class InboundService {
       .leftJoinAndSelect('order.pickupCarrier', 'pickupCarrier')
       .leftJoinAndSelect('order.pickupDriverUser', 'pickupDriverUser')
       .where('order.transportType = :type', { type: TransportType.TRANSFER })
-      .orderBy('order.createdAt', 'DESC');
+      .orderBy(sortColumn, sortOrder)
+      .addOrderBy('order.id', 'DESC');
     // 默认排除 CANCELLED；status=CANCELLED 时只查 CANCELLED
     if (filters.status === 'CANCELLED') {
       qb.andWhere('order.status = :cancelled', {
@@ -215,6 +242,18 @@ export class InboundService {
       });
     } else {
       qb.andWhere('order.status = :active', { active: OrderStatus.ACTIVE });
+    }
+    // PENDING/COMPLETED 之前是取全量后 JS 过滤，导致分页 total 失真；
+    // 下推为 EXISTS 子查询后 count/skip/take 都能吃到正确总数
+    if (filters.status === 'PENDING') {
+      qb.andWhere(
+        `((SELECT COUNT(*) FROM order_vins v WHERE v.order_id = order.id) = 0
+          OR EXISTS (SELECT 1 FROM order_vins v WHERE v.order_id = order.id AND v.arrival_status <> '${OrderVinArrivalStatus.ARRIVED}'))`,
+      );
+    } else if (filters.status === 'COMPLETED') {
+      qb.andWhere(
+        `NOT EXISTS (SELECT 1 FROM order_vins v WHERE v.order_id = order.id AND v.arrival_status <> '${OrderVinArrivalStatus.ARRIVED}')`,
+      );
     }
     this.scopeService.applyScopeToQuery(qb, 'order', scope, {
       customerIdCol: 'customerId',
@@ -233,8 +272,21 @@ export class InboundService {
         cno: `%${filters.customerOrderNo}%`,
       });
     }
-    const orders = await qb.getMany();
-    if (orders.length === 0) return [];
+    // 导出通道 vs 分页
+    if (filters.all) {
+      const total = await qb.getCount();
+      if (total > EXPORT_MAX_ROWS) {
+        throw new BadRequestException(
+          `导出结果 ${total} 条超过上限 ${EXPORT_MAX_ROWS}，请缩短时间范围或加过滤条件`,
+        );
+      }
+    } else {
+      qb.skip((page - 1) * pageSize).take(pageSize);
+    }
+    const [orders, total] = await qb.getManyAndCount();
+    if (orders.length === 0) {
+      return { items: [], total, page, pageSize };
+    }
 
     // 统计每单已到货/已提货 VIN 数
     const counts = await this.orderVinsRepo
@@ -265,35 +317,33 @@ export class InboundService {
       }]),
     );
 
-    return orders
-      .map((o) => {
-        const c = countMap.get(o.id) ?? { total: 0, arrived: 0, pickedUp: 0 };
-        if (filters.status === 'PENDING' && c.total > 0 && c.arrived === c.total) return null;
-        if (filters.status === 'COMPLETED' && c.arrived !== c.total) return null;
-        return {
-          id: o.id,
-          orderCode: o.orderCode,
-          customerOrderNo: o.customerOrderNo,
-          customerName: o.customer?.name ?? '-',
-          destinationYardName: o.destinationYard?.name ?? '-',
-          organizationId: o.organizationId,
-          organizationName: o.organization?.name ?? '-',
-          expectedArrivalDate: o.expectedArrivalDate,
-          total: c.total,
-          arrived: c.arrived,
-          pickedUp: c.pickedUp,
-          createdAt: o.createdAt,
-          status: o.status,
-          cancelledAt: o.cancelledAt,
-          cancelledByUserName: o.cancelledByUser?.displayName ?? null,
-          pickupCarrierId: o.pickupCarrierId,
-          pickupCarrierName: o.pickupCarrier?.name ?? null,
-          pickupDriverUserName: o.pickupDriverUser?.displayName ?? null,
-          plannedPickupDate: o.plannedPickupDate,
-          pickupStatus: o.pickupStatus,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+    // PENDING/COMPLETED 已下推到 SQL，这里不再做 JS 过滤，只映射字段
+    const items = orders.map((o) => {
+      const c = countMap.get(o.id) ?? { total: 0, arrived: 0, pickedUp: 0 };
+      return {
+        id: o.id,
+        orderCode: o.orderCode,
+        customerOrderNo: o.customerOrderNo,
+        customerName: o.customer?.name ?? '-',
+        destinationYardName: o.destinationYard?.name ?? '-',
+        organizationId: o.organizationId,
+        organizationName: o.organization?.name ?? '-',
+        expectedArrivalDate: o.expectedArrivalDate,
+        total: c.total,
+        arrived: c.arrived,
+        pickedUp: c.pickedUp,
+        createdAt: o.createdAt,
+        status: o.status,
+        cancelledAt: o.cancelledAt,
+        cancelledByUserName: o.cancelledByUser?.displayName ?? null,
+        pickupCarrierId: o.pickupCarrierId,
+        pickupCarrierName: o.pickupCarrier?.name ?? null,
+        pickupDriverUserName: o.pickupDriverUser?.displayName ?? null,
+        plannedPickupDate: o.plannedPickupDate,
+        pickupStatus: o.pickupStatus,
+      };
+    });
+    return { items, total, page, pageSize };
   }
 
   async getInboundOrderDetail(

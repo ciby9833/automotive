@@ -1,4 +1,5 @@
 import { apiClient, unwrap } from './client';
+import type { Paginated } from './pagination';
 import type { InboundOrderVinDetail } from './inbound';
 import type { Waybill } from './waybills';
 
@@ -110,7 +111,12 @@ export const yardsApi = {
     minStayDays?: number;
     dateFrom?: string;
     dateTo?: string;
-  }) => unwrap<VinInventoryRow[]>(apiClient.get('/yards/inventory/vin', { params })),
+    page?: number;
+    pageSize?: number;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    all?: boolean;
+  }) => unwrap<Paginated<VinInventoryRow>>(apiClient.get('/yards/inventory/vin', { params })),
   // VIN 全生命周期：orderVin + 出库运单 + 事件流水
   vinLifecycle: (vin: string) =>
     unwrap<VinLifecycle>(apiClient.get(`/yards/vin/${vin}/lifecycle`)),

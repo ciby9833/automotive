@@ -67,6 +67,7 @@ export class WaybillsController {
     @Query('destinationDealerId') destinationDealerId?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('vin') vin?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.waybillsService.findAll(scope, {
@@ -80,6 +81,7 @@ export class WaybillsController {
       destinationDealerId,
       dateFrom,
       dateTo,
+      vin,
     });
   }
 

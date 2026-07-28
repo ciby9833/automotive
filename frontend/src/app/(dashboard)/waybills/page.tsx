@@ -53,6 +53,7 @@ export default function WaybillsPage() {
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
   const [waybillCode, setWaybillCode] = useState('');
   const [customerWaybillCode, setCustomerWaybillCode] = useState('');
+  const [vinKeyword, setVinKeyword] = useState('');
   const [status, setStatus] = useState<WaybillStatus | undefined>();
   const [originYardId, setOriginYardId] = useState<string | undefined>();
   const [destinationDealerId, setDestinationDealerId] = useState<string | undefined>();
@@ -81,6 +82,7 @@ export default function WaybillsPage() {
         organizationId: orgFilter,
         waybillCode: waybillCode.trim() || undefined,
         customerWaybillCode: customerWaybillCode.trim() || undefined,
+        vin: vinKeyword.trim() || undefined,
         status,
         originYardId,
         destinationDealerId,
@@ -129,9 +131,10 @@ export default function WaybillsPage() {
     return Array.from(map.entries()).map(([id, label]) => ({ value: id, label }));
   }, [waybills]);
 
-  const onExport = () => {
+  // 汇总导出：一单一行
+  const onExportSummary = () => {
     try {
-      const fname = `waybills-${dayjs().format('YYYYMMDD-HHmmss')}.xlsx`;
+      const fname = `waybills-summary-${dayjs().format('YYYYMMDD-HHmmss')}.xlsx`;
       exportRowsToXlsx<Waybill>(
         waybills,
         [
@@ -183,6 +186,108 @@ export default function WaybillsPage() {
     }
   };
 
+  // 明细导出：按 waybill × vin 展开，一台车一行；空 vins 的运单也保留一行
+  // 每行都带完整运单信息，方便 Excel 里按 VIN 追溯归属运单
+  const onExportDetail = () => {
+    try {
+      type DetailRow = {
+        waybill: Waybill;
+        vinCode: string | null;
+        vinModel: string | null;
+        vinColor: string | null;
+        loadedAt: string | null;
+        isSigned: boolean;
+      };
+      const flat: DetailRow[] = [];
+      for (const w of waybills) {
+        if (!w.vins || w.vins.length === 0) {
+          flat.push({
+            waybill: w,
+            vinCode: null,
+            vinModel: null,
+            vinColor: null,
+            loadedAt: null,
+            isSigned: false,
+          });
+        } else {
+          for (const v of w.vins) {
+            flat.push({
+              waybill: w,
+              vinCode: v.vin,
+              vinModel: v.model,
+              vinColor: v.color,
+              loadedAt: v.loadedAt,
+              isSigned: v.isSigned,
+            });
+          }
+        }
+      }
+      const fname = `waybills-detail-${dayjs().format('YYYYMMDD-HHmmss')}.xlsx`;
+      exportRowsToXlsx<DetailRow>(
+        flat,
+        [
+          {
+            header: t('waybills.organization'),
+            accessor: (r) =>
+              orgNameFromRecord(r.waybill, r.waybill.organizationId, organizations, locale),
+          },
+          { header: t('waybills.waybillCode'), accessor: (r) => r.waybill.waybillCode },
+          { header: t('waybills.customerWaybillCode'), accessor: (r) => r.waybill.customerWaybillCode ?? '' },
+          {
+            header: t('waybills.status'),
+            accessor: (r) => t(`waybillStatus.${r.waybill.status}`),
+          },
+          { header: 'VIN', accessor: (r) => r.vinCode ?? '' },
+          { header: t('vinInventory.model'), accessor: (r) => r.vinModel ?? '' },
+          { header: t('vinInventory.color'), accessor: (r) => r.vinColor ?? '' },
+          {
+            header: t('waybills.exportLoadedAt'),
+            accessor: (r) => r.loadedAt,
+            format: formatDateTime,
+          },
+          {
+            header: t('waybills.exportSignStatus'),
+            accessor: (r) => (r.isSigned ? t('waybills.exportSigned') : ''),
+          },
+          {
+            header: t('waybills.detail.originYard'),
+            accessor: (r) => r.waybill.originYard?.name ?? r.waybill.originText ?? '',
+          },
+          {
+            header: t('waybills.detail.destinationDealer'),
+            accessor: (r) => r.waybill.destinationDealer?.dealerName ?? '',
+          },
+          {
+            header: t('waybills.detail.carrier'),
+            accessor: (r) => r.waybill.carrier?.name ?? '',
+          },
+          {
+            header: t('waybills.detail.driver'),
+            accessor: (r) => r.waybill.driver?.name ?? '',
+          },
+          {
+            header: t('waybills.detail.plateNumber'),
+            accessor: (r) => r.waybill.vehicle?.plateNumber ?? '',
+          },
+          {
+            header: t('waybills.createdAt'),
+            accessor: (r) => r.waybill.createdAt,
+            format: formatDateTime,
+          },
+        ],
+        fname,
+      );
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  };
+
+  // 明细行数（用于按钮标签）：一单多 VIN 会展开
+  const detailRowCount = useMemo(
+    () => waybills.reduce((n, w) => n + Math.max(w.vins?.length ?? 0, 1), 0),
+    [waybills],
+  );
+
   return (
     <div>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -190,14 +295,23 @@ export default function WaybillsPage() {
           <h2 style={{ margin: 0 }}>{t('waybills.title')}</h2>
           <OrgFilter value={orgFilter} onChange={setOrgFilter} />
         </Space>
-        <Button
-          type="primary"
-          icon={<DownloadOutlined />}
-          onClick={onExport}
-          disabled={waybills.length === 0}
-        >
-          {t('waybills.exportExcel', { n: waybills.length })}
-        </Button>
+        <Space>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={onExportSummary}
+            disabled={waybills.length === 0}
+          >
+            {t('waybills.exportExcel', { n: waybills.length })}
+          </Button>
+          <Button
+            type="primary"
+            icon={<DownloadOutlined />}
+            onClick={onExportDetail}
+            disabled={waybills.length === 0}
+          >
+            {t('waybills.exportDetail', { n: detailRowCount })}
+          </Button>
+        </Space>
       </div>
 
       <Space wrap style={{ marginBottom: 16 }}>
@@ -215,6 +329,14 @@ export default function WaybillsPage() {
           placeholder={t('waybills.searchCustomerWaybillCode')}
           value={customerWaybillCode}
           onChange={(e) => setCustomerWaybillCode(e.target.value)}
+          onSearch={load}
+        />
+        <Input.Search
+          allowClear
+          style={{ width: 220 }}
+          placeholder={t('waybills.searchVin')}
+          value={vinKeyword}
+          onChange={(e) => setVinKeyword(e.target.value)}
           onSearch={load}
         />
         <Select

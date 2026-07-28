@@ -129,12 +129,14 @@ export default function OutboundDeparturePage() {
       setScanMode(null);
       setScanPhotos([]);
       setScanRemark('');
-      reload();
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
       message.error(detail || t('outbound.departure.loadFailed'));
     } finally {
+      // finally 里 reload：即使接口 500 服务端也可能已经处理（历史 bug 过），
+      // 强制拉一次最新状态避免 UI 与真实状态不 sync
+      reload();
       setScanBusy(false);
     }
   };
@@ -144,11 +146,12 @@ export default function OutboundDeparturePage() {
     try {
       await waybillsApi.unloadVin(drawerWaybill.id, vin);
       message.success(t('outbound.departure.undoLoadOk'));
-      reload();
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
       message.error(detail || t('outbound.departure.undoLoadFailed'));
+    } finally {
+      reload();
     }
   };
 
@@ -162,12 +165,12 @@ export default function OutboundDeparturePage() {
       });
       message.success(t('outbound.departure.departedOk'));
       closeDrawer();
-      reload();
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
       message.error(detail || t('outbound.departure.departFailed'));
     } finally {
+      reload();
       setDepartBusy(false);
     }
   };

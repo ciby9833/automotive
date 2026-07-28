@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WaybillStatusLog } from './entities/waybill-status-log.entity';
@@ -27,6 +27,8 @@ export interface TimelineEntry {
 
 @Injectable()
 export class TrackingService {
+  private readonly logger = new Logger(TrackingService.name);
+
   constructor(
     @InjectRepository(WaybillStatusLog)
     private readonly logsRepository: Repository<WaybillStatusLog>,
@@ -34,9 +36,20 @@ export class TrackingService {
     private readonly opLogsRepository: Repository<OperationLog>,
   ) {}
 
-  async appendLog(data: Partial<WaybillStatusLog>): Promise<WaybillStatusLog> {
-    const log = this.logsRepository.create(data);
-    return this.logsRepository.save(log);
+  // 事务外调用，失败不阻塞业务：DB 层面的问题（enum 缺值 / 权限 / 网络抖动）
+  // 都不应该让"装车成功了但接口 500"的故事重演。返回 null 表明记录失败但业务已成。
+  async appendLog(
+    data: Partial<WaybillStatusLog>,
+  ): Promise<WaybillStatusLog | null> {
+    try {
+      const log = this.logsRepository.create(data);
+      return await this.logsRepository.save(log);
+    } catch (err) {
+      this.logger.error(
+        `tracking appendLog failed action=${data.action} vin=${data.vin}: ${(err as Error).message}`,
+      );
+      return null;
+    }
   }
 
   async findByVin(vin: string): Promise<WaybillStatusLog[]> {

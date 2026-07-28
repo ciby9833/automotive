@@ -127,6 +127,8 @@ export class WaybillsService {
       destinationDealerId?: string;
       dateFrom?: string;
       dateTo?: string;
+      // 按 VIN 模糊搜（通过 waybill_vins 表）；不改主表分页语义
+      vin?: string;
     },
   ): Promise<Waybill[]> {
     const qb = this.waybillsRepository
@@ -176,6 +178,15 @@ export class WaybillsService {
     }
     if (filters?.dateTo) {
       qb.andWhere('waybill.createdAt <= :__dt', { __dt: filters.dateTo });
+    }
+    if (filters?.vin) {
+      // EXISTS 子查询：不影响主表 join / distinct，避免因一单多 VIN 复制主行
+      qb.andWhere(
+        `EXISTS (SELECT 1 FROM waybill_vins wv_search
+                 WHERE wv_search.waybill_id = waybill.id
+                   AND wv_search.vin ILIKE :__vin)`,
+        { __vin: `%${filters.vin.trim()}%` },
+      );
     }
     return qb.getMany();
   }
@@ -314,6 +325,26 @@ export class WaybillsService {
         }
         waybillVin.isSigned = true;
         await waybillVinRepo.save(waybillVin);
+
+        // 兜底释放 slot：正常路径应该在启运扫码 (DELIVERY_DEPARTURE) 时统一释放，
+        // 但生产遇到过"漏扫启运直接签收"，导致车已交付但库位一直被占、库存显示"还在库"。
+        // 签收时如果 orderVin 还挂着 slot，就代表流程有跳步 —— 强制释放，保证库存干净。
+        const orderVin = await orderVinRepo.findOne({
+          where: { vin: waybillVin.vin },
+        });
+        if (orderVin?.slotId) {
+          const slot = await slotRepo.findOne({
+            where: { id: orderVin.slotId },
+          });
+          if (slot && slot.currentVin === waybillVin.vin) {
+            slot.status = YardSlotStatus.VACANT;
+            slot.currentVin = null;
+            slot.assignedAt = null;
+            await slotRepo.save(slot);
+          }
+          orderVin.slotId = null;
+          await orderVinRepo.save(orderVin);
+        }
 
         const allVins = await waybillVinRepo.find({
           where: { waybillId: waybill.id },

@@ -73,6 +73,7 @@ export class OutboundService {
       yardCode: string | null;
       vinCount: number;
     }>;
+    autoDerivedDealerCount: number;
   }> {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('外部账号无权导入出库单');
@@ -197,8 +198,19 @@ export class OutboundService {
 
       // 现有 OrderVin 上打上出库属性 (dealer/towType/group + outboundOrderId FK)
       // 不改 orderId（入库单追溯要保留）；outboundOrderId 是出库单的硬关联
+      //
+      // dealer_code 自动派生规则：客户 Excel 有时只发经销商中文名不发编码，
+      // 但下游 planWaybill/开单池都以 dealer_code 作为一致性主键。为避免这些
+      // VIN 静默无法开单，缺 code 但有 name 时用 name 归一化派生一个 DN-<slug>
+      // 前缀的 pseudo code，管理员后续补真实码时可覆盖。
+      let autoDerivedDealerCount = 0;
       for (const { vin, row } of toUpdate) {
-        vin.dealerCode = row.dealerCode ?? null;
+        let derivedCode = row.dealerCode ?? null;
+        if (!derivedCode && row.dealerName) {
+          derivedCode = deriveDealerCodeFromName(row.dealerName);
+          autoDerivedDealerCount += 1;
+        }
+        vin.dealerCode = derivedCode;
         vin.dealerName = row.dealerName ?? null;
         vin.towType = row.towType ?? null;
         vin.groupCode = row.groupCode ?? null;
@@ -214,6 +226,7 @@ export class OutboundService {
         alreadyBound,
         alreadyAllocated,
         originYards,
+        autoDerivedDealerCount,
       };
     });
 
@@ -229,10 +242,12 @@ export class OutboundService {
         outOfScopeCount: outOfScope.length,
         alreadyBoundCount: alreadyBound.length,
         alreadyAllocatedCount: alreadyAllocated.length,
+        autoDerivedDealerCount: result.autoDerivedDealerCount,
         originYards,
       },
     });
-    // VIN 级节点：每台车都要在 timeline 上出现"进入出库单"事件
+    // VIN 级节点：每台车都要在 timeline 上出现"进入出库单"事件；
+    // dealerCode 用 VIN 上最终落库的值（可能是派生的 pseudo code）
     await this.audit.logMany(
       toUpdate.map(({ vin, row }) => ({
         operationType: OperationType.OUTBOUND_ORDER_IMPORT,
@@ -243,7 +258,8 @@ export class OutboundService {
         operatorUserId,
         payload: {
           orderCode: result.orderCode,
-          dealerCode: row.dealerCode,
+          dealerCode: vin.dealerCode,
+          dealerCodeDerived: !row.dealerCode && !!row.dealerName,
           dealerName: row.dealerName,
           towType: row.towType,
           groupCode: row.groupCode,
@@ -427,8 +443,8 @@ export class OutboundService {
   }
 
   // ============ 3. 可用于开单的 VIN 池 ============
-  // 库存中已到仓 + 未分配 + 属于本客户的 VIN
-  // outboundOrderId 有值时，只显示该出库订单关联的 VIN (软关联 customerOrderNo)
+  // 强约束：必须以 outboundOrderId 为上下文查询。未传时返回空 —— 与 planWaybill
+  // 的必填 outboundOrderId 保持语义一致，避免出现"看得到但提交时报错"的拧巴 UX。
   async listAvailableVinsForPlan(
     scope: EffectiveScope,
     filters: {
@@ -439,6 +455,9 @@ export class OutboundService {
       outboundOrderId?: string;
     },
   ): Promise<OrderVin[]> {
+    // 没选出库单 → 直接返回空，前端会用 Empty state 引导用户先选
+    if (!filters.outboundOrderId) return [];
+
     // 出库单前置校验：存在 + DELIVERY + 未取消 + 归属当前 scope
     if (filters.outboundOrderId) {
       const outOrder = await this.ordersRepo.findOne({
@@ -877,4 +896,15 @@ export class OutboundService {
       },
     });
   }
+}
+
+// 客户 Excel 只给经销店中文名不给编码时，从名字派生一个 pseudo code。
+// 前缀 DN- 标记"派生"，方便审计和前端 UI 打提示；60 字符封顶匹配 dealer_code 列长度。
+export function deriveDealerCodeFromName(name: string): string {
+  const slug = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9一-龥]+/g, '-') // 保留中英文和数字，其他归 '-'
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 56); // 留 4 字符给 DN- 前缀
+  return slug ? `DN-${slug}` : 'DN-UNKNOWN';
 }

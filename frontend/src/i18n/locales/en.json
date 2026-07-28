@@ -958,6 +958,7 @@
       "resultBound": "Bound to other outbound order: {n}",
       "resultBoundHint": "These VINs belong to another un-planned outbound order — delete/merge that order first",
       "resultYardBreakdown": "Spans {n} yards",
+      "resultDealerDerived": "Derived dealer code for {n} VIN(s) (Excel only had dealer name)",
       "resultGoDetail": "Open this order"
     },
     "orders": {
@@ -1102,6 +1103,7 @@
       "errNoCarrier": "Select a carrier",
       "errNoYard": "Cannot infer origin yard, pick a yard filter",
       "needOutboundOrder": "Pick the outbound order this waybill belongs to",
+      "pickOrderFirst": "Pick an outbound order above; the VIN pool loads after selection",
       "contextTitle": "Available VIN breakdown for this outbound order (tap a tag to filter)",
       "groupByYard": "By yard",
       "groupByDealer": "By dealer",

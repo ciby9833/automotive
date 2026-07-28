@@ -1,0 +1,13 @@
+## Copy this file to local.properties (not checked in) and adjust for your machine.
+##
+## Android SDK location (Android Studio 会自动填这一行)
+# sdk.dir=/Users/you/Library/Android/sdk
+
+## API base URL for dev flavor.
+##   模拟器：http://10.0.2.2:3001  (10.0.2.2 = 宿主机 127.0.0.1，这是模拟器专用地址)
+##   真机同 WiFi：http://<你电脑局域网 IP>:3001  (Mac 上跑 `ipconfig getifaddr en0` 查)
+##   直连生产：http://8.215.32.251:8080/api
+# API_BASE_URL_DEV=http://10.0.2.2:3001
+
+## Staging URL (可选)
+# API_BASE_URL_STAGING=https://staging.example.com

@@ -30,6 +30,7 @@ import {
   UndoOutlined,
 } from '@ant-design/icons';
 import { trackingApi, TimelineEntry } from '@/lib/api/tracking';
+import { getStorageUrl } from '@/lib/api/client';
 import { useTranslation } from '@/i18n/useTranslation';
 
 // 全生命周期轨迹页：VIN 或订单号查询 → 归一化时间线（照片墙 + 场地/库位 + 操作人 + 备注）
@@ -108,24 +109,29 @@ function renderPayload(
   return <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap' }}>{items}</div>;
 }
 
-// 附件缩略图墙：4-per-row，点开原图预览
+// 附件缩略图墙：4-per-row，点开原图预览。attachmentUrls 里存的是 storage key，
+// 用 getStorageUrl 转成完整 URL（走 /storage/preview/:key 由后端流式转发）
 function renderAttachments(urls: string[] | null): React.ReactNode {
   if (!urls || urls.length === 0) return null;
   return (
     <div style={{ marginTop: 8 }}>
       <AntdImage.PreviewGroup>
         <Space wrap size={6}>
-          {urls.map((u, i) => (
-            <AntdImage
-              key={`${u}-${i}`}
-              src={u}
-              alt={`attachment-${i}`}
-              width={72}
-              height={72}
-              style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0' }}
-              fallback="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='%23cbd5e1'><path d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/></svg>"
-            />
-          ))}
+          {urls.map((u, i) => {
+            const full = getStorageUrl(u);
+            return (
+              <AntdImage
+                key={`${u}-${i}`}
+                src={full}
+                preview={{ src: full }}
+                alt={`attachment-${i}`}
+                width={72}
+                height={72}
+                style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0' }}
+                fallback="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='%23cbd5e1'><path d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/></svg>"
+              />
+            );
+          })}
         </Space>
       </AntdImage.PreviewGroup>
     </div>

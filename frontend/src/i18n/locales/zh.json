@@ -958,6 +958,7 @@
       "resultBound": "已绑其他出库单 {n} 台",
       "resultBoundHint": "这些 VIN 属于其他未开单的出库单，请先删除/合并那张出库单",
       "resultYardBreakdown": "涉及 {n} 个场地",
+      "resultDealerDerived": "自动派生经销商编码 {n} 台（Excel 只发了店名未发编码）",
       "resultGoDetail": "查看本次订单详情"
     },
     "orders": {
@@ -1102,6 +1103,7 @@
       "errNoCarrier": "请先选择承运商",
       "errNoYard": "无法确定始发仓，请勾选一个筛选场地",
       "needOutboundOrder": "请先选择本次开单归属的出库订单",
+      "pickOrderFirst": "请先在上方选择出库订单，选定后 VIN 池会自动加载",
       "contextTitle": "出库单可开单 VIN 分布（点击标签快速筛选）",
       "groupByYard": "按仓",
       "groupByDealer": "按经销店",

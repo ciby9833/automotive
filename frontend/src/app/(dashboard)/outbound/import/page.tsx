@@ -52,6 +52,7 @@ export default function OutboundImportPage() {
     alreadyBound: string[];
     alreadyAllocated: string[];
     originYards: OutboundOriginYard[];
+    autoDerivedDealerCount: number;
   } | null>(null);
   const [parseInfo, setParseInfo] = useState<{
     total: number;
@@ -165,6 +166,7 @@ export default function OutboundImportPage() {
         alreadyBound: res.alreadyBound ?? [],
         alreadyAllocated: res.alreadyAllocated ?? [],
         originYards: res.originYards ?? [],
+        autoDerivedDealerCount: res.autoDerivedDealerCount ?? 0,
       });
       if (bound === 0 && allocated === 0 && res.missing.length === 0) {
         router.push(`/outbound/orders/${res.orderId}`);
@@ -215,6 +217,15 @@ export default function OutboundImportPage() {
                       {y.yardCode ? ` (${y.yardCode})` : ''} · {y.vinCount}
                     </Tag>
                   ))}
+                </div>
+              )}
+              {lastImportResult.autoDerivedDealerCount > 0 && (
+                <div style={{ marginBottom: 4 }}>
+                  <Tag color="gold">
+                    {t('outbound.import.resultDealerDerived', {
+                      n: lastImportResult.autoDerivedDealerCount,
+                    })}
+                  </Tag>
                 </div>
               )}
               {lastImportResult.missing.length > 0 && (

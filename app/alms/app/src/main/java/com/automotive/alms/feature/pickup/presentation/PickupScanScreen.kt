@@ -62,6 +62,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -206,6 +208,15 @@ fun PickupScanScreen(
     LaunchedEffect(Unit) {
         loadOrders()
         ensureGpsRefresh(force = true)
+    }
+
+    // 页面每次进入 RESUMED (前后台切回 / 从详情页返回) 自动刷新任务池，
+    // 解决"App 一直开着看不到新分派的订单"痛点。
+    // 只在列表视图 (selectedOrderId==null) 时触发，避免用户在扫码流程中被打断。
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (selectedOrderId == null && !loading) {
+            loadOrders()
+        }
     }
 
     ScreenScaffold(

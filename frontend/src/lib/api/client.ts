@@ -44,3 +44,17 @@ export async function unwrap<T>(promise: Promise<{ data: { data: T } }>): Promis
   const res = await promise;
   return res.data.data;
 }
+
+// 把 storage key 转成浏览器可直接访问的完整 URL。
+// 后端约定：attachmentUrls / photoKeys 存的是原始 key（如 'uuid.jpg'），
+// 通过 GET /storage/preview/:key 拿真实图片流。前端 <img src> 必须用完整 URL，
+// 否则被解析成相对当前页面路径。
+export function getStorageUrl(keyOrUrl: string | null | undefined): string {
+  if (!keyOrUrl) return '';
+  // 已经是完整 URL 或已带 /storage/preview 前缀 → 原样返回
+  if (/^(https?:)?\/\//i.test(keyOrUrl) || keyOrUrl.startsWith('/storage/')) {
+    return keyOrUrl;
+  }
+  const base = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001').replace(/\/$/, '');
+  return `${base}/storage/preview/${encodeURIComponent(keyOrUrl)}`;
+}

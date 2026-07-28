@@ -9,6 +9,7 @@ import {
   Col,
   Divider,
   Drawer,
+  Empty,
   Form,
   Input,
   Row,
@@ -460,47 +461,54 @@ function OutboundPlanInner() {
               </div>
             )}
 
-            <Table
-              rowKey="id"
-              size="small"
-              loading={loading}
-              dataSource={available}
-              rowSelection={{
-                selectedRowKeys: selectedIds,
-                onChange: setSelectedIds,
-              }}
-              pagination={{ pageSize: 20 }}
-              columns={[
-                { title: 'VIN', dataIndex: 'vin', width: 190 },
-                {
-                  title: t('outbound.plan.dealer'),
-                  render: (_, r) => r.dealerName ?? r.dealerCode ?? '-',
-                },
-                {
-                  title: t('outbound.plan.tow'),
-                  dataIndex: 'towType',
-                  render: (v: string | null) =>
-                    v ? <Tag color="blue">{v}</Tag> : '-',
-                },
-                {
-                  title: t('outbound.plan.group'),
-                  dataIndex: 'groupCode',
-                  render: (v: string | null) =>
-                    v ? <Tag color="purple">{v}</Tag> : '-',
-                },
-                {
-                  title: t('outbound.plan.slot'),
-                  render: (_, r) =>
-                    r.slot ? (
-                      <Tag color="green">
-                        {r.slot.yard?.code}·{r.slot.code}
-                      </Tag>
-                    ) : (
-                      '-'
-                    ),
-                },
-              ]}
-            />
+            {!outboundOrderId ? (
+              <Empty
+                description={t('outbound.plan.pickOrderFirst')}
+                style={{ padding: '48px 0' }}
+              />
+            ) : (
+              <Table
+                rowKey="id"
+                size="small"
+                loading={loading}
+                dataSource={available}
+                rowSelection={{
+                  selectedRowKeys: selectedIds,
+                  onChange: setSelectedIds,
+                }}
+                pagination={{ pageSize: 20 }}
+                columns={[
+                  { title: 'VIN', dataIndex: 'vin', width: 190 },
+                  {
+                    title: t('outbound.plan.dealer'),
+                    render: (_, r) => r.dealerName ?? r.dealerCode ?? '-',
+                  },
+                  {
+                    title: t('outbound.plan.tow'),
+                    dataIndex: 'towType',
+                    render: (v: string | null) =>
+                      v ? <Tag color="blue">{v}</Tag> : '-',
+                  },
+                  {
+                    title: t('outbound.plan.group'),
+                    dataIndex: 'groupCode',
+                    render: (v: string | null) =>
+                      v ? <Tag color="purple">{v}</Tag> : '-',
+                  },
+                  {
+                    title: t('outbound.plan.slot'),
+                    render: (_, r) =>
+                      r.slot ? (
+                        <Tag color="green">
+                          {r.slot.yard?.code}·{r.slot.code}
+                        </Tag>
+                      ) : (
+                        '-'
+                      ),
+                  },
+                ]}
+              />
+            )}
           </Card>
         </Col>
 

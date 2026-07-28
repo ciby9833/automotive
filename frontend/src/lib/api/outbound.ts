@@ -109,6 +109,8 @@ export const outboundApi = {
       alreadyBound?: string[];
       alreadyAllocated?: string[];
       originYards: OutboundOriginYard[];
+      // 客户 Excel 缺 dealerCode 但有 dealerName 时后端自动派生 pseudo code 的台数
+      autoDerivedDealerCount?: number;
     }>(apiClient.post('/outbound/orders/import', payload)),
 
   listOrders: (params?: {

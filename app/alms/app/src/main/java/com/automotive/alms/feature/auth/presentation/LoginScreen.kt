@@ -84,6 +84,13 @@ fun LoginScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyLarge,
                 )
+                // 环境标识：debug/QA 快速判断"到底连的哪个后端"，避免抓包/日志
+                Text(
+                    text = "env: ${com.automotive.alms.BuildConfig.ENV_NAME} · ${com.automotive.alms.BuildConfig.API_BASE_URL}",
+                    modifier = Modifier.padding(top = 4.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
 
             Card(

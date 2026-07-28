@@ -958,6 +958,7 @@
       "resultBound": "Terikat order outbound lain: {n}",
       "resultBoundHint": "VIN ini masuk order outbound lain yang belum di-SJ — hapus/gabung order tersebut dulu",
       "resultYardBreakdown": "Melibatkan {n} yard",
+      "resultDealerDerived": "Kode dealer diturunkan otomatis untuk {n} VIN (Excel hanya berisi nama dealer)",
       "resultGoDetail": "Buka order ini"
     },
     "orders": {
@@ -1102,6 +1103,7 @@
       "errNoCarrier": "Pilih vendor dulu",
       "errNoYard": "Yard asal tidak terdeteksi, filter salah satu yard",
       "needOutboundOrder": "Pilih order outbound sebagai konteks penerbitan SJ",
+      "pickOrderFirst": "Pilih order outbound di atas; pool VIN akan dimuat setelah dipilih",
       "contextTitle": "Distribusi VIN pada order outbound (klik tag untuk filter)",
       "groupByYard": "Per yard",
       "groupByDealer": "Per dealer",

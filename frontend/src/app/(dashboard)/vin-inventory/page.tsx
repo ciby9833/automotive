@@ -23,10 +23,9 @@ import { exportRowsToXlsx, formatDateTime } from '@/lib/export/xlsx';
 
 const { RangePicker } = DatePicker;
 
-// 默认时间范围：当月（业务约定）
-function currentMonthRange(): [Dayjs, Dayjs] {
-  return [dayjs().startOf('month'), dayjs().endOf('month')];
-}
+// 库存视图默认不按时间过滤：库存的语义是"现在还在库的车"，用时间过滤会漏掉
+// 上月/上季度入位、至今没动的车。用户想按"入位时间"分段查阅时手动选。
+// （与运单管理不同：运单是事件流，默认当月合理）
 
 export default function VinInventoryPage() {
   const router = useRouter();
@@ -39,9 +38,7 @@ export default function VinInventoryPage() {
   const [slotCode, setSlotCode] = useState('');
   const [orderCode, setOrderCode] = useState('');
   const [minStayDays, setMinStayDays] = useState<number | null>(null);
-  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(
-    currentMonthRange(),
-  );
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const { t } = useTranslation();
 

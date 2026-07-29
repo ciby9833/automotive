@@ -1,6 +1,22 @@
-# 生产环境只起 Redis + MinIO（PostgreSQL 复用系统实例，不重复起）
-# 所有端口 bind 127.0.0.1，仅内网访问；后端从 .env 里连 localhost:16379 / localhost:19000
+# 生产环境依赖：PostgreSQL(带 postgis+timescaledb) + Redis + MinIO
+# 所有端口 bind 127.0.0.1，仅内网访问；后端从 .env 里连 localhost:15432 / 16379 / 19000
 services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.timescale-postgis
+    image: tms-timescale-postgis:2.17.2-pg17
+    container_name: tms-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-tms}
+      POSTGRES_USER: ${DB_USER:-tms}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - tms_pg_data:/var/lib/postgresql/data
+
   redis:
     image: redis:7-alpine
     container_name: tms-redis
@@ -25,5 +41,6 @@ services:
       - tms_minio_data:/data
 
 volumes:
+  tms_pg_data:
   tms_redis_data:
   tms_minio_data:

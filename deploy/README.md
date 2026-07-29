@@ -11,7 +11,7 @@
 
 | 组件 | 端口 | 策略 |
 |---|---|---|
-| **系统 PostgreSQL** | 5432 | **复用**，建独立 db `tms` + 独立 user `tms` |
+| **PostgreSQL (docker)** | 15432 | docker 起（`tms-timescale-postgis`），只 bind 127.0.0.1 |
 | **Redis (docker)** | 16379 | docker 起，只 bind 127.0.0.1 |
 | **MinIO (docker)** | 19000 / 19001 | docker 起，只 bind 127.0.0.1 |
 | **Backend (Node)** | 3081 | PM2 起，只 bind 127.0.0.1 |
@@ -23,8 +23,7 @@
 ### 与已有服务的隔离性
 
 - Nginx 80/443 老站点不动，只新增 8080 server block
-- 系统 PG 已有 database 不动，权限完全隔离（tms user 只能访问 tms db）
-- Redis/MinIO 全部走 docker + 127.0.0.1 绑定，不对外暴露
+- 全部依赖 (PG/Redis/MinIO) 走 docker + 127.0.0.1 绑定，不对外暴露；也不与系统 PG（如果有）冲突（用 15432 端口区分）
 
 ---
 
@@ -34,8 +33,14 @@
 - Node 20+
 - Docker + Docker Compose
 - PM2 (`npm i -g pm2`)
-- 系统 PostgreSQL 12+ (含 postgis 扩展)
 - Nginx
+
+**PostgreSQL 通过 Docker 起** — 不再依赖系统 PG。生产镜像 `tms-timescale-postgis`
+由 [Dockerfile.timescale-postgis](Dockerfile.timescale-postgis) 定义：基于
+`timescale/timescaledb:2.17.2-pg17` 装 `postgis` 一次打全。原因：
+- `yards.location` 用 PostGIS `geometry(Point,4326)`
+- GPS 轨迹表 `driver_positions` 用 TimescaleDB hypertable
+- 两个扩展系统 PG 都要单独 apt install，容易漏；打进 Docker 一次搞定
 
 ---
 
@@ -54,33 +59,37 @@ cd /var/www/automotive_alms
 git clone https://github.com/ciby9833/automotive.git .
 ```
 
-### 2. 系统 PostgreSQL 建独立 db + user
-
-```bash
-sudo -u postgres psql <<'EOF'
-CREATE USER tms WITH PASSWORD '换成强密码';
-CREATE DATABASE tms OWNER tms ENCODING 'UTF8';
-GRANT ALL PRIVILEGES ON DATABASE tms TO tms;
-\c tms
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-GRANT ALL ON SCHEMA public TO tms;
-EOF
-```
-
-### 3. 起 Redis + MinIO
+### 2. 起 PostgreSQL + Redis + MinIO（全 Docker）
 
 ```bash
 cd /var/www/automotive_alms
 
-# 建 docker-compose 用的 env 文件（MinIO 密码放这里，不进 git）
+# 建 docker-compose 用的 env 文件（各种密码放这里，不进 git）
 cat > deploy/.env <<'EOF'
+DB_NAME=tms
+DB_USER=tms
+DB_PASSWORD=换成强密码
 MINIO_ROOT_USER=tmsadmin
 MINIO_ROOT_PASSWORD=换成强密码
 EOF
 
-docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d
-docker ps    # 确认 tms-redis / tms-minio 都 Up
+# 首次会 build tms-timescale-postgis 镜像（约 30s），之后启动秒起
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
+docker ps    # 确认 tms-postgres / tms-redis / tms-minio 都 Up
+```
+
+### 3. 确认扩展已就绪
+
+```bash
+docker exec -it tms-postgres psql -U tms -d tms -c \
+  "CREATE EXTENSION IF NOT EXISTS postgis; \
+   CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"; \
+   CREATE EXTENSION IF NOT EXISTS timescaledb;"
+
+# 确认三个扩展都装好
+docker exec -it tms-postgres psql -U tms -d tms -c \
+  "SELECT extname, extversion FROM pg_extension ORDER BY extname;"
+# 期望看到 postgis / timescaledb / uuid-ossp
 ```
 
 ### 4. 配 backend `.env`
@@ -100,9 +109,9 @@ CORS_ORIGIN=http://<服务器 IP>:8080
 JWT_SECRET=<用 openssl rand -hex 32 生成一个>
 JWT_EXPIRES_IN=8h
 
-# 复用系统 PG (5432)
+# Docker PG (15432)
 DB_HOST=127.0.0.1
-DB_PORT=5432
+DB_PORT=15432
 DB_USERNAME=tms
 DB_PASSWORD=<第 2 步的强密码>
 DB_DATABASE=tms
@@ -127,8 +136,19 @@ cd /var/www/automotive_alms/backend
 npm ci
 npm run build
 npm run migration:run
-node dist/database/seed.js    # 建默认管理员账号 admin/Admin@12345
+npm run seed    # 建默认管理员账号 admin/Admin@12345 + HQ/5 国家/示例场地/承运商/客户
 ```
+
+**seed 幂等**：反复跑不会创建重复数据，会 skip 已存在项。
+
+**默认账号（生产上线后立刻改密码）**：
+
+| 用户名 | 密码 | 角色 |
+|---|---|---|
+| admin | Admin@12345 | HQ_ADMIN（万能） |
+| id_org_admin | OrgAdmin@12345 | 印尼机构管理员 |
+| multi_org_admin | MultiOrg@12345 | 印尼+马来双机构（演示切换） |
+| kmdi_driver | KmdiDriver@12345 | 示例司机（正式上线前删掉） |
 
 ### 6. 配 frontend `.env.production` + build
 
@@ -214,9 +234,11 @@ rename 成 snake_case，dev 库自动 no-op。**跑过一次之后所有 raw SQL
 | API 404 | 确认 nginx `location /api/` 的 `proxy_pass` **末尾有斜杠** |
 | 图片上传后 404 | `docker ps` 看 tms-minio Up；检查 `.env` 的 `STORAGE_ENDPOINT` |
 | CORS 拒绝 | `backend/.env` 的 `CORS_ORIGIN` 是否包含实际访问入口 |
-| DB 连不上 | 系统 PG 的 `pg_hba.conf` 里 `127.0.0.1` 那行 auth 方式 |
+| DB 连不上 | `docker ps` 确认 `tms-postgres` Up；backend `.env` 的 `DB_PORT` 是否 15432；密码是否对得上 `deploy/.env` 里的 `DB_PASSWORD` |
 | 迁移失败 · `column createdAt does not exist` | prod 里是 snake_case、dev 里是 camelCase 或反之 —— 检查是否漏跑 `NormalizeTimestampColumns` |
-| 迁移失败 · postgis / uuid-ossp | 检查扩展是否已装到 tms 库 (`CREATE EXTENSION IF NOT EXISTS ...`) |
+| 迁移失败 · `type "geometry" does not exist` | `docker exec -it tms-postgres psql -U tms -d tms -c "CREATE EXTENSION IF NOT EXISTS postgis;"` — 通常是新库忘装扩展 |
+| 迁移失败 · `column ... already exists` | 幂等问题：老 migration 里 ADD COLUMN 与后续 CREATE TABLE 冲突。检查报错 migration，把 ALTER TABLE 改为 `ADD COLUMN IF NOT EXISTS`，重跑 `npm run migration:run` |
+| PG 容器起不来 | `docker logs tms-postgres`；密码错、端口冲突（本机已占用 15432？）、volume 权限 |
 | `This page couldn't load` + chunk 404 | 部署没走 `upgrade-frontend.sh`；同时前端已内置 ChunkErrorReloader，会自动 reload 一次 |
 | 长期堆积老 chunk 文件 | `find /var/www/automotive_alms/frontend/.next/static -type f -mtime +30 -delete`（可放 cron 每周跑） |
 
@@ -251,7 +273,7 @@ rename 成 snake_case，dev 库自动 no-op。**跑过一次之后所有 raw SQL
 
 | 组件 | 端口 | 冲突? | 策略 |
 |---|---|---|---|
-| **系统 PostgreSQL** | 5432 | 已在 | **复用**，建独立 db `tms` + 独立 user `tms` |
+| **PostgreSQL (docker)** | 15432 | 需装 | docker 起（`tms-timescale-postgis`），bind 127.0.0.1 |
 | **Redis (docker)** | 16379 | 无 | docker 起，只 bind 127.0.0.1 |
 | **MinIO (docker)** | 19000 / 19001 | 无 | docker 起，只 bind 127.0.0.1 |
 | **Backend (Node)** | 3081 | 无 | PM2 起，只 bind 127.0.0.1 |
@@ -318,39 +340,40 @@ ls   # 应该看到 backend/  frontend/  deploy/  docker-compose.yml  logs/  REA
 
 ---
 
-### 第 3 步：系统 PostgreSQL 建独立 db + user
-
-```bash
-# 现有 PG 在 127.0.0.1:5432，我们建独立 db 和 user，不动它任何已存在数据
-sudo -u postgres psql <<EOF
-CREATE USER tms WITH PASSWORD '在这里换成一个强密码';
-CREATE DATABASE tms OWNER tms ENCODING 'UTF8';
-GRANT ALL PRIVILEGES ON DATABASE tms TO tms;
-\c tms
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-GRANT ALL ON SCHEMA public TO tms;
-EOF
-```
-
-⚠️ 密码**必须换掉**，记下来下一步 .env 要用。
-
----
-
-### 第 4 步：起 Redis + MinIO（只这俩，PG 不动）
+### 第 3 步：准备 docker `.env`
 
 ```bash
 cd /var/www/automotive_alms
 
-# 建 docker-compose 用的环境变量文件（MinIO 密码放这里）
+# 各种密码放这里，不进 git（PG / MinIO 各一个强密码）
 cat > deploy/.env <<EOF
+DB_NAME=tms
+DB_USER=tms
+DB_PASSWORD=在这里换成一个强密码
 MINIO_ROOT_USER=tmsadmin
 MINIO_ROOT_PASSWORD=在这里换成一个强密码
 EOF
+```
 
-# 起容器
-docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d
-docker ps    # 看到 tms-redis 和 tms-minio 都 Up
+⚠️ 两个密码**必须换掉**，记下来后面 backend `.env` 要用 DB_PASSWORD。
+
+---
+
+### 第 4 步：起 Postgres + Redis + MinIO（全 Docker）
+
+```bash
+cd /var/www/automotive_alms
+
+# 首次 --build 会构建 tms-timescale-postgis 镜像（约 30s）
+# 之后启动秒起；--build 只需第一次或 Dockerfile 有改动时加
+docker compose -f deploy/docker-compose.prod.yml --env-file deploy/.env up -d --build
+docker ps    # 看到 tms-postgres / tms-redis / tms-minio 都 Up
+
+# 启用扩展（一次即可；PostgreSQL 自动持久化到 volume）
+docker exec -it tms-postgres psql -U tms -d tms -c \
+  "CREATE EXTENSION IF NOT EXISTS postgis; \
+   CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"; \
+   CREATE EXTENSION IF NOT EXISTS timescaledb;"
 ```
 
 ---
@@ -375,11 +398,11 @@ CORS_ORIGIN=http://8.215.32.251:8080
 JWT_SECRET=换成一个 64 字符的随机串
 JWT_EXPIRES_IN=8h
 
-# 复用系统 PG (5432)，用第 3 步建的 tms 库和用户
+# Docker PG (bind 127.0.0.1:15432)
 DB_HOST=127.0.0.1
-DB_PORT=5432
+DB_PORT=15432
 DB_USERNAME=tms
-DB_PASSWORD=第 3 步的强密码
+DB_PASSWORD=第 3 步 deploy/.env 里的 DB_PASSWORD
 DB_DATABASE=tms
 DB_SYNCHRONIZE=false   # ⚠️ 生产必须 false，改 schema 走 migration
 

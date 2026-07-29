@@ -11,8 +11,13 @@
 # 或者由 docker-compose.prod.yml 里的 build 段自动完成
 FROM timescale/timescaledb:2.17.2-pg17
 
+USER root
+
 RUN set -eux; \
     apk add --no-cache postgis; \
-    # postgis extension control 文件默认在 /usr/share/postgresql/extension，
-    # 有些 alpine 镜像会安装到别的位置；这里显式建立目录避免 CREATE EXTENSION 找不到 postgis.control
-    mkdir -p /usr/local/share/postgresql/extension;
+    mkdir -p /usr/local/share/postgresql/extension; \
+    mkdir -p /usr/local/lib/postgresql; \
+    cp -a /usr/share/postgresql17/extension/. /usr/local/share/postgresql/extension/; \
+    cp -a /usr/lib/postgresql17/. /usr/local/lib/postgresql/
+
+USER postgres

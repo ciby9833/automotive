@@ -78,13 +78,6 @@ export class ImportOutboundOrderDto {
   @IsUUID()
   customerId: string;
 
-  // 已废弃：始发仓由 VIN 当前所在库位自动推导，不再由用户选择。
-  // 保留字段仅兼容旧客户端调用，服务端不使用。
-  @ApiProperty({ required: false, deprecated: true })
-  @IsOptional()
-  @IsUUID()
-  originYardId?: string;
-
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

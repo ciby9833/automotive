@@ -61,7 +61,13 @@ export interface OutboundOrderVinDetail {
   groupCode: string | null;
   arrivalStatus: 'EXPECTED' | 'ARRIVED' | 'CANCELLED';
   isAllocated: boolean;
-  slot?: { id: string; code: string; yard?: { id: string; name: string; code: string } };
+  slot?: {
+    id: string;
+    line: number;
+    row: number;
+    zone?: { id: string; code: string; name?: string | null };
+    yard?: { id: string; name: string; code: string };
+  };
   order?: {
     id: string;
     orderCode: string;

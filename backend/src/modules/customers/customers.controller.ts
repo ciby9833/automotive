@@ -20,6 +20,9 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { CustomersService } from './customers.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
+import { UpdateCustomerDto, UpdateCustomerStatusDto } from './dto/update-customer.dto';
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import {
   CreateCustomerAddressDto,
   ImportCustomerAddressesDto,
@@ -63,6 +66,30 @@ export class CustomersController {
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.customersService.findOne(id, scope);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_CUSTOMER_CRUD)
+  @Patch(':id')
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCustomerDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.customersService.update(id, dto, scope, user.userId);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_CUSTOMER_CRUD)
+  @Patch(':id/status')
+  async updateStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCustomerStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.customersService.setStatus(id, dto.status, scope, user.userId);
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)

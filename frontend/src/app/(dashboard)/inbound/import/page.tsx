@@ -56,7 +56,7 @@ export default function InboundImportPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    customersApi.list().then(setCustomers).catch(() => undefined);
+    customersApi.list().then((items) => setCustomers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
     yardsApi.list().then(setYards).catch(() => undefined);
   }, [activeOrgId]);
 

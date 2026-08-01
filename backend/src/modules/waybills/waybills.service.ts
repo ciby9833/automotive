@@ -14,6 +14,8 @@ import { OrderVin } from '../orders/entities/order-vin.entity';
 import { YardSlot, YardSlotStatus } from '../yards/entities/yard-slot.entity';
 import { Driver } from '../carriers/entities/driver.entity';
 import { Vehicle } from '../carriers/entities/vehicle.entity';
+import { Carrier } from '../carriers/entities/carrier.entity';
+import { PartnerStatus } from '../../common/enums/partner-status.enum';
 import { CreateWaybillDto } from './dto/create-waybill.dto';
 import { ScanDto } from './dto/scan.dto';
 import { TransportType } from '../../common/enums/order-type.enum';
@@ -74,6 +76,8 @@ export class WaybillsService {
     private readonly driversRepository: Repository<Driver>,
     @InjectRepository(Vehicle)
     private readonly vehiclesRepository: Repository<Vehicle>,
+    @InjectRepository(Carrier)
+    private readonly carriersRepository: Repository<Carrier>,
     private readonly dataSource: DataSource,
     private readonly trackingService: TrackingService,
     private readonly trackingGateway: TrackingGateway,
@@ -271,6 +275,13 @@ export class WaybillsService {
 
   async create(dto: CreateWaybillDto, scope: EffectiveScope): Promise<Waybill> {
     this.scopeService.assertOrgWritable(scope, dto.organizationId);
+    if (dto.carrierId) {
+      const carrier = await this.carriersRepository.findOne({ where: { id: dto.carrierId } });
+      if (!carrier) throw new NotFoundException('承运商不存在');
+      if (carrier.status !== PartnerStatus.ACTIVE) {
+        throw new BadRequestException('承运商当前未开放新增业务');
+      }
+    }
     return this.dataSource
       .transaction(async (manager) => {
         const waybillCode = `WB${Date.now()}${randomUUID().slice(0, 4).toUpperCase()}`;

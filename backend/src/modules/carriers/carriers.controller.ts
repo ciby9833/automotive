@@ -20,6 +20,7 @@ import type { AuthenticatedUser } from '../auth/auth.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { CarriersService } from './carriers.service';
 import { CreateCarrierDto } from './dto/create-carrier.dto';
+import { UpdateCarrierDto, UpdateCarrierStatusDto } from './dto/update-carrier.dto';
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { CreateCarrierUserDto } from './dto/create-carrier-user.dto';
@@ -68,6 +69,31 @@ export class CarriersController {
   ) {
     const scope = await this.scopeService.resolve(user);
     return this.carriersService.findOne(id, scope);
+  }
+
+  // 承运商主数据编辑（不含 organizationId）
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
+  @Patch(':id')
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCarrierDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.update(id, dto, scope, user.userId);
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
+  @Patch(':id/status')
+  async updateStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCarrierStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const scope = await this.scopeService.resolve(user);
+    return this.carriersService.setStatus(id, dto.status, scope, user.userId);
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)

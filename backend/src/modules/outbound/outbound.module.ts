@@ -10,6 +10,7 @@ import { Carrier } from '../carriers/entities/carrier.entity';
 import { Driver } from '../carriers/entities/driver.entity';
 import { Vehicle } from '../carriers/entities/vehicle.entity';
 import { CustomerAddress } from '../customers/entities/customer-address.entity';
+import { Customer } from '../customers/entities/customer.entity';
 import { OutboundService } from './outbound.service';
 import { OutboundController } from './outbound.controller';
 import { TrackingModule } from '../tracking/tracking.module';
@@ -27,6 +28,7 @@ import { TrackingModule } from '../tracking/tracking.module';
       Driver,
       Vehicle,
       CustomerAddress,
+      Customer,
     ]),
     TrackingModule,
   ],

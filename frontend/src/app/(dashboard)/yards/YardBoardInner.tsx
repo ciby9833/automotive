@@ -16,7 +16,6 @@ import {
   Select,
   Space,
   Statistic,
-  Table,
   Tag,
   Tooltip,
   message,
@@ -30,16 +29,12 @@ import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 import { OrgFilter } from '@/components/layout/OrgFilter';
 import { Permission, usePermission } from '@/lib/auth/permissions';
 import { VinLifecycleDrawer } from '@/components/vin/VinLifecycleDrawer';
+import { formatSlotCode } from '@/lib/slots';
 import { Tabs } from 'antd';
 
 // 场地看板(Operation) - 天天开的运营页面
 // 只做：可视化 / VIN 搜索 / 移位 / 占用 / 释放。绝不出现"新增库位/删除库位"入口。
 // 支持 URL 参数 ?yardId=X&highlightVin=Y 从 VIN 库存页跳转过来直接定位
-
-function parseSlotCode(code: string): { row: string; col: string } | null {
-  const m = code.match(/^([A-Za-z0-9]+)[-_ ]?([A-Za-z0-9]+)$/);
-  return m ? { row: m[1].toUpperCase(), col: m[2] } : null;
-}
 
 // 4 色状态：空 / 占用 / 长龄 / 锁定 (按行业惯例配色)
 // 长龄阈值 7 天：assignedAt 距今超 7 天的车通常需要关注（是否遗漏发运）
@@ -53,12 +48,6 @@ function slotCellColor(slot: YardSlot, nowMs: number): string {
     if (stayMs > LONG_STAY_THRESHOLD_MS) return '#ea580c'; // orange-600 长龄
   }
   return '#2563eb'; // blue-600 正常占用
-}
-
-// 从 slot code 前缀提取 zone (如 'A-01' → 'A')
-function extractZone(code: string): string {
-  const m = code.match(/^([A-Za-z0-9]+)[-_ ]/);
-  return m ? m[1].toUpperCase() : '_';
 }
 
 export default function YardBoardInner() {
@@ -235,7 +224,7 @@ export default function YardBoardInner() {
         cancelMoveMode();
         return;
       }
-      if (slot.status === 'OCCUPIED') return;
+      if (slot.status === 'OCCUPIED' || !slot.zoneIsActive) return;
       doMove(slot);
       return;
     }
@@ -252,14 +241,17 @@ export default function YardBoardInner() {
   const zones = useMemo(() => {
     const map = new Map<string, YardSlot[]>();
     for (const s of slots) {
-      const z = extractZone(s.code);
+      const z = s.zoneId;
       if (!map.has(z)) map.set(z, []);
       map.get(z)!.push(s);
     }
     return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([zone, list]) => ({
-        zone,
+      .sort(([, a], [, b]) => a[0].zoneCode.localeCompare(b[0].zoneCode))
+      .map(([zoneId, list]) => ({
+        zone: zoneId,
+        zoneCode: list[0].zoneCode,
+        zoneName: list[0].zoneName,
+        zoneIsActive: list[0].zoneIsActive,
         total: list.length,
         occupied: list.filter((s) => s.status === 'OCCUPIED').length,
         slots: list,
@@ -278,20 +270,14 @@ export default function YardBoardInner() {
   // 当前区的 grid：只渲染选中 zone 的 slots，避免几千格子一次全渲染
   const grid = useMemo(() => {
     const zoneSlots = zones.find((z) => z.zone === activeZone)?.slots ?? slots;
-    const parsed = zoneSlots
-      .map((s) => ({ slot: s, parsed: parseSlotCode(s.code) }))
-      .filter((p) => p.parsed) as Array<{ slot: YardSlot; parsed: { row: string; col: string } }>;
-    if (parsed.length === 0) return null;
-    const rowSet = Array.from(new Set(parsed.map((p) => p.parsed.row))).sort();
-    const colSet = Array.from(new Set(parsed.map((p) => p.parsed.col))).sort((a, b) => {
-      const na = Number(a);
-      const nb = Number(b);
-      if (!isNaN(na) && !isNaN(nb)) return na - nb;
-      return a.localeCompare(b);
-    });
+    if (zoneSlots.length === 0) return null;
+    const rowSet = Array.from(new Set(zoneSlots.map((slot) => String(slot.line))))
+      .sort((a, b) => Number(a) - Number(b));
+    const colSet = Array.from(new Set(zoneSlots.map((slot) => String(slot.row))))
+      .sort((a, b) => Number(a) - Number(b));
     const map = new Map<string, YardSlot>();
-    for (const { slot, parsed: p } of parsed) {
-      map.set(`${p.row}|${p.col}`, slot);
+    for (const slot of zoneSlots) {
+      map.set(`${slot.line}|${slot.row}`, slot);
     }
     return { rows: rowSet, cols: colSet, map };
   }, [slots, zones, activeZone]);
@@ -340,7 +326,7 @@ export default function YardBoardInner() {
           message={
             moveFromSlot
               ? t('yards.moveModeBannerFrom', {
-                  from: moveFromSlot.code,
+                  from: formatSlotCode(moveFromSlot),
                   vin: moveFromSlot.currentVin ?? '',
                 })
               : t('yards.moveModeBanner')
@@ -425,7 +411,7 @@ export default function YardBoardInner() {
                     style={{ marginBottom: 12 }}
                     items={zones.map((z) => ({
                       key: z.zone,
-                      label: `${z.zone} 区 · ${z.occupied}/${z.total}`,
+                      label: `${z.zoneCode}${z.zoneName ? ` · ${z.zoneName}` : ''} · ${z.occupied}/${z.total}`,
                     }))}
                   />
                 )}
@@ -469,7 +455,7 @@ export default function YardBoardInner() {
                               const isHighlighted = highlightSlotIds.has(slot.id);
                               const isMoveSource = slot.id === moveFromSlotId;
                               const isMoveTargetCandidate =
-                                moveMode && slot.status === 'VACANT';
+                                moveMode && slot.status === 'VACANT' && slot.zoneIsActive;
                               return (
                                 <td
                                   key={c}
@@ -498,7 +484,7 @@ export default function YardBoardInner() {
                                   }}
                                 >
                                   <div style={{ fontSize: 12, opacity: 0.8 }}>
-                                    {slot.code}
+                                    {formatSlotCode(slot)}
                                   </div>
                                   <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>
                                     {slot.status === 'OCCUPIED'
@@ -528,7 +514,7 @@ export default function YardBoardInner() {
                           style={{ cursor: 'pointer' }}
                           onClick={() => handleSlotClick(s)}
                         >
-                          {s.code}
+                          {formatSlotCode(s)}
                         </Tag>
                       </Tooltip>
                     ))}
@@ -542,7 +528,7 @@ export default function YardBoardInner() {
                   <Space direction="vertical" style={{ width: '100%' }}>
                     <div>
                       <span style={{ color: '#64748b' }}>{t('yards.slotCode')}: </span>
-                      <strong>{selectedSlot.code}</strong>
+                      <strong>{formatSlotCode(selectedSlot)}</strong>
                     </div>
                     <div>
                       <span style={{ color: '#64748b' }}>{t('yards.status')}: </span>
@@ -580,7 +566,7 @@ export default function YardBoardInner() {
                           {t('yards.viewLifecycle')}
                         </Button>
                       )}
-                      {selectedSlot.status === 'VACANT'
+                      {selectedSlot.status === 'VACANT' && selectedSlot.zoneIsActive
                         ? canAssign && (
                             <Button onClick={() => setAssignOpen(true)}>
                               {t('yards.assignSlot')}

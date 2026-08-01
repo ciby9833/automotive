@@ -1,14 +1,18 @@
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Yard } from './yard.entity';
+import { YardZone } from './yard-zone.entity';
 
 export enum YardSlotStatus {
-  VACANT = 'VACANT', // 空闲车位
-  OCCUPIED = 'OCCUPIED', // 已占用车位
+  VACANT = 'VACANT',
+  OCCUPIED = 'OCCUPIED',
 }
 
+// 3-level: Yard → Zone → Slot
+// slot 只存 zone_id + line int + row int；显示编码由前端拼 `${zone.code}-${line:02}-${row:02}`
+// 好处：zone 改名后所有 slot 的展示自动跟随，不用 UPDATE
 @Entity('yard_slots')
-@Index(['yard', 'code'], { unique: true })
+@Index(['zone', 'line', 'row'], { unique: true })
 export class YardSlot extends BaseEntity {
   @ManyToOne(() => Yard, (yard) => yard.slots, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'yard_id' })
@@ -17,14 +21,20 @@ export class YardSlot extends BaseEntity {
   @Column({ name: 'yard_id' })
   yardId: string;
 
-  @Column()
-  code: string; // 库位编码，如 A-01
+  @ManyToOne(() => YardZone, (zone) => zone.slots, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'zone_id' })
+  zone: YardZone;
 
-  @Column({ nullable: true })
-  row: string;
+  @Column({ name: 'zone_id' })
+  zoneId: string;
 
-  @Column({ nullable: true })
-  slotNo: string;
+  // 排号（区内第几条通道，1-based）
+  @Column({ type: 'integer' })
+  line: number;
+
+  // 位号（该排内第几位，1-based）
+  @Column({ type: 'integer' })
+  row: number;
 
   @Column({
     type: 'enum',
@@ -33,19 +43,15 @@ export class YardSlot extends BaseEntity {
   })
   status: YardSlotStatus;
 
-  // 当前占用车辆的VIN，占用时必填；VIN 库存查询按此字段做主表
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ name: 'current_vin', type: 'varchar', nullable: true })
   currentVin: string | null;
 
-  // 占用时间戳；用于计算"停放天数"(超龄库存指标)。release 时清空。
   @Column({ name: 'assigned_at', type: 'timestamptz', nullable: true })
   assignedAt: Date | null;
 
-  // 是否被业务锁定(如客户扣留、司法查封)；日常运营看板可显示，避免误操作
-  @Column({ default: false })
+  @Column({ name: 'is_locked', default: false })
   isLocked: boolean;
 
-  // 锁定起点必须独立记录，不能用 updatedAt 推算（移位/维护会改变 updatedAt）。
   @Column({ name: 'locked_at', type: 'timestamptz', nullable: true })
   lockedAt: Date | null;
 }

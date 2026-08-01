@@ -8,6 +8,7 @@ import { TransportType } from '../../common/enums/order-type.enum';
 import { Role } from '../../common/enums/role.enum';
 import { Yard } from '../yards/entities/yard.entity';
 import { YardSlot, YardSlotStatus } from '../yards/entities/yard-slot.entity';
+import { formatSlotCode } from '../yards/slot-code.util';
 import { Order } from '../orders/entities/order.entity';
 
 type Metric = {
@@ -121,7 +122,14 @@ export class DashboardService {
     const slotRepo = this.dataSource.getRepository(YardSlot);
     const allSlots = await slotRepo.find({
       where: { yardId: In(yardIds) },
-      order: { code: 'ASC' },
+      relations: { zone: true },
+    });
+    allSlots.sort((a, b) => {
+      const za = a.zone?.code ?? '';
+      const zb = b.zone?.code ?? '';
+      if (za !== zb) return za.localeCompare(zb);
+      if (a.line !== b.line) return a.line - b.line;
+      return a.row - b.row;
     });
     const selectedYardId = query.yardId ?? yards[0].id;
     const selectedSlots = allSlots.filter(
@@ -225,9 +233,12 @@ export class DashboardService {
       slots: selectedSlots.map((slot) => ({
         id: slot.id,
         yardId: slot.yardId,
-        code: slot.code,
+        // 前端根据 zoneCode + line + row 生成实时显示码。
+        zoneId: slot.zoneId,
+        zoneCode: slot.zone?.code ?? '',
+        zoneName: slot.zone?.name ?? null,
+        line: slot.line,
         row: slot.row,
-        slotNo: slot.slotNo,
         status: this.slotVisualStatus(
           slot,
           policyByOrg.get(
@@ -509,15 +520,18 @@ export class DashboardService {
       const lockedAt = slot.lockedAt ?? slot.updatedAt;
       const hours = (Date.now() - lockedAt.getTime()) / 3600000;
       if (hours >= policy.lock_timeout_hours) {
+        const displayCode = slot.zone
+          ? formatSlotCode(slot.zone.code, slot.line, slot.row)
+          : '';
         alerts.push({
           id: `locked-${slot.id}`,
           type: 'LOCK_TIMEOUT',
           severity: 'critical',
           yardId: slot.yardId,
           yardName: yardById.get(slot.yardId)?.name ?? '',
-          slotCode: slot.code,
+          slotCode: displayCode,
           title: '库位锁定超时',
-          detail: `${slot.code} · 已锁定 ${Math.floor(hours)} 小时`,
+          detail: `${displayCode} · 已锁定 ${Math.floor(hours)} 小时`,
           occurredAt: lockedAt.toISOString(),
         });
       }
@@ -655,7 +669,7 @@ export class DashboardService {
     }> = await this.dataSource.query(
       `
       SELECT
-        slot."currentVin" AS vin,
+        slot.current_vin AS vin,
         MIN(COALESCE(slot.assigned_at, slot.updated_at)) AS occurred_at,
         jsonb_agg(
           jsonb_build_object(
@@ -666,12 +680,12 @@ export class DashboardService {
             'yardCode', yard.code,
             'yardName', yard.name,
             'slotId', slot.id,
-            'slotCode', slot.code,
+            'slotCode', zone.code || '-' || LPAD(slot."line"::text, 2, '0') || '-' || LPAD(slot."row"::text, 2, '0'),
             'status', slot.status,
             'assignedAt', slot.assigned_at,
-            'isLocked', slot."isLocked"
+            'isLocked', slot.is_locked
           )
-          ORDER BY organization.code, yard.code, slot.code
+          ORDER BY organization.code, yard.code, zone.code, slot."line", slot."row"
         ) AS slots,
         COALESCE(
           (
@@ -684,7 +698,8 @@ export class DashboardService {
                 'orderStatus', related_order.status,
                 'arrivalStatus', related_vin.arrival_status,
                 'linkedSlotId', related_vin.slot_id,
-                'linkedSlotCode', related_slot.code,
+                'linkedSlotCode',
+                  related_zone.code || '-' || LPAD(related_slot."line"::text, 2, '0') || '-' || LPAD(related_slot."row"::text, 2, '0'),
                 'linkedYardId', related_yard.id,
                 'linkedYardCode', related_yard.code,
                 'linkedYardName', related_yard.name,
@@ -695,29 +710,31 @@ export class DashboardService {
             FROM order_vins related_vin
             JOIN orders related_order ON related_order.id = related_vin.order_id
             LEFT JOIN yard_slots related_slot ON related_slot.id = related_vin.slot_id
+            LEFT JOIN yard_zones related_zone ON related_zone.id = related_slot.zone_id
             LEFT JOIN yards related_yard ON related_yard.id = related_slot.yard_id
-            WHERE related_vin.vin = slot."currentVin"
+            WHERE related_vin.vin = slot.current_vin
               AND related_order.organization_id IN (
                 SELECT scoped_yard.organization_id
                 FROM yard_slots scoped_slot
                 JOIN yards scoped_yard ON scoped_yard.id = scoped_slot.yard_id
                 WHERE scoped_slot.yard_id = ANY($2::uuid[])
                   AND scoped_slot.status = 'OCCUPIED'
-                  AND scoped_slot."currentVin" = slot."currentVin"
+                  AND scoped_slot.current_vin = slot.current_vin
               )
           ),
           '[]'::jsonb
         ) AS related_order_vins
       FROM yard_slots slot
+      JOIN yard_zones zone ON zone.id = slot.zone_id
       JOIN yards yard ON yard.id = slot.yard_id
       JOIN organizations organization ON organization.id = yard.organization_id
       WHERE slot.yard_id = ANY($2::uuid[])
         AND slot.status = 'OCCUPIED'
-        AND slot."currentVin" IS NOT NULL
-      GROUP BY slot."currentVin"
+        AND slot.current_vin IS NOT NULL
+      GROUP BY slot.current_vin
       HAVING COUNT(*) > 1
         AND BOOL_OR(slot.yard_id = ANY($1::uuid[]))
-      ORDER BY slot."currentVin"
+      ORDER BY slot.current_vin
       `,
       [selectedYardIds, comparisonYardIds],
     );
@@ -748,7 +765,7 @@ export class DashboardService {
     }> = await this.dataSource.query(
       `
       SELECT
-        slot."currentVin" AS vin,
+        slot.current_vin AS vin,
         COALESCE(slot.assigned_at, slot.updated_at) AS occurred_at,
         organization.id AS organization_id,
         organization.code AS organization_code,
@@ -757,33 +774,35 @@ export class DashboardService {
         yard.code AS yard_code,
         yard.name AS yard_name,
         slot.id AS slot_id,
-        slot.code AS slot_code,
+        zone.code || '-' || LPAD(slot."line"::text, 2, '0') || '-' || LPAD(slot."row"::text, 2, '0') AS slot_code,
         slot.assigned_at,
-        slot."isLocked" AS is_locked,
+        slot.is_locked AS is_locked,
         effective.id AS effective_order_vin_id,
         effective.order_id AS effective_order_id,
         effective_order."orderCode" AS effective_order_code,
         effective.arrival_status AS effective_arrival_status,
         effective.slot_id AS linked_slot_id,
-        linked_slot.code AS linked_slot_code,
+        linked_zone.code || '-' || LPAD(linked_slot."line"::text, 2, '0') || '-' || LPAD(linked_slot."row"::text, 2, '0') AS linked_slot_code,
         linked_yard.id AS linked_yard_id,
         linked_yard.code AS linked_yard_code,
         linked_yard.name AS linked_yard_name,
         COALESCE(related.records, '[]'::jsonb) AS related_order_vins
       FROM yard_slots slot
+      JOIN yard_zones zone ON zone.id = slot.zone_id
       JOIN yards yard ON yard.id = slot.yard_id
       JOIN organizations organization ON organization.id = yard.organization_id
       LEFT JOIN LATERAL (
         SELECT order_vin.*
         FROM order_vins order_vin
         JOIN orders candidate_order ON candidate_order.id = order_vin.order_id
-        WHERE order_vin.vin = slot."currentVin"
+        WHERE order_vin.vin = slot.current_vin
           AND candidate_order.organization_id = yard.organization_id
         ORDER BY order_vin.updated_at DESC, order_vin.id DESC
         LIMIT 1
       ) effective ON true
       LEFT JOIN orders effective_order ON effective_order.id = effective.order_id
       LEFT JOIN yard_slots linked_slot ON linked_slot.id = effective.slot_id
+      LEFT JOIN yard_zones linked_zone ON linked_zone.id = linked_slot.zone_id
       LEFT JOIN yards linked_yard ON linked_yard.id = linked_slot.yard_id
       LEFT JOIN LATERAL (
         SELECT jsonb_agg(
@@ -795,7 +814,8 @@ export class DashboardService {
             'orderStatus', candidate_order.status,
             'arrivalStatus', order_vin.arrival_status,
             'linkedSlotId', order_vin.slot_id,
-            'linkedSlotCode', candidate_slot.code,
+            'linkedSlotCode',
+              candidate_zone.code || '-' || LPAD(candidate_slot."line"::text, 2, '0') || '-' || LPAD(candidate_slot."row"::text, 2, '0'),
             'linkedYardId', candidate_yard.id,
             'linkedYardCode', candidate_yard.code,
             'linkedYardName', candidate_yard.name,
@@ -806,18 +826,19 @@ export class DashboardService {
         FROM order_vins order_vin
         JOIN orders candidate_order ON candidate_order.id = order_vin.order_id
         LEFT JOIN yard_slots candidate_slot ON candidate_slot.id = order_vin.slot_id
+        LEFT JOIN yard_zones candidate_zone ON candidate_zone.id = candidate_slot.zone_id
         LEFT JOIN yards candidate_yard ON candidate_yard.id = candidate_slot.yard_id
-        WHERE order_vin.vin = slot."currentVin"
+        WHERE order_vin.vin = slot.current_vin
           AND candidate_order.organization_id = yard.organization_id
       ) related ON true
       WHERE slot.yard_id = ANY($1::uuid[])
         AND slot.status = 'OCCUPIED'
-        AND slot."currentVin" IS NOT NULL
+        AND slot.current_vin IS NOT NULL
         AND (
           effective.id IS NULL
           OR effective.slot_id IS DISTINCT FROM slot.id
         )
-      ORDER BY organization.code, yard.code, slot.code
+      ORDER BY organization.code, yard.code, zone.code, slot."line", slot."row"
       `,
       [selectedYardIds],
     );

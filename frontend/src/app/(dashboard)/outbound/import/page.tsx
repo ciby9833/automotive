@@ -65,7 +65,7 @@ export default function OutboundImportPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    customersApi.list().then(setCustomers).catch(() => undefined);
+    customersApi.list().then((items) => setCustomers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
   }, [activeOrgId]);
 
   const uploadProps: UploadProps = {

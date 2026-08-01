@@ -1,4 +1,5 @@
 import { apiClient, unwrap } from './client';
+import type { PartnerStatus } from './carriers';
 
 export interface CustomerAddress {
   id: string;
@@ -22,7 +23,7 @@ export interface Customer {
   contactName: string | null;
   contactPhone: string | null;
   email: string | null;
-  isActive: boolean;
+  status: PartnerStatus;
   addresses?: CustomerAddress[];
 }
 
@@ -48,6 +49,20 @@ export const customersApi = {
     contactPhone?: string;
     email?: string;
   }) => unwrap<Customer>(apiClient.post('/customers', dto)),
+  update: (
+    id: string,
+    dto: Partial<{
+      name: string;
+      contactName: string | null;
+      contactPhone: string | null;
+      email: string | null;
+      quotationNote: string | null;
+    }>,
+  ) => unwrap<Customer>(apiClient.patch(`/customers/${id}`, dto)),
+  setStatus: (id: string, status: PartnerStatus) =>
+    unwrap<{ customer: Customer; inflightCount: number }>(
+      apiClient.patch(`/customers/${id}/status`, { status }),
+    ),
   addAddress: (customerId: string, dto: CustomerAddressPayload) =>
     unwrap<CustomerAddress>(
       apiClient.post(`/customers/${customerId}/addresses`, dto),

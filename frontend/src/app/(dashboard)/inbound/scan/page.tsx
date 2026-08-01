@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Alert,
   Button,
@@ -26,6 +26,7 @@ import { SlotPicker } from '@/components/scan/SlotPicker';
 import { PhotoUpload } from '@/components/scan/PhotoUpload';
 import { useAuthStore } from '@/lib/auth/store';
 import { useTranslation } from '@/i18n/useTranslation';
+import { formatSlotCode } from '@/lib/slots';
 
 // 场地业务员 H5 入库扫描页
 // 流程: 选/建批次 → 扫 VIN → 扫库位 → 车检信息(电量/里程/外观) → 拍照 → 确认入库
@@ -40,10 +41,17 @@ export default function InboundScanPage() {
 
   const [stage, setStage] = useState<'vin' | 'slot' | 'confirm' | 'done'>('vin');
   const [vin, setVin] = useState<string>('');
-  // slot 选择：两种模式互斥。auto 用 zoneCode，manual 用 slotCode
+  // slot 选择：两种模式互斥。auto 用 zoneId，manual 用 slotId。
   const [assignMode, setAssignMode] = useState<'auto' | 'manual'>('auto');
-  const [slotCode, setSlotCode] = useState<string>('');
-  const [zoneCode, setZoneCode] = useState<string>('');
+  const [selectedSlot, setSelectedSlot] = useState<YardSlot | null>(null);
+  const [zoneId, setZoneId] = useState<string>('');
+  const [zones, setZones] = useState<Array<{
+    id: string;
+    code: string;
+    name: string | null;
+    lineCount: number;
+    rowCount: number;
+  }>>([]);
   const [slots, setSlots] = useState<YardSlot[]>([]);
   const [assignedSlotCode, setAssignedSlotCode] = useState<string>('');
   const [battery, setBattery] = useState<number | null>(null);
@@ -64,7 +72,7 @@ export default function InboundScanPage() {
 
   useEffect(() => {
     yardsApi.list().then(setYards).catch(() => undefined);
-    customersApi.list().then(setCustomers).catch(() => undefined);
+    customersApi.list().then((items) => setCustomers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -72,28 +80,24 @@ export default function InboundScanPage() {
     inboundApi.listBatches(selectedYardId).then(setBatches).catch(() => undefined);
     // 拉本场地全 slots 用于 zone 下拉 + 手动模式 SlotPicker (SlotPicker 内部自己会拉，这里冗余无所谓)
     yardsApi.slots(selectedYardId).then(setSlots).catch(() => undefined);
+    yardsApi.listActiveZones(selectedYardId).then(setZones).catch(() => undefined);
   }, [selectedYardId]);
 
-  // 从 slot code 前缀提取 zone 列表 (如 'A-01' → 'A')；未来若加正式 zone 表再切换
-  const zoneOptions = useMemo(() => {
-    const set = new Set<string>();
-    for (const s of slots) {
-      const m = s.code.match(/^([A-Za-z0-9]+)[-_ ]/);
-      if (m) set.add(m[1].toUpperCase());
-    }
-    return Array.from(set).sort().map((z) => {
+  const zoneOptions = zones.map((zone) => {
       const vacant = slots.filter(
-        (s) => s.code.startsWith(`${z}-`) && s.status === 'VACANT' && !s.isLocked,
+        (s) => s.zoneId === zone.id && s.status === 'VACANT' && !s.isLocked,
       ).length;
-      return { value: z, label: `${z} 区 · ${vacant} 个空位` };
+      return {
+        value: zone.id,
+        label: `${zone.code}${zone.name ? ` · ${zone.name}` : ''} · ${vacant} 个空位`,
+      };
     });
-  }, [slots]);
 
   const resetScan = () => {
     setStage('vin');
     setVin('');
-    setSlotCode('');
-    setZoneCode('');
+    setSelectedSlot(null);
+    setZoneId('');
     setAssignedSlotCode('');
     setBattery(null);
     setMileage(null);
@@ -108,14 +112,14 @@ export default function InboundScanPage() {
   };
 
   // 手动模式：SlotPicker 选中 → 直接进 confirm
-  const onSlotPicked = (s: string) => {
-    setSlotCode(s);
+  const onSlotPicked = (slot: YardSlot) => {
+    setSelectedSlot(slot);
     setStage('confirm');
   };
 
   // 自动模式：确认所选 zone → 进 confirm (真正的 slot 到 submit 时后端才决定)
   const onZoneConfirmed = () => {
-    if (!zoneCode) {
+    if (!zoneId) {
       message.warning(t('inbound.scan.pickZoneFirst'));
       return;
     }
@@ -149,8 +153,8 @@ export default function InboundScanPage() {
 
   const confirm = async () => {
     if (!vin) return;
-    if (assignMode === 'manual' && !slotCode) return;
-    if (assignMode === 'auto' && !zoneCode) return;
+    if (assignMode === 'manual' && !selectedSlot) return;
+    if (assignMode === 'auto' && !zoneId) return;
     if (photos.length === 0) {
       message.warning(t('inbound.scan.needPhoto'));
       return;
@@ -163,14 +167,14 @@ export default function InboundScanPage() {
       if (exterior) check.exterior = exterior;
       const result = await inboundApi.inboundScan({
         vin,
-        ...(assignMode === 'manual' ? { slotCode } : { zoneCode }),
+        ...(assignMode === 'manual' ? { slotId: selectedSlot!.id } : { zoneId }),
         inboundBatchId: selectedBatchId ?? undefined,
         vehicleCheckInfo: Object.keys(check).length > 0 ? check : undefined,
         photoUrls: photos,
         remark: remark || undefined,
       });
       // 自动模式：记录后端实际分配的 slot code，done 阶段展示
-      setAssignedSlotCode(result.slot?.code ?? '');
+      setAssignedSlotCode(result.slot ? formatSlotCode(result.slot) : '');
       setStage('done');
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
@@ -220,15 +224,14 @@ export default function InboundScanPage() {
         color: values.color,
         vehicleType: values.vehicleType,
         motorNo: values.motorNo,
-        // 显式带上当前场地，避免后端 zoneCode 模式下 HQ_ADMIN 无法解析目的仓
-        yardId: selectedYardId ?? undefined,
-        ...(assignMode === 'manual' ? { slotCode } : { zoneCode }),
+        yardId: selectedYardId!,
+        ...(assignMode === 'manual' ? { slotId: selectedSlot!.id } : { zoneId }),
         inboundBatchId: selectedBatchId ?? undefined,
         vehicleCheckInfo: Object.keys(check).length > 0 ? check : undefined,
         photoUrls: photos,
         remark: remark || undefined,
       });
-      setAssignedSlotCode(result.slot?.code ?? '');
+      setAssignedSlotCode(result.slot ? formatSlotCode(result.slot) : '');
       setUnexpectedOpen(false);
       unexpectedForm.resetFields();
       setStage('done');
@@ -326,8 +329,8 @@ export default function InboundScanPage() {
                 size="large"
                 showSearch
                 placeholder={t('inbound.scan.zonePlaceholder')}
-                value={zoneCode || undefined}
-                onChange={setZoneCode}
+                value={zoneId || undefined}
+                onChange={setZoneId}
                 options={zoneOptions}
               />
               <div
@@ -345,7 +348,7 @@ export default function InboundScanPage() {
                   type="primary"
                   size="large"
                   block
-                  disabled={!zoneCode}
+                  disabled={!zoneId}
                   onClick={onZoneConfirmed}
                 >
                   {t('inbound.scan.confirmZone')}
@@ -375,10 +378,12 @@ export default function InboundScanPage() {
             </Descriptions.Item>
             <Descriptions.Item label={t('inbound.scan.slot')}>
               {assignMode === 'manual' ? (
-                <Tag color="green">{slotCode}</Tag>
+                <Tag color="green">{selectedSlot ? formatSlotCode(selectedSlot) : '—'}</Tag>
               ) : (
                 <span>
-                  <Tag color="blue">{zoneCode} 区</Tag>
+                  <Tag color="blue">
+                    {zones.find((zone) => zone.id === zoneId)?.code ?? '—'} 区
+                  </Tag>
                   <span style={{ fontSize: 12, color: '#94a3b8' }}>
                     {t('inbound.scan.autoAssignNote')}
                   </span>
@@ -463,7 +468,9 @@ export default function InboundScanPage() {
             <div style={{ color: '#64748b' }}>
               {vin} →{' '}
               <Tag color="green">
-                {assignMode === 'manual' ? slotCode : assignedSlotCode || zoneCode}
+                {assignMode === 'manual'
+                  ? selectedSlot ? formatSlotCode(selectedSlot) : '—'
+                  : assignedSlotCode || zones.find((zone) => zone.id === zoneId)?.code}
               </Tag>
               {assignMode === 'auto' && assignedSlotCode && (
                 <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 6 }}>

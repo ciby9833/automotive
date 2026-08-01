@@ -37,6 +37,7 @@ import {
   OrderVinArrivalStatus,
 } from '@/lib/api/inbound';
 import { useTranslation } from '@/i18n/useTranslation';
+import { formatSlotCode } from '@/lib/slots';
 import {
   EvidenceViewer,
   EvidenceSectionData,
@@ -115,7 +116,7 @@ function buildEvidenceSections(
         },
         {
           label: t('inbound.detail.evidence.slot'),
-          value: vin.slot?.code ?? null,
+          value: vin.slot ? formatSlotCode(vin.slot) : null,
         },
         {
           label: t('inbound.detail.evidence.staff'),
@@ -537,7 +538,7 @@ export function InboundOrderDetail({ id }: { id: string }) {
               title: t('inbound.detail.slot'),
               render: (_: unknown, r: InboundOrderVinDetail) =>
                 r.slot ? (
-                  <Tag color="green">{r.slot.code}</Tag>
+                  <Tag color="green">{formatSlotCode(r.slot)}</Tag>
                 ) : (
                   <span style={{ color: '#94a3b8' }}>-</span>
                 ),

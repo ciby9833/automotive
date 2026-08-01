@@ -108,7 +108,7 @@ export class TrackingService {
     const [opLogs, scanLogs] = await Promise.all([
       this.opLogsRepository.find({
         where: { vin },
-        relations: ['operator', 'yard', 'slot'],
+        relations: ['operator', 'yard', 'slot', 'slot.zone'],
         order: { eventAt: 'ASC' },
       }),
       this.logsRepository.find({
@@ -123,7 +123,7 @@ export class TrackingService {
   async timelineByOrderId(orderId: string): Promise<TimelineEntry[]> {
     const opLogs = await this.opLogsRepository.find({
       where: { orderId },
-      relations: ['operator', 'yard', 'slot'],
+      relations: ['operator', 'yard', 'slot', 'slot.zone'],
       order: { eventAt: 'ASC' },
     });
     // waybill_status_logs 没直接挂 orderId；如果需要按订单聚合运单事件，取其 VIN 列表再回查
@@ -161,7 +161,15 @@ export class TrackingService {
         yard: o.yard
           ? { id: o.yard.id, name: o.yard.name, code: o.yard.code }
           : null,
-        slot: o.slot ? { id: o.slot.id, code: o.slot.code } : null,
+        slot: o.slot
+          ? {
+              id: o.slot.id,
+              // 只有加载了 zone relation 时才能计算 code；其余场景 code=''
+              code: o.slot.zone
+                ? `${o.slot.zone.code}-${String(o.slot.line).padStart(2, '0')}-${String(o.slot.row).padStart(2, '0')}`
+                : '',
+            }
+          : null,
         operator: o.operator
           ? { id: o.operator.id, displayName: o.operator.displayName }
           : null,

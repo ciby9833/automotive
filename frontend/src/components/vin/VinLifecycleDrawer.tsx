@@ -21,6 +21,7 @@ import {
   EvidenceSectionData,
 } from '@/components/evidence/EvidenceViewer';
 import { useTranslation } from '@/i18n/useTranslation';
+import { formatSlotCode } from '@/lib/slots';
 
 interface Props {
   vin: string | null;
@@ -100,7 +101,7 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
             },
             {
               label: t('vinLifecycle.slot'),
-              value: orderVin.slot?.code ?? null,
+              value: orderVin.slot ? formatSlotCode(orderVin.slot) : null,
             },
             {
               label: t('vinLifecycle.staff'),
@@ -170,7 +171,7 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
                 <Descriptions.Item label={t('vinLifecycle.currentSlot')}>
                   {orderVin.slot ? (
                     <Tag color="green">
-                      {orderVin.slot.yard?.code}·{orderVin.slot.code}
+                      {orderVin.slot.yard?.code}·{formatSlotCode(orderVin.slot)}
                     </Tag>
                   ) : (
                     '-'

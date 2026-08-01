@@ -28,12 +28,6 @@ export class PlanWaybillDto {
   @IsUUID('4', { each: true })
   orderVinIds: string[];
 
-  // 兼容旧客户端：接受但服务端不信任，最终始发仓一律以 slot.yard 为准
-  @ApiProperty({ required: false, deprecated: true, description: '已废弃：始发仓由 VIN 当前库位自动推导' })
-  @IsOptional()
-  @IsUUID()
-  originYardId?: string;
-
   @ApiProperty({ description: '承运商' })
   @IsUUID()
   carrierId: string;

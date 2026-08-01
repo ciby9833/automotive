@@ -9,9 +9,11 @@ export interface DashboardMetric {
 export interface DashboardSlot {
   id: string;
   yardId: string;
-  code: string;
-  row: string | null;
-  slotNo: string | null;
+  zoneId: string;
+  zoneCode: string;
+  zoneName: string | null;
+  line: number;
+  row: number;
   status: "VACANT" | "OCCUPIED" | "LONG_STAY" | "LOCKED";
   currentVin: string | null;
   assignedAt: string | null;

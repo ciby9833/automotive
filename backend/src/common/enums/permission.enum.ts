@@ -10,9 +10,7 @@ export enum Permission {
 
   // 场地/库位 配置 (系统管理，仅 ORG_ADMIN+)
   SETUP_YARD_CRUD = 'setup:yard-crud',
-  SETUP_SLOT_CRUD = 'setup:slot-crud',
-  SETUP_SLOT_IMPORT = 'setup:slot-import',
-  SETUP_SLOT_DELETE = 'setup:slot-delete',
+  SETUP_ZONE_CRUD = 'setup:zone-crud', // Yard→Zone→Slot 三层里的 Zone 管理
 
   // 运输计划
   ORDER_VIEW = 'order:view',

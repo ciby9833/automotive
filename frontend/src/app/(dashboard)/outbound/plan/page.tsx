@@ -32,6 +32,7 @@ import { yardsApi, Yard } from '@/lib/api/yards';
 import { carriersApi, Carrier } from '@/lib/api/carriers';
 import { DriverVehiclePicker } from '@/components/carriers/DriverVehiclePicker';
 import { useTranslation } from '@/i18n/useTranslation';
+import { formatSlotCode } from '@/lib/slots';
 
 // 出库开单：从库存里选 VIN → 分配供应商 → 生成运单
 // 业务规则：一张运单只能派往同一经销店 (后端校验，前端做同经销店过滤引导)
@@ -73,9 +74,9 @@ function OutboundPlanInner() {
   const [manualDealerId, setManualDealerId] = useState<string | undefined>();
 
   useEffect(() => {
-    customersApi.list().then(setCustomers).catch(() => undefined);
+    customersApi.list().then((items) => setCustomers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
     yardsApi.list().then(setYards).catch(() => undefined);
-    carriersApi.list().then(setCarriers).catch(() => undefined);
+    carriersApi.list().then((items) => setCarriers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
     // 下拉展示所有出库单：走 all=true 绕过分页
     outboundApi.listOrders({ all: true }).then((res) => setOutboundOrders(res.items)).catch(() => undefined);
   }, []);
@@ -501,7 +502,7 @@ function OutboundPlanInner() {
                     render: (_, r) =>
                       r.slot ? (
                         <Tag color="green">
-                          {r.slot.yard?.code}·{r.slot.code}
+                          {r.slot.yard?.code}·{formatSlotCode(r.slot)}
                         </Tag>
                       ) : (
                         '-'

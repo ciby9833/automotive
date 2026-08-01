@@ -1,6 +1,7 @@
 import { Column, Entity, OneToMany } from 'typeorm';
 import { OrgScopedEntity } from '../../../common/entities/org-scoped.entity';
 import { CustomerAddress } from './customer-address.entity';
+import { PartnerStatus } from '../../../common/enums/partner-status.enum';
 
 // 客户归属单一机构（同一集团在不同机构的客户视为不同记录，如 BYD Indonesia / BYD Malaysia）
 @Entity('customers')
@@ -22,8 +23,14 @@ export class Customer extends OrgScopedEntity {
   @Column({ type: 'text', nullable: true })
   quotationNote: string;
 
-  @Column({ default: true })
-  isActive: boolean;
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: PartnerStatus,
+    enumName: 'partner_status_enum',
+    default: PartnerStatus.ACTIVE,
+  })
+  status: PartnerStatus;
 
   @OneToMany(() => CustomerAddress, (address) => address.customer)
   addresses: CustomerAddress[];

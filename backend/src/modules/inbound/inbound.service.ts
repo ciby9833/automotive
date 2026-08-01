@@ -16,6 +16,8 @@ import {
   YardSlot,
   YardSlotStatus,
 } from '../yards/entities/yard-slot.entity';
+import { YardZone } from '../yards/entities/yard-zone.entity';
+import { formatSlotCode } from '../yards/slot-code.util';
 import { TransportType } from '../../common/enums/order-type.enum';
 import { OrderStatus } from '../../common/enums/order-status.enum';
 import { OrderPickupStatus } from '../../common/enums/order-pickup-status.enum';
@@ -34,6 +36,8 @@ import { RegisterUnexpectedVinDto } from './dto/register-unexpected-vin.dto';
 import { AssignPickupDto } from './dto/assign-pickup.dto';
 import { PickupOrderScanDto } from './dto/pickup-order-scan.dto';
 import { Carrier } from '../carriers/entities/carrier.entity';
+import { Customer } from '../customers/entities/customer.entity';
+import { PartnerStatus } from '../../common/enums/partner-status.enum';
 import { User } from '../users/entities/user.entity';
 import { PickupScanDto } from './dto/pickup-scan.dto';
 import { InboundScanDto, CreateInboundBatchDto } from './dto/inbound-scan.dto';
@@ -58,6 +62,10 @@ export class InboundService {
     private readonly yardRepo: Repository<Yard>,
     @InjectRepository(YardSlot)
     private readonly slotRepo: Repository<YardSlot>,
+    @InjectRepository(Customer)
+    private readonly customersRepo: Repository<Customer>,
+    @InjectRepository(Carrier)
+    private readonly carriersRepo: Repository<Carrier>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
     private readonly audit: AuditService,
@@ -76,6 +84,11 @@ export class InboundService {
     });
     if (!yard) throw new NotFoundException('目的仓不存在');
     this.scopeService.assertOrgWritable(scope, yard.organizationId);
+    const customer = await this.customersRepo.findOne({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('客户不存在');
+    if (customer.status !== PartnerStatus.ACTIVE) {
+      throw new BadRequestException('客户当前未开放新增业务');
+    }
 
     // 入参内先自我去重
     const seen = new Set<string>();
@@ -379,6 +392,7 @@ export class InboundService {
       .leftJoinAndSelect('v.cancelledByUser', 'cancelledByUser')
       .leftJoinAndSelect('v.slot', 'slot')
       .leftJoinAndSelect('slot.yard', 'slotYard')
+      .leftJoinAndSelect('slot.zone', 'slotZone')
       .leftJoinAndSelect('v.inboundBatch', 'inboundBatch')
       .where('v.orderId = :id', { id })
       .orderBy('v.vin', 'ASC');
@@ -466,45 +480,48 @@ export class InboundService {
     return saved;
   }
 
-  // ============ 自动分配：在 zone 内挑最优空位 ============
+  // ============ 自动分配：在指定 zone 内挑最优空位 ============
   // 规则：同 model+color 相邻优先（同型号同色车尽量停一起，便于装车集中）
-  //      找不到相邻则按 slotNo 升序取第一个空位
-  //      slotNo 保持前导零对齐 (如 '01' 相邻是 '02'，不是 '2')
+  //      "相邻" = 同一 line 上 row±1（一排的物理相邻）
+  //      找不到相邻则按 (line, row) 升序取第一个空位
   private async pickAutoSlot(
     mgr: EntityManager,
     opts: {
-      yardId: string | undefined;
-      zoneCode: string;
+      yardId: string;
+      zoneId: string;
       preferModel: string | null;
       preferColor: string | null;
     },
   ): Promise<YardSlot | null> {
     const slotRepo = mgr.getRepository(YardSlot);
+    const zoneRepo = mgr.getRepository(YardZone);
 
-    const vacantQb = slotRepo
+    const zone = await zoneRepo.findOne({
+      where: { id: opts.zoneId, yardId: opts.yardId, isActive: true },
+    });
+    if (!zone) return null;
+
+    const vacantSlots = await slotRepo
       .createQueryBuilder('s')
       .where('s.status = :vacant', { vacant: YardSlotStatus.VACANT })
-      .andWhere('s."isLocked" = false')
-      .andWhere('s.code LIKE :prefix', { prefix: `${opts.zoneCode}-%` })
-      .orderBy('s."slotNo"', 'ASC');
-    if (opts.yardId) {
-      vacantQb.andWhere('s.yard_id = :yid', { yid: opts.yardId });
-    }
-    const vacantSlots = await vacantQb.getMany();
+      .andWhere('s.is_locked = false')
+      .andWhere('s.zone_id = :zid', { zid: zone.id })
+      .orderBy('s."line"', 'ASC')
+      .addOrderBy('s."row"', 'ASC')
+      .setLock('pessimistic_write')
+      .setOnLocked('skip_locked')
+      .getMany();
     if (vacantSlots.length === 0) return null;
+    // pickAutoSlot 的调用点会用 slot.zone 拼展示码/日志，必须显式挂上
+    for (const s of vacantSlots) s.zone = zone;
 
-    // 无偏好 → 直接第一个
     if (!opts.preferModel && !opts.preferColor) return vacantSlots[0];
 
-    // 找同型号+同色的已占用位（通过 slot.currentVin 关联到 order_vin）
     const sameStyleQb = slotRepo
       .createQueryBuilder('s')
-      .innerJoin(OrderVin, 'ov', 'ov.vin = s."currentVin"')
+      .innerJoin(OrderVin, 'ov', 'ov.vin = s.current_vin')
       .where('s.status = :occupied', { occupied: YardSlotStatus.OCCUPIED })
-      .andWhere('s.code LIKE :prefix', { prefix: `${opts.zoneCode}-%` });
-    if (opts.yardId) {
-      sameStyleQb.andWhere('s.yard_id = :yid', { yid: opts.yardId });
-    }
+      .andWhere('s.zone_id = :zid', { zid: zone.id });
     if (opts.preferModel) {
       sameStyleQb.andWhere('ov.model = :m', { m: opts.preferModel });
     }
@@ -514,19 +531,32 @@ export class InboundService {
     const sameStyleSlots = await sameStyleQb.getMany();
     if (sameStyleSlots.length === 0) return vacantSlots[0];
 
-    // 相邻优先：slotNo 前后各 1，命中就返回
-    const vacantByNo = new Map(vacantSlots.map((s) => [s.slotNo, s]));
+    const vacantByLineRow = new Map(
+      vacantSlots.map((s) => [`${s.line}:${s.row}`, s]),
+    );
     for (const occ of sameStyleSlots) {
-      if (!occ.slotNo) continue;
-      const num = parseInt(occ.slotNo, 10);
-      if (isNaN(num)) continue;
-      const width = occ.slotNo.length;
-      const next = String(num + 1).padStart(width, '0');
-      const prev = String(num - 1).padStart(width, '0');
-      if (vacantByNo.has(next)) return vacantByNo.get(next)!;
-      if (vacantByNo.has(prev)) return vacantByNo.get(prev)!;
+      const next = vacantByLineRow.get(`${occ.line}:${occ.row + 1}`);
+      if (next) return next;
+      const prev = vacantByLineRow.get(`${occ.line}:${occ.row - 1}`);
+      if (prev) return prev;
     }
     return vacantSlots[0];
+  }
+
+  private async findSlotById(
+    mgr: EntityManager,
+    slotId: string,
+    yardId: string,
+  ): Promise<YardSlot | null> {
+    const slot = await mgr
+      .getRepository(YardSlot)
+      .createQueryBuilder('slot')
+      .innerJoinAndSelect('slot.zone', 'zone')
+      .where('slot.id = :slotId', { slotId })
+      .andWhere('slot.yard_id = :yardId', { yardId })
+      .setLock('pessimistic_write', undefined, ['slot'])
+      .getOne();
+    return slot?.zone.isActive ? slot : null;
   }
 
   // ============ 入库扫描 (场地业务员) ============
@@ -565,39 +595,39 @@ export class InboundService {
         }
       }
 
-      // 找库位：slotCode 手动指定优先，否则 zoneCode 自动分配
-      if (!dto.slotCode && !dto.zoneCode) {
-        throw new BadRequestException('必须提供 slotCode (手动) 或 zoneCode (自动)');
+      // 找库位：slotId 手动指定优先，否则 zoneId 自动分配。
+      if (!dto.slotId && !dto.zoneId) {
+        throw new BadRequestException('必须提供 slotId (手动) 或 zoneId (自动)');
       }
       const destYardId = vin.order?.destinationYardId ?? undefined;
+      if (!destYardId) {
+        throw new BadRequestException('订单缺少目的场地，无法分配库位');
+      }
       let slot: YardSlot | null;
-      if (dto.slotCode) {
-        slot = await mgr.findOne(YardSlot, {
-          where: destYardId
-            ? { code: dto.slotCode, yardId: destYardId }
-            : { code: dto.slotCode },
-        });
+      if (dto.slotId) {
+        slot = await this.findSlotById(mgr, dto.slotId, destYardId);
         if (!slot)
-          throw new NotFoundException(`目的仓里未找到库位 ${dto.slotCode}`);
+          throw new NotFoundException('目的场地里未找到指定库位');
       } else {
         slot = await this.pickAutoSlot(mgr, {
           yardId: destYardId,
-          zoneCode: dto.zoneCode!,
+          zoneId: dto.zoneId!,
           preferModel: vin.model ?? null,
           preferColor: vin.color ?? null,
         });
         if (!slot)
-          throw new NotFoundException(
-            `区域 ${dto.zoneCode} 里没有可用空位`,
-          );
+          throw new NotFoundException('指定区域里没有可用空位');
       }
+      const slotDisplay = slot.zone
+        ? formatSlotCode(slot.zone.code, slot.line, slot.row)
+        : '?';
       if (slot.status === YardSlotStatus.OCCUPIED) {
         throw new BadRequestException(
-          `库位 ${slot.code} 已被 ${slot.currentVin} 占用`,
+          `库位 ${slotDisplay} 已被 ${slot.currentVin} 占用`,
         );
       }
       if (slot.isLocked) {
-        throw new BadRequestException(`库位 ${slot.code} 已锁定`);
+        throw new BadRequestException(`库位 ${slotDisplay} 已锁定`);
       }
 
       // 校验批次
@@ -627,11 +657,13 @@ export class InboundService {
       vin.arrivalPhotoUrls = dto.photoUrls;
       vin.vehicleCheckInfo = dto.vehicleCheckInfo ?? null;
       vin.arrivalRemark = dto.remark ?? null;
-      // 把关系对象也塞进去，前端拿返回值就能读 slot.code（否则要再查一次接口）
       vin.slot = slot;
       return mgr.save(vin);
     });
 
+    const savedSlotCode = saved.slot?.zone
+      ? formatSlotCode(saved.slot.zone.code, saved.slot.line, saved.slot.row)
+      : null;
     await this.audit.log({
       operationType: OperationType.INBOUND_SCAN,
       orderId: saved.orderId,
@@ -642,7 +674,7 @@ export class InboundService {
       operatorUserId: user.userId,
       eventAt: saved.arrivedAt ?? new Date(),
       payload: {
-        slotCode: saved.slot?.code ?? null,
+        slotCode: savedSlotCode,
         vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
         remark: dto.remark ?? null,
       },
@@ -662,6 +694,11 @@ export class InboundService {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('入库扫描仅内部场地业务员可执行');
     }
+    const customer = await this.customersRepo.findOne({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('客户不存在');
+    if (customer.status !== PartnerStatus.ACTIVE) {
+      throw new BadRequestException('客户当前未开放新增业务');
+    }
 
     // 已存在同 VIN 直接拒绝，让业务员走标准入库扫描
     const existing = await this.orderVinsRepo.findOne({ where: { vin: dto.vin } });
@@ -671,21 +708,7 @@ export class InboundService {
       );
     }
 
-    // 目的仓解析优先级：dto.yardId 显式传 → slotCode 反查 → YARD_STAFF scopeYardId 兜底
-    let yardId: string | undefined = dto.yardId;
-    if (!yardId && dto.slotCode) {
-      const slot = await this.slotRepo.findOne({ where: { code: dto.slotCode } });
-      if (!slot) throw new NotFoundException(`库位 ${dto.slotCode} 不存在`);
-      yardId = slot.yardId;
-    }
-    if (!yardId && scope.role === Role.YARD_STAFF && scope.scopeYardId) {
-      yardId = scope.scopeYardId;
-    }
-    if (!yardId) {
-      throw new BadRequestException(
-        '无法确定目的场地：请传 yardId、slotCode 或以场地业务员身份登录',
-      );
-    }
+    const yardId = dto.yardId;
     const yard = await this.yardRepo.findOne({ where: { id: yardId } });
     if (!yard) throw new NotFoundException('目的场地不存在');
     this.scopeService.assertOrgWritable(scope, yard.organizationId);
@@ -732,35 +755,36 @@ export class InboundService {
       } as Partial<OrderVin>);
       const vin = await vinRepo.save(vinEntity);
 
-      // 找库位：slotCode > zoneCode，与 inboundScan 语义一致
-      if (!dto.slotCode && !dto.zoneCode) {
+      // 找库位：slotId > zoneId，与 inboundScan 语义一致。
+      if (!dto.slotId && !dto.zoneId) {
         throw new BadRequestException(
-          '必须提供 slotCode (手动) 或 zoneCode (自动)',
+          '必须提供 slotId (手动) 或 zoneId (自动)',
         );
       }
       let slot: YardSlot | null;
-      if (dto.slotCode) {
-        slot = await slotRepo.findOne({
-          where: { code: dto.slotCode, yardId },
-        });
-        if (!slot) throw new NotFoundException(`库位 ${dto.slotCode} 不存在`);
+      if (dto.slotId) {
+        slot = await this.findSlotById(mgr, dto.slotId, yardId);
+        if (!slot) throw new NotFoundException('指定库位不存在');
       } else {
         slot = await this.pickAutoSlot(mgr, {
           yardId,
-          zoneCode: dto.zoneCode!,
+          zoneId: dto.zoneId!,
           preferModel: vin.model ?? null,
           preferColor: vin.color ?? null,
         });
         if (!slot)
-          throw new NotFoundException(`区域 ${dto.zoneCode} 里没有可用空位`);
+          throw new NotFoundException('指定区域里没有可用空位');
       }
+      const slotDisplay = slot.zone
+        ? formatSlotCode(slot.zone.code, slot.line, slot.row)
+        : '?';
       if (slot.status === YardSlotStatus.OCCUPIED) {
         throw new BadRequestException(
-          `库位 ${slot.code} 已被 ${slot.currentVin} 占用`,
+          `库位 ${slotDisplay} 已被 ${slot.currentVin} 占用`,
         );
       }
       if (slot.isLocked) {
-        throw new BadRequestException(`库位 ${slot.code} 已锁定`);
+        throw new BadRequestException(`库位 ${slotDisplay} 已锁定`);
       }
 
       // 校验批次
@@ -803,7 +827,9 @@ export class InboundService {
       payload: {
         strayOrderCode,
         customerId: dto.customerId,
-        slotCode: saved.slot?.code ?? null,
+        slotCode: saved.slot?.zone
+          ? formatSlotCode(saved.slot.zone.code, saved.slot.line, saved.slot.row)
+          : null,
         brand: dto.brand ?? null,
         model: dto.model ?? null,
         color: dto.color ?? null,
@@ -1082,6 +1108,12 @@ export class InboundService {
     if (order.status !== OrderStatus.CANCELLED) {
       throw new BadRequestException('只有已取消的订单可以重新导入 VIN');
     }
+    const customer = await this.customersRepo.findOne({
+      where: { id: order.customerId },
+    });
+    if (!customer || customer.status !== PartnerStatus.ACTIVE) {
+      throw new BadRequestException('客户当前未开放新增业务，不能重新激活订单');
+    }
     // 去重 + 冲突预检 (复用同 importInboundOrder 里的语义)
     const seen = new Set<string>();
     const uniqueVins = vins.filter((v) => {
@@ -1162,10 +1194,13 @@ export class InboundService {
     }
     // 校验 carrier / driver 存在 (null 表示解除)
     if (dto.pickupCarrierId) {
-      const carrier = await this.dataSource
-        .getRepository(Carrier)
-        .findOne({ where: { id: dto.pickupCarrierId } });
+      const carrier = await this.carriersRepo.findOne({
+        where: { id: dto.pickupCarrierId },
+      });
       if (!carrier) throw new NotFoundException('承运商不存在');
+      if (carrier.status !== PartnerStatus.ACTIVE) {
+        throw new BadRequestException('承运商当前未开放新增业务，无法分派');
+      }
     }
     if (dto.pickupDriverUserId) {
       const driverUser = await this.dataSource

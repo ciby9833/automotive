@@ -79,7 +79,13 @@ export interface InboundOrderVinDetail {
   pickupRemark: string | null;
   arrivedAt: string | null;
   arrivedByUser?: { id: string; displayName: string };
-  slot?: { id: string; code: string; yard?: { id?: string; name: string; code: string } };
+  slot?: {
+    id: string;
+    line: number;
+    row: number;
+    zone?: { id: string; code: string; name?: string | null };
+    yard?: { id?: string; name: string; code: string };
+  };
   inboundBatch?: { id: string; batchCode: string };
   arrivalPhotoUrls: string[] | null;
   vehicleCheckInfo: Record<string, string | number> | null;
@@ -177,11 +183,11 @@ export const inboundApi = {
   }) => unwrap<InboundOrderVinDetail>(apiClient.post('/pickup/scan', payload)),
   myPickups: () =>
     unwrap<InboundOrderVinDetail[]>(apiClient.get('/pickup/my')),
-  // slotCode 与 zoneCode 二选一：slotCode 手动指定 / zoneCode 系统自动挑
+  // slotId 与 zoneId 二选一：slotId 手动指定 / zoneId 系统自动挑
   inboundScan: (payload: {
     vin: string;
-    slotCode?: string;
-    zoneCode?: string;
+    slotId?: string;
+    zoneId?: string;
     inboundBatchId?: string;
     vehicleCheckInfo?: Record<string, string | number>;
     photoUrls?: string[];
@@ -196,9 +202,9 @@ export const inboundApi = {
     color?: string;
     vehicleType?: string;
     motorNo?: string;
-    yardId?: string;
-    slotCode?: string;
-    zoneCode?: string;
+    yardId: string;
+    slotId?: string;
+    zoneId?: string;
     inboundBatchId?: string;
     vehicleCheckInfo?: Record<string, string | number>;
     photoUrls: string[];

@@ -2,6 +2,7 @@ package com.automotive.alms.feature.inbound.presentation
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,7 +14,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +37,9 @@ import com.automotive.alms.core.ui.Dimens
 import com.automotive.alms.core.ui.ScreenScaffold
 import com.automotive.alms.feature.inbound.data.InboundRepository
 import com.automotive.alms.feature.inbound.model.InboundScanRequest
+import com.automotive.alms.feature.inbound.model.InboundYard
+import com.automotive.alms.feature.inbound.model.InboundZone
+import com.automotive.alms.feature.inbound.model.displayCode
 import kotlinx.coroutines.launch
 
 @Composable
@@ -42,13 +49,33 @@ fun InboundScanScreen(
 ) {
     val scope = rememberCoroutineScope()
     var vin by remember { mutableStateOf("") }
-    var slotCode by remember { mutableStateOf("") }
-    var zoneCode by remember { mutableStateOf("") }
+    var yards by remember { mutableStateOf<List<InboundYard>>(emptyList()) }
+    var zones by remember { mutableStateOf<List<InboundZone>>(emptyList()) }
+    var selectedYard by remember { mutableStateOf<InboundYard?>(null) }
+    var selectedZone by remember { mutableStateOf<InboundZone?>(null) }
+    var yardMenuOpen by remember { mutableStateOf(false) }
+    var zoneMenuOpen by remember { mutableStateOf(false) }
     var photos by remember { mutableStateOf<List<EvidencePhoto>>(emptyList()) }
     var remark by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(Unit) {
+        runCatching { repository.listYards() }
+            .onSuccess {
+                yards = it
+                if (it.size == 1) selectedYard = it.first()
+            }
+            .onFailure { error = appError(it) }
+    }
+    LaunchedEffect(selectedYard?.id) {
+        val yardId = selectedYard?.id ?: return@LaunchedEffect
+        selectedZone = null
+        runCatching { repository.listZones(yardId) }
+            .onSuccess { zones = it }
+            .onFailure { error = appError(it) }
+    }
 
     ScreenScaffold(title = stringResource(R.string.inbound_scan)) { padding ->
         Column(
@@ -76,20 +103,42 @@ fun InboundScanScreen(
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                     )
-                    OutlinedTextField(
-                        value = slotCode,
-                        onValueChange = { slotCode = it.uppercase() },
-                        label = { Text("库位编码") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = zoneCode,
-                        onValueChange = { zoneCode = it.uppercase() },
-                        label = { Text("区域编码（自动分配时填写）") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Button(onClick = { yardMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedYard?.let { "场地：${it.name ?: it.code}" } ?: "选择场地")
+                        }
+                        DropdownMenu(expanded = yardMenuOpen, onDismissRequest = { yardMenuOpen = false }) {
+                            yards.forEach { yard ->
+                                DropdownMenuItem(
+                                    text = { Text(yard.name ?: yard.code ?: yard.id.orEmpty()) },
+                                    onClick = {
+                                        selectedYard = yard
+                                        yardMenuOpen = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = { zoneMenuOpen = true },
+                            enabled = selectedYard != null,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(selectedZone?.let { "区域：${it.code}${it.name?.let { name -> " · $name" }.orEmpty()}" } ?: "选择自动分配区域")
+                        }
+                        DropdownMenu(expanded = zoneMenuOpen, onDismissRequest = { zoneMenuOpen = false }) {
+                            zones.forEach { zone ->
+                                DropdownMenuItem(
+                                    text = { Text("${zone.code}${zone.name?.let { " · $it" }.orEmpty()}") },
+                                    onClick = {
+                                        selectedZone = zone
+                                        zoneMenuOpen = false
+                                    },
+                                )
+                            }
+                        }
+                    }
                     EvidencePhotoCapture(
                         subject = "入库 VIN ${vin.trim().uppercase()}",
                         operatorName = loginResult.operatorName(),
@@ -114,7 +163,7 @@ fun InboundScanScreen(
                     )
                     Button(
                         enabled = !loading && vin.isNotBlank() &&
-                            (slotCode.isNotBlank() || zoneCode.isNotBlank()) &&
+                            selectedZone != null &&
                             photos.isNotEmpty(),
                         onClick = {
                             loading = true
@@ -125,14 +174,13 @@ fun InboundScanScreen(
                                     repository.scan(
                                         InboundScanRequest(
                                             vin = vin.trim(),
-                                            slotCode = slotCode.trim().ifBlank { null },
-                                            zoneCode = zoneCode.trim().ifBlank { null },
+                                            zoneId = selectedZone!!.id,
                                             photoUrls = photos.map { it.uploadedFile.key },
                                             remark = remark.trim().ifBlank { null },
                                         ),
                                     )
                                 }.onSuccess {
-                                    message = "入库完成：${it.vin} ${it.slot?.code.orEmpty()}"
+                                    message = "入库完成：${it.vin} ${it.slot?.displayCode().orEmpty()}"
                                     vin = ""
                                     photos = emptyList()
                                     remark = ""

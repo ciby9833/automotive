@@ -1,6 +1,7 @@
 import { apiClient, unwrap } from './client';
 
 export type CarrierType = 'EXTERNAL' | 'SELF_OWNED';
+export type PartnerStatus = 'ACTIVE' | 'PAUSED' | 'INACTIVE';
 
 export interface Carrier {
   id: string;
@@ -11,7 +12,7 @@ export interface Carrier {
   contactName: string | null;
   contactPhone: string | null;
   email: string | null;
-  isActive: boolean;
+  status: PartnerStatus;
 }
 
 export interface Driver {
@@ -46,6 +47,22 @@ export const carriersApi = {
     contactPhone?: string;
     email?: string;
   }) => unwrap<Carrier>(apiClient.post('/carriers', dto)),
+  update: (
+    id: string,
+    dto: Partial<{
+      name: string;
+      shortName: string | null;
+      type: CarrierType;
+      contactName: string | null;
+      contactPhone: string | null;
+      email: string | null;
+      quotationNote: string | null;
+    }>,
+  ) => unwrap<Carrier>(apiClient.patch(`/carriers/${id}`, dto)),
+  setStatus: (id: string, status: PartnerStatus) =>
+    unwrap<{ carrier: Carrier; inflightCount: number }>(
+      apiClient.patch(`/carriers/${id}/status`, { status }),
+    ),
   listDrivers: (carrierId: string, includeInactive = false) =>
     unwrap<Driver[]>(
       apiClient.get(`/carriers/${carrierId}/drivers`, {

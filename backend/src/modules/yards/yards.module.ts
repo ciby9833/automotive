@@ -2,10 +2,12 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Yard } from './entities/yard.entity';
 import { YardSlot } from './entities/yard-slot.entity';
+import { YardZone } from './entities/yard-zone.entity';
 import { OrderVin } from '../orders/entities/order-vin.entity';
 import { WaybillVin } from '../waybills/entities/waybill-vin.entity';
 import { WaybillStatusLog } from '../tracking/entities/waybill-status-log.entity';
 import { YardsService } from './yards.service';
+import { ZonesService } from './zones.service';
 import { YardsController } from './yards.controller';
 import { TrackingModule } from '../tracking/tracking.module';
 
@@ -16,6 +18,7 @@ import { TrackingModule } from '../tracking/tracking.module';
     TypeOrmModule.forFeature([
       Yard,
       YardSlot,
+      YardZone,
       OrderVin,
       WaybillVin,
       WaybillStatusLog,
@@ -23,7 +26,7 @@ import { TrackingModule } from '../tracking/tracking.module';
     TrackingModule,
   ],
   controllers: [YardsController],
-  providers: [YardsService],
-  exports: [YardsService],
+  providers: [YardsService, ZonesService],
+  exports: [YardsService, ZonesService],
 })
 export class YardsModule {}

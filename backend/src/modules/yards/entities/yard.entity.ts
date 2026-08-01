@@ -1,6 +1,7 @@
 import { Column, Entity, OneToMany } from 'typeorm';
 import { OrgScopedEntity } from '../../../common/entities/org-scoped.entity';
 import { YardSlot } from './yard-slot.entity';
+import { YardZone } from './yard-zone.entity';
 
 // 场地是可配置实体，不写死"场地A/场地B"，新增场地无需改代码
 // 场地归属机构（总部--机构--仓库），场地本身不再决定币种，币种取机构的 defaultCurrency
@@ -29,4 +30,7 @@ export class Yard extends OrgScopedEntity {
 
   @OneToMany(() => YardSlot, (slot) => slot.yard)
   slots: YardSlot[];
+
+  @OneToMany(() => YardZone, (zone) => zone.yard)
+  zones: YardZone[];
 }

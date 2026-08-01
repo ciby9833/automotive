@@ -3,6 +3,7 @@ import { OrgScopedEntity } from '../../../common/entities/org-scoped.entity';
 import { CarrierType } from '../../../common/enums/carrier-type.enum';
 import { Driver } from './driver.entity';
 import { Vehicle } from './vehicle.entity';
+import { PartnerStatus } from '../../../common/enums/partner-status.enum';
 
 // 供应商/承运商：外部供应商与自营车（未来内部司机）共用同一实体，
 // 用 type 区分，新增内部车队时不需要重建数据结构
@@ -34,8 +35,14 @@ export class Carrier extends OrgScopedEntity {
   @Column({ type: 'text', nullable: true })
   quotationNote: string;
 
-  @Column({ default: true })
-  isActive: boolean;
+  @Column({
+    name: 'status',
+    type: 'enum',
+    enum: PartnerStatus,
+    enumName: 'partner_status_enum',
+    default: PartnerStatus.ACTIVE,
+  })
+  status: PartnerStatus;
 
   @OneToMany(() => Driver, (driver) => driver.carrier)
   drivers: Driver[];

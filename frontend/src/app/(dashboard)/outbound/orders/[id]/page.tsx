@@ -26,6 +26,7 @@ import {
 } from '@/lib/api/outbound';
 import { useTranslation } from '@/i18n/useTranslation';
 import { Permission, usePermission } from '@/lib/auth/permissions';
+import { formatSlotCode } from '@/lib/slots';
 
 // 出库订单详情：订单头 + 关联 VIN 表 + 4 项统计 + 去开单按钮
 // VIN 关联规则：软关联 (客户 + customerOrderNo + dealer_code)，因 OrderVin.orderId 挂的是入库单
@@ -262,7 +263,7 @@ export function OutboundOrderDetail({ id }: { id: string }) {
                 r.slot ? (
                   <Tag color="green">
                     {r.slot.yard?.code ? `${r.slot.yard.code}·` : ''}
-                    {r.slot.code}
+                    {formatSlotCode(r.slot)}
                   </Tag>
                 ) : (
                   <span style={{ color: '#94a3b8' }}>-</span>

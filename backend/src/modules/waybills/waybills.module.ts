@@ -6,6 +6,7 @@ import { OrderVin } from '../orders/entities/order-vin.entity';
 import { YardSlot } from '../yards/entities/yard-slot.entity';
 import { Driver } from '../carriers/entities/driver.entity';
 import { Vehicle } from '../carriers/entities/vehicle.entity';
+import { Carrier } from '../carriers/entities/carrier.entity';
 import { WaybillsService } from './waybills.service';
 import { WaybillsController } from './waybills.controller';
 import { TrackingModule } from '../tracking/tracking.module';
@@ -23,6 +24,7 @@ import { EmailModule } from '../email/email.module';
       YardSlot,
       Driver,
       Vehicle,
+      Carrier,
     ]),
     TrackingModule,
     QueueModule,

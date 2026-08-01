@@ -18,6 +18,8 @@ import { Carrier } from '../carriers/entities/carrier.entity';
 import { Driver } from '../carriers/entities/driver.entity';
 import { Vehicle } from '../carriers/entities/vehicle.entity';
 import { CustomerAddress } from '../customers/entities/customer-address.entity';
+import { Customer } from '../customers/entities/customer.entity';
+import { PartnerStatus } from '../../common/enums/partner-status.enum';
 import { TransportType } from '../../common/enums/order-type.enum';
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { WaybillStatus } from '../../common/enums/waybill-status.enum';
@@ -52,6 +54,8 @@ export class OutboundService {
     private readonly driverRepo: Repository<Driver>,
     @InjectRepository(Vehicle)
     private readonly vehicleRepo: Repository<Vehicle>,
+    @InjectRepository(Customer)
+    private readonly customerRepo: Repository<Customer>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
     private readonly audit: AuditService,
@@ -83,6 +87,11 @@ export class OutboundService {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('外部账号无权导入出库单');
     }
+    const customer = await this.customerRepo.findOne({ where: { id: dto.customerId } });
+    if (!customer) throw new NotFoundException('客户不存在');
+    if (customer.status !== PartnerStatus.ACTIVE) {
+      throw new BadRequestException('客户当前未开放新增业务');
+    }
 
     // 入参内自我去重
     const seen = new Set<string>();
@@ -98,6 +107,7 @@ export class OutboundService {
       .leftJoinAndSelect('v.order', 'origOrder')
       .leftJoinAndSelect('v.slot', 'slot')
       .leftJoinAndSelect('slot.yard', 'yard')
+      .leftJoinAndSelect('slot.zone', 'zone')
       .where('v.vin IN (:...vins)', { vins: uniqueVins.map((r) => r.vin) })
       .getMany();
     const existingMap = new Map(existing.map((e) => [e.vin, e]));
@@ -448,6 +458,7 @@ export class OutboundService {
       .leftJoinAndSelect('v.order', 'origOrder')
       .leftJoinAndSelect('v.slot', 'slot')
       .leftJoinAndSelect('slot.yard', 'slotYard')
+      .leftJoinAndSelect('slot.zone', 'slotZone')
       .where('v.outbound_order_id = :oid', { oid: order.id })
       .orderBy('v.dealer_code', 'ASC')
       .addOrderBy('v.vin', 'ASC')
@@ -520,6 +531,7 @@ export class OutboundService {
       .leftJoinAndSelect('origOrder.customer', 'customer')
       .leftJoinAndSelect('v.slot', 'slot')
       .leftJoinAndSelect('slot.yard', 'yard')
+      .leftJoinAndSelect('slot.zone', 'zone')
       .where('v.arrival_status = :arrived', {
         arrived: OrderVinArrivalStatus.ARRIVED,
       })
@@ -596,6 +608,7 @@ export class OutboundService {
       .createQueryBuilder('v')
       .leftJoinAndSelect('v.slot', 'slot')
       .leftJoinAndSelect('slot.yard', 'yard')
+      .leftJoinAndSelect('slot.zone', 'zone')
       .where('v.outbound_order_id = :oid', { oid: outboundOrderId })
       .orderBy('v.vin', 'ASC')
       .getMany();
@@ -629,7 +642,9 @@ export class OutboundService {
         dealerCode: v.dealerCode,
         dealerName: v.dealerName,
         reason,
-        slotCode: v.slot?.code ?? null,
+        slotCode: v.slot?.zone
+          ? `${v.slot.zone.code}-${String(v.slot.line).padStart(2, '0')}-${String(v.slot.row).padStart(2, '0')}`
+          : null,
         yardName: v.slot?.yard?.name ?? null,
       });
     }
@@ -667,8 +682,8 @@ export class OutboundService {
       where: { id: dto.carrierId },
     });
     if (!carrier) throw new NotFoundException('承运商不存在');
-    if (!carrier.isActive) {
-      throw new BadRequestException('承运商已停用，不能开单');
+    if (carrier.status !== PartnerStatus.ACTIVE) {
+      throw new BadRequestException('承运商当前未开放新增业务，不能开单');
     }
     // 司机：存在 + 启用 + 归属该承运商
     if (dto.driverId) {

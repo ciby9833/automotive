@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
 import {
   DEFAULT_PAGE_SIZE,
   EXPORT_MAX_ROWS,
@@ -15,16 +15,21 @@ import {
 import { OrderVinArrivalStatus } from '../../common/enums/order-vin-status.enum';
 import { Yard } from './entities/yard.entity';
 import { YardSlot, YardSlotStatus } from './entities/yard-slot.entity';
+import { YardZone } from './entities/yard-zone.entity';
 import { OrderVin } from '../orders/entities/order-vin.entity';
 import { WaybillVin } from '../waybills/entities/waybill-vin.entity';
 import { WaybillStatusLog } from '../tracking/entities/waybill-status-log.entity';
 import { CreateYardDto } from './dto/create-yard.dto';
-import { CreateYardSlotDto } from './dto/create-yard-slot.dto';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../tracking/audit.service';
 import { OperationType } from '../../common/enums/operation-type.enum';
+import {
+  formatSlotCode,
+  parseSlotCode,
+  slotDisplayCodeSql,
+} from './slot-code.util';
 
 // VIN 库存查询返回结构（联表 order_vins 拿车型/颜色，未挂订单的 VIN 用 null）
 export interface VinInventoryRow {
@@ -34,13 +39,52 @@ export interface VinInventoryRow {
   yardName: string;
   organizationId: string;
   slotId: string;
-  slotCode: string;
+  slotCode: string; // 计算得到：`${zone.code}-${line:02}-${row:02}`
+  zoneCode: string;
+  line: number;
+  row: number;
   assignedAt: Date | null;
   stayDays: number;
   model: string | null;
   color: string | null;
   vehicleType: string | null;
   orderCode: string | null;
+}
+
+// slot 附带 zone 后前端友好的展示结构
+export interface SlotView {
+  id: string;
+  yardId: string;
+  zoneId: string;
+  zoneCode: string;
+  zoneName: string | null;
+  zoneIsActive: boolean;
+  line: number;
+  row: number;
+  status: YardSlotStatus;
+  currentVin: string | null;
+  assignedAt: Date | null;
+  isLocked: boolean;
+  lockedAt: Date | null;
+}
+
+function slotToView(slot: YardSlot): SlotView {
+  const zoneCode = slot.zone?.code ?? '';
+  return {
+    id: slot.id,
+    yardId: slot.yardId,
+    zoneId: slot.zoneId,
+    zoneCode,
+    zoneName: slot.zone?.name ?? null,
+    zoneIsActive: slot.zone?.isActive ?? false,
+    line: slot.line,
+    row: slot.row,
+    status: slot.status,
+    currentVin: slot.currentVin,
+    assignedAt: slot.assignedAt,
+    isLocked: slot.isLocked,
+    lockedAt: slot.lockedAt,
+  };
 }
 
 @Injectable()
@@ -50,6 +94,8 @@ export class YardsService {
     private readonly yardsRepository: Repository<Yard>,
     @InjectRepository(YardSlot)
     private readonly slotsRepository: Repository<YardSlot>,
+    @InjectRepository(YardZone)
+    private readonly zonesRepository: Repository<YardZone>,
     @InjectRepository(OrderVin)
     private readonly orderVinsRepository: Repository<OrderVin>,
     @InjectRepository(WaybillVin)
@@ -91,143 +137,101 @@ export class YardsService {
     return this.yardsRepository.save(this.yardsRepository.create(dto));
   }
 
-  async findSlots(yardId: string, scope: EffectiveScope): Promise<YardSlot[]> {
+  // 场地下所有库位（联 zone）；按 zone.code, line, row 排序，前端表格易读
+  async findSlots(yardId: string, scope: EffectiveScope): Promise<SlotView[]> {
     await this.findOne(yardId, scope);
-    return this.slotsRepository.find({
-      where: { yardId },
-      order: { code: 'ASC' },
-    });
-  }
-
-  async createSlot(
-    yardId: string,
-    dto: CreateYardSlotDto,
-    scope: EffectiveScope,
-  ): Promise<YardSlot> {
-    await this.findOne(yardId, scope);
-    const slot = this.slotsRepository.create({ ...dto, yardId });
-    return this.slotsRepository.save(slot);
-  }
-
-  // 批量创建：给"库位配置"页(Excel 导入 / 网格生成器)使用
-  //   - 幂等：已存在的 code 跳过(不报错)，只插入新的；
-  //   - 单次事务；上限 10000 条防呆。
-  //   返回本次实际新增的数量 + 跳过(已存在)的数量
-  async bulkCreateSlots(
-    yardId: string,
-    slotDtos: CreateYardSlotDto[],
-    scope: EffectiveScope,
-  ): Promise<{ created: number; skipped: number }> {
-    await this.findOne(yardId, scope);
-    if (slotDtos.length === 0) return { created: 0, skipped: 0 };
-    if (slotDtos.length > 10000) {
-      throw new BadRequestException('单次批量创建上限 10000 条');
-    }
-    // 去重入参本身
-    const seenCodes = new Set<string>();
-    const uniqueDtos = slotDtos.filter((d) => {
-      if (seenCodes.has(d.code)) return false;
-      seenCodes.add(d.code);
-      return true;
-    });
-    const codes = uniqueDtos.map((d) => d.code);
-    const existing = await this.slotsRepository.find({
-      where: { yardId, code: In(codes) },
-      select: { code: true },
-    });
-    const existingSet = new Set(existing.map((e) => e.code));
-    const toInsert = uniqueDtos.filter((d) => !existingSet.has(d.code));
-    if (toInsert.length === 0) {
-      return { created: 0, skipped: uniqueDtos.length };
-    }
-    const entities = toInsert.map((d) =>
-      this.slotsRepository.create({ ...d, yardId }),
-    );
-    await this.slotsRepository.save(entities);
-    return {
-      created: entities.length,
-      skipped: uniqueDtos.length - entities.length,
-    };
-  }
-
-  // 批量删除：给库位配置页使用；只能删空置库位，避免误删有车的位
-  async bulkDeleteSlots(
-    yardId: string,
-    slotIds: string[],
-    scope: EffectiveScope,
-  ): Promise<{ deleted: number; blocked: number }> {
-    await this.findOne(yardId, scope);
-    if (slotIds.length === 0) return { deleted: 0, blocked: 0 };
     const slots = await this.slotsRepository.find({
-      where: { id: In(slotIds), yardId },
+      where: { yardId },
+      relations: { zone: true },
+      order: {},
     });
-    const deletable = slots.filter((s) => s.status === YardSlotStatus.VACANT);
-    const blocked = slots.length - deletable.length;
-    if (deletable.length > 0) {
-      await this.slotsRepository.delete(deletable.map((s) => s.id));
-    }
-    return { deleted: deletable.length, blocked };
+    return slots
+      .sort((a, b) => {
+        const za = a.zone?.code ?? '';
+        const zb = b.zone?.code ?? '';
+        if (za !== zb) return za.localeCompare(zb);
+        if (a.line !== b.line) return a.line - b.line;
+        return a.row - b.row;
+      })
+      .map(slotToView);
   }
 
   async yardStats(yardId: string, scope: EffectiveScope) {
-    const slots = await this.findSlots(yardId, scope);
-    const occupied = slots.filter(
-      (s) => s.status === YardSlotStatus.OCCUPIED,
-    ).length;
-    return { total: slots.length, occupied, vacant: slots.length - occupied };
+    await this.findOne(yardId, scope);
+    const [total, occupied] = await Promise.all([
+      this.slotsRepository.count({ where: { yardId } }),
+      this.slotsRepository.count({
+        where: { yardId, status: YardSlotStatus.OCCUPIED },
+      }),
+    ]);
+    return { total, occupied, vacant: total - occupied };
   }
 
-  // VIN 是否已在其他库位占用；避免同一 VIN 同时"在 A-1 又在 B-3"
-  private async assertVinNotDoubleParked(
+  async assignSlot(
+    slotId: string,
     vin: string,
-    excludeSlotId?: string,
-  ): Promise<void> {
-    const existing = await this.slotsRepository.findOne({
-      where: { currentVin: vin, status: YardSlotStatus.OCCUPIED },
+    scope: EffectiveScope,
+  ): Promise<SlotView> {
+    const scopedSlot = await this.slotsRepository.findOne({ where: { id: slotId } });
+    if (!scopedSlot) throw new NotFoundException('库位不存在');
+    await this.findOne(scopedSlot.yardId, scope);
+    return this.dataSource.transaction(async (mgr) => {
+      const slotRepo = mgr.getRepository(YardSlot);
+      const slot = await slotRepo
+        .createQueryBuilder('slot')
+        .innerJoinAndSelect('slot.zone', 'zone')
+        .where('slot.id = :slotId', { slotId })
+        .setLock('pessimistic_write', undefined, ['slot'])
+        .getOne();
+      if (!slot) throw new NotFoundException('库位不存在');
+      if (!slot.zone.isActive) {
+        throw new BadRequestException('该区已停用，不能新增占用');
+      }
+      if (slot.status === YardSlotStatus.OCCUPIED) {
+        throw new BadRequestException('该库位已被占用');
+      }
+      if (slot.isLocked) {
+        throw new BadRequestException('该库位已锁定，无法占用');
+      }
+      const existing = await slotRepo.findOne({
+        where: { currentVin: vin, status: YardSlotStatus.OCCUPIED },
+        relations: { zone: true },
+      });
+      if (existing && existing.id !== slotId) {
+        throw new ConflictException(
+          `VIN ${vin} 已占用其他库位 (${formatSlotCode(existing.zone.code, existing.line, existing.row)})，请先释放`,
+        );
+      }
+      slot.status = YardSlotStatus.OCCUPIED;
+      slot.currentVin = vin;
+      slot.assignedAt = new Date();
+      return slotToView(await slotRepo.save(slot));
     });
-    if (existing && existing.id !== excludeSlotId) {
-      throw new ConflictException(
-        `VIN ${vin} 已占用其他库位 (${existing.code})，请先释放`,
-      );
-    }
   }
 
-  async assignSlot(slotId: string, vin: string): Promise<YardSlot> {
-    const slot = await this.slotsRepository.findOne({ where: { id: slotId } });
-    if (!slot) throw new NotFoundException('库位不存在');
-    if (slot.status === YardSlotStatus.OCCUPIED) {
-      throw new BadRequestException('该库位已被占用');
-    }
-    if (slot.isLocked) {
-      throw new BadRequestException('该库位已锁定，无法占用');
-    }
-    await this.assertVinNotDoubleParked(vin);
-    slot.status = YardSlotStatus.OCCUPIED;
-    slot.currentVin = vin;
-    slot.assignedAt = new Date();
-    return this.slotsRepository.save(slot);
-  }
-
-  // 释放库位 = 撤销入库/纠错场景：车物理还在或者需要重扫，业务上"这次入库不算数"
-  // 事务里同时：
-  //   1) 清空 slot (VACANT + currentVin=null)
-  //   2) 关联的 OrderVin 回滚到 EXPECTED (清 arrivedAt / slotId / 存证)
-  //      这样入库订单里那条 VIN 又回到 "待到货"，可以重新走入库扫码
-  // 非 OrderVin 挂载的手动占用 (assignSlot 直接开的 currentVin) 只清 slot 表
-  //
-  // 注意：车真的离开场地(出库)应该走 /waybills/scan(DELIVERY_DEPARTURE)，
-  // 不走这个接口 —— 那条路径会释放 slot 但保留 arrival 记录、走财务和运单闭环
-  async releaseSlot(slotId: string, operatorUserId?: string): Promise<YardSlot> {
+  // 释放库位 = 撤销入库/纠错场景（详见旧注释）
+  async releaseSlot(
+    slotId: string,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<SlotView> {
+    const scopedSlot = await this.slotsRepository.findOne({ where: { id: slotId } });
+    if (!scopedSlot) throw new NotFoundException('库位不存在');
+    await this.findOne(scopedSlot.yardId, scope);
     const result = await this.dataSource.transaction(async (mgr) => {
       const slotRepo = mgr.getRepository(YardSlot);
       const orderVinRepo = mgr.getRepository(OrderVin);
-      const slot = await slotRepo.findOne({ where: { id: slotId } });
+      const slot = await slotRepo
+        .createQueryBuilder('slot')
+        .innerJoinAndSelect('slot.zone', 'zone')
+        .where('slot.id = :slotId', { slotId })
+        .setLock('pessimistic_write', undefined, ['slot'])
+        .getOne();
       if (!slot) throw new NotFoundException('库位不存在');
 
       const releasedVin = slot.currentVin;
       let affectedOrderId: string | null = null;
 
-      // OrderVin 回滚
       if (releasedVin) {
         const orderVin = await orderVinRepo.findOne({
           where: { vin: releasedVin },
@@ -250,7 +254,9 @@ export class YardsService {
       slot.currentVin = null;
       slot.assignedAt = null;
       const saved = await slotRepo.save(slot);
-      return { saved, releasedVin, affectedOrderId, slotCode: slot.code };
+      saved.zone = slot.zone;
+      const view = slotToView(saved);
+      return { view, releasedVin, affectedOrderId };
     });
 
     if (result.releasedVin) {
@@ -258,75 +264,86 @@ export class YardsService {
         operationType: OperationType.INBOUND_UNDO,
         orderId: result.affectedOrderId,
         vin: result.releasedVin,
-        yardId: result.saved.yardId,
-        slotId: result.saved.id,
+        yardId: result.view.yardId,
+        slotId: result.view.id,
         operatorUserId,
-        payload: { slotCode: result.slotCode },
+        payload: {
+          slotCode: formatSlotCode(
+            result.view.zoneCode,
+            result.view.line,
+            result.view.row,
+          ),
+        },
       });
     }
-    return result.saved;
+    return result.view;
   }
 
-  // 场内移位：一次动作从 fromSlot 移到 toSlot(必须 VACANT+未锁定)
+  // 场内移位
   async moveSlot(
     fromSlotId: string,
     toSlotId: string,
+    scope: EffectiveScope,
     operatorUserId?: string,
-  ): Promise<{ from: YardSlot; to: YardSlot }> {
+  ): Promise<{ from: SlotView; to: SlotView }> {
     if (fromSlotId === toSlotId) {
       throw new BadRequestException('源库位与目标库位相同');
     }
-    const [from, to] = await Promise.all([
-      this.slotsRepository.findOne({ where: { id: fromSlotId } }),
-      this.slotsRepository.findOne({ where: { id: toSlotId } }),
-    ]);
-    if (!from) throw new NotFoundException('源库位不存在');
-    if (!to) throw new NotFoundException('目标库位不存在');
-    if (from.yardId !== to.yardId) {
-      throw new BadRequestException('场内移位不能跨场地');
-    }
-    if (from.status !== YardSlotStatus.OCCUPIED || !from.currentVin) {
-      throw new BadRequestException('源库位当前无车');
-    }
-    if (to.status === YardSlotStatus.OCCUPIED) {
-      throw new BadRequestException('目标库位已占用');
-    }
-    if (to.isLocked) {
-      throw new BadRequestException('目标库位已锁定');
-    }
-    const vin = from.currentVin;
-    const assignedAt = from.assignedAt; // 保留原停放时间，移位不重置车龄
-    from.status = YardSlotStatus.VACANT;
-    from.currentVin = null;
-    from.assignedAt = null;
-    to.status = YardSlotStatus.OCCUPIED;
-    to.currentVin = vin;
-    to.assignedAt = assignedAt;
-    const [savedFrom, savedTo] = await Promise.all([
-      this.slotsRepository.save(from),
-      this.slotsRepository.save(to),
-    ]);
-    // YARD_MOVE 顶层 slot_id = 目标库位（用于"这个位停过啥"报表）；
-    // 起始库位 id/code 保留在 payload 以便前端显示 "A-01 → A-02"
+    const source = await this.slotsRepository.findOne({ where: { id: fromSlotId } });
+    if (!source) throw new NotFoundException('源库位不存在');
+    await this.findOne(source.yardId, scope);
+    const result = await this.dataSource.transaction(async (mgr) => {
+      const slotRepo = mgr.getRepository(YardSlot);
+      const locked = await slotRepo
+        .createQueryBuilder('slot')
+        .innerJoinAndSelect('slot.zone', 'zone')
+        .where('slot.id IN (:...ids)', { ids: [fromSlotId, toSlotId] })
+        .orderBy('slot.id', 'ASC')
+        .setLock('pessimistic_write', undefined, ['slot'])
+        .getMany();
+      const from = locked.find((slot) => slot.id === fromSlotId);
+      const to = locked.find((slot) => slot.id === toSlotId);
+      if (!from) throw new NotFoundException('源库位不存在');
+      if (!to) throw new NotFoundException('目标库位不存在');
+      if (from.yardId !== to.yardId) throw new BadRequestException('场内移位不能跨场地');
+      if (from.status !== YardSlotStatus.OCCUPIED || !from.currentVin) {
+        throw new BadRequestException('源库位当前无车');
+      }
+      if (to.status === YardSlotStatus.OCCUPIED) throw new BadRequestException('目标库位已占用');
+      if (to.isLocked) throw new BadRequestException('目标库位已锁定');
+      if (!to.zone.isActive) throw new BadRequestException('目标区已停用，不能移入');
+      const vin = from.currentVin;
+      to.status = YardSlotStatus.OCCUPIED;
+      to.currentVin = vin;
+      to.assignedAt = from.assignedAt;
+      from.status = YardSlotStatus.VACANT;
+      from.currentVin = null;
+      from.assignedAt = null;
+      await slotRepo.save([from, to]);
+      await mgr.getRepository(OrderVin).update(
+        { vin, slotId: fromSlotId },
+        { slotId: toSlotId },
+      );
+      return { vin, fromView: slotToView(from), toView: slotToView(to) };
+    });
+    const { vin, fromView, toView } = result;
     await this.audit.log({
       operationType: OperationType.YARD_MOVE,
       vin,
-      yardId: from.yardId,
-      slotId: to.id,
+      yardId: fromView.yardId,
+      slotId: toView.id,
       operatorUserId,
       payload: {
-        fromSlotId: from.id,
-        fromSlotCode: from.code,
-        toSlotId: to.id,
-        toSlotCode: to.code,
+        fromSlotId: fromView.id,
+        fromSlotCode: formatSlotCode(fromView.zoneCode, fromView.line, fromView.row),
+        toSlotId: toView.id,
+        toSlotCode: formatSlotCode(toView.zoneCode, toView.line, toView.row),
       },
     });
-    return { from: savedFrom, to: savedTo };
+    return { from: fromView, to: toView };
   }
 
-  // VIN 库存查询：主视图是"这辆车在哪、几天了、什么车型、哪张订单"
-  //   联表 order_vins 拿车型/颜色/订单号，未匹配的 VIN 保留 null。
-  //   scope 过滤：走 yard.organization_id 在 scope.orgIds 内的库位。
+  // VIN 库存查询（改用 zone + line + row 计算 slotCode）
   async vinInventory(
     scope: EffectiveScope,
     filters: {
@@ -350,7 +367,6 @@ export class YardsService {
     if (scope.type !== 'ORG') {
       return { items: [], total: 0, page, pageSize };
     }
-    // 机构过滤：显式传时校验必须在 scope 内（前端 OrgFilter 也做了限制，双保险）
     let orgIds = scope.orgIds;
     if (filters.organizationId) {
       if (!scope.orgIds.includes(filters.organizationId)) {
@@ -358,7 +374,7 @@ export class YardsService {
       }
       orgIds = [filters.organizationId];
     }
-    // 排序白名单；stayDays 不是列，用 assigned_at 反向映射（stayDays DESC = assigned_at ASC）
+
     const sortKey = filters.sortBy ?? 'assignedAt';
     const rawOrder: 'ASC' | 'DESC' = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
     const { sortColumn, sortOrder } = ((): {
@@ -366,18 +382,19 @@ export class YardsService {
       sortOrder: 'ASC' | 'DESC';
     } => {
       if (sortKey === 'stayDays') {
-        // stayDays 越大表示 assigned_at 越早
         return {
           sortColumn: 'slot.assigned_at',
           sortOrder: rawOrder === 'DESC' ? 'ASC' : 'DESC',
         };
       }
-      if (sortKey === 'slotCode') return { sortColumn: 'slot.code', sortOrder: rawOrder };
-      if (sortKey === 'yardName') return { sortColumn: 'yard.name', sortOrder: rawOrder };
+      // slotCode 组合排序：zone.code, line, row
+      if (sortKey === 'slotCode')
+        return { sortColumn: 'zone.code', sortOrder: rawOrder };
+      if (sortKey === 'yardName')
+        return { sortColumn: 'yard.name', sortOrder: rawOrder };
       return { sortColumn: 'slot.assigned_at', sortOrder: rawOrder };
     })();
 
-    // 基础 qb：只应用过滤，供 count / 取数据两次使用
     const applyFilters = (qb: SelectQueryBuilder<YardSlot>) => {
       qb.where('slot.status = :status', { status: YardSlotStatus.OCCUPIED })
         .andWhere('yard.organization_id IN (:...orgIds)', { orgIds });
@@ -388,18 +405,28 @@ export class YardsService {
         qb.andWhere('yard.id = :yardId', { yardId: filters.yardId });
       }
       if (filters.slotCode) {
-        qb.andWhere('slot.code ILIKE :slotCode', { slotCode: `%${filters.slotCode}%` });
+        // slotCode 现在是拼接的：用户可能输入 "AB6-01" 或完整 "AB6-01-07"
+        // 简化实现：ILIKE 匹配 zone.code；完整解析交给前端优化
+        qb.andWhere(
+          `(${slotDisplayCodeSql('slot', 'zone')}) ILIKE :slotCode`,
+          { slotCode: `%${filters.slotCode}%` },
+        );
       }
       if (filters.orderCode) {
-        qb.andWhere('ord."orderCode" ILIKE :orderCode', { orderCode: `%${filters.orderCode}%` });
+        qb.andWhere('ord."orderCode" ILIKE :orderCode', {
+          orderCode: `%${filters.orderCode}%`,
+        });
       }
       if (filters.dateFrom) {
-        qb.andWhere('slot.assigned_at >= :dateFrom', { dateFrom: filters.dateFrom });
+        qb.andWhere('slot.assigned_at >= :dateFrom', {
+          dateFrom: filters.dateFrom,
+        });
       }
       if (filters.dateTo) {
-        qb.andWhere('slot.assigned_at <= :dateTo', { dateTo: filters.dateTo });
+        qb.andWhere('slot.assigned_at <= :dateTo', {
+          dateTo: filters.dateTo,
+        });
       }
-      // minStayDays 下推到 SQL: stayDays >= N ⇒ assigned_at <= NOW() - N days
       if (filters.minStayDays && filters.minStayDays > 0) {
         qb.andWhere(
           `slot.assigned_at <= NOW() - INTERVAL '${Math.floor(filters.minStayDays)} day'`,
@@ -412,10 +439,10 @@ export class YardsService {
       }
     };
 
-    // 计总：单独构建一个 count qb，避免 raw select 干扰 COUNT
     const countQb = this.slotsRepository
       .createQueryBuilder('slot')
       .innerJoin('slot.yard', 'yard')
+      .innerJoin('slot.zone', 'zone')
       .leftJoin('order_vins', 'ov', 'ov.vin = slot.currentVin')
       .leftJoin('orders', 'ord', 'ord.id = ov.order_id');
     applyFilters(countQb);
@@ -426,15 +453,17 @@ export class YardsService {
       );
     }
 
-    // 取数据
     const qb = this.slotsRepository
       .createQueryBuilder('slot')
       .innerJoin('slot.yard', 'yard')
+      .innerJoin('slot.zone', 'zone')
       .leftJoin('order_vins', 'ov', 'ov.vin = slot.currentVin')
       .leftJoin('orders', 'ord', 'ord.id = ov.order_id')
       .select([
         'slot.id AS "slotId"',
-        'slot.code AS "slotCode"',
+        'zone.code AS "zoneCode"',
+        'slot."line" AS "line"',
+        'slot."row" AS "row"',
         'slot.currentVin AS "vin"',
         'slot.assigned_at AS "assignedAt"',
         'yard.id AS "yardId"',
@@ -446,15 +475,21 @@ export class YardsService {
         'ov."vehicleType" AS "vehicleType"',
         'ord."orderCode" AS "orderCode"',
       ])
-      .orderBy(sortColumn, sortOrder, 'NULLS LAST')
-      .addOrderBy('slot.id', 'DESC');
+      .orderBy(sortColumn, sortOrder, 'NULLS LAST');
+    if (sortKey === 'slotCode') {
+      qb.addOrderBy('slot."line"', sortOrder)
+        .addOrderBy('slot."row"', sortOrder);
+    }
+    qb.addOrderBy('slot.id', 'DESC');
     applyFilters(qb);
     if (!filters.all) {
       qb.offset((page - 1) * pageSize).limit(pageSize);
     }
     const rows = await qb.getRawMany<{
       slotId: string;
-      slotCode: string;
+      zoneCode: string;
+      line: number;
+      row: number;
       vin: string;
       assignedAt: Date | null;
       yardId: string;
@@ -468,27 +503,31 @@ export class YardsService {
     }>();
 
     const now = Date.now();
-    const items = rows
-      .map((r) => {
-        const stayDays = r.assignedAt
-          ? Math.floor((now - new Date(r.assignedAt).getTime()) / 86400000)
-          : 0;
-        return {
-          vin: r.vin,
-          yardId: r.yardId,
-          yardCode: r.yardCode,
-          yardName: r.yardName,
-          organizationId: r.organizationId,
-          slotId: r.slotId,
-          slotCode: r.slotCode,
-          assignedAt: r.assignedAt,
-          stayDays,
-          model: r.model,
-          color: r.color,
-          vehicleType: r.vehicleType,
-          orderCode: r.orderCode,
-        } satisfies VinInventoryRow;
-      });
+    const items = rows.map((r) => {
+      const stayDays = r.assignedAt
+        ? Math.floor((now - new Date(r.assignedAt).getTime()) / 86400000)
+        : 0;
+      const line = Number(r.line);
+      const row = Number(r.row);
+      return {
+        vin: r.vin,
+        yardId: r.yardId,
+        yardCode: r.yardCode,
+        yardName: r.yardName,
+        organizationId: r.organizationId,
+        slotId: r.slotId,
+        slotCode: formatSlotCode(r.zoneCode, line, row),
+        zoneCode: r.zoneCode,
+        line,
+        row,
+        assignedAt: r.assignedAt,
+        stayDays,
+        model: r.model,
+        color: r.color,
+        vehicleType: r.vehicleType,
+        orderCode: r.orderCode,
+      } satisfies VinInventoryRow;
+    });
     return { items, total, page, pageSize };
   }
 
@@ -496,14 +535,8 @@ export class YardsService {
     return this.yardsRepository.findOne({ where: { id } });
   }
 
-  // ============ VIN 全生命周期查询 ============
-  // 给场地看板抽屉 / VIN 详情页 / 客服追溯用：一个接口把 VIN 的所有信息拿完
-  // 数据来源：
-  //   1. OrderVin: pickup* + arrival* + 入库单关联
-  //   2. WaybillVin: 该 VIN 挂过的所有出库运单
-  //   3. WaybillStatusLog: 所有扫码/状态变更事件（时间倒序）
+  // VIN 全生命周期
   async getVinLifecycle(vin: string, scope: EffectiveScope) {
-    // OrderVin 关联入库单 + 客户 + 场地 + 提货信息
     const orderVin = await this.orderVinsRepository.findOne({
       where: { vin },
       relations: {
@@ -511,12 +544,11 @@ export class YardsService {
         pickupCarrier: true,
         pickupDriverUser: true,
         arrivedByUser: true,
-        slot: { yard: true },
+        slot: { yard: true, zone: true },
         inboundBatch: true,
       },
     });
 
-    // scope 校验：内部按 org、客户按 customerId
     if (orderVin?.order) {
       if (scope.type === 'ORG' && !scope.orgIds.includes(orderVin.order.organizationId)) {
         throw new NotFoundException('VIN 不存在');
@@ -526,7 +558,6 @@ export class YardsService {
       }
     }
 
-    // 出库运单（可能多次调拨或重新开单）
     const waybillVins = await this.waybillVinsRepository.find({
       where: { vin },
       relations: {
@@ -540,7 +571,6 @@ export class YardsService {
       order: { createdAt: 'DESC' },
     });
 
-    // 事件流水：时间倒序
     const events = await this.statusLogsRepository.find({
       where: { vin },
       relations: { operator: true, yard: true, waybill: true },
@@ -556,10 +586,8 @@ export class YardsService {
     };
   }
 
-  // 批量库位分配：go-live 初始化 / 大规模移位
-  // 语义：把 (VIN, targetSlotCode) 逐条落库。VIN 已 ARRIVED 时释放旧 slot；EXPECTED 时置 ARRIVED
-  // 失败按行汇总原因返回，不阻塞整批 (一致性交给业务员按结果人工纠错)
-  // 事务粒度：每行一个事务；避免一整批因单行冲突全 rollback
+  // 批量库位分配（初始化 / 大规模移位）
+  // 每行 slotCode 是"AB6-01-07"字符串；先解析→查 zone→定位 slot
   async batchAssignSlots(
     yardId: string,
     items: Array<{ vin: string; slotCode: string }>,
@@ -583,7 +611,6 @@ export class YardsService {
       throw new ForbiddenException('仅本场地作业员可分配此场地库位');
     }
 
-    // 行内去重：同一 VIN 只保留最后一行
     const seen = new Set<string>();
     const uniqueItems: typeof items = [];
     for (let i = items.length - 1; i >= 0; i -= 1) {
@@ -599,9 +626,20 @@ export class YardsService {
 
     for (const row of uniqueItems) {
       try {
+        const parsed = parseSlotCode(row.slotCode);
+        if (!parsed) {
+          failed.push({
+            vin: row.vin,
+            slotCode: row.slotCode,
+            reason: `库位码格式错误：期望 zoneCode-NN-NN`,
+          });
+          continue;
+        }
+
         const moveResult = await this.dataSource.transaction(async (mgr) => {
           const vinRepo = mgr.getRepository(OrderVin);
           const slotRepo = mgr.getRepository(YardSlot);
+          const zoneRepo = mgr.getRepository(YardZone);
 
           const orderVin = await vinRepo.findOne({ where: { vin: row.vin } });
           if (!orderVin) return { skip: 'VIN 未在系统中' };
@@ -609,11 +647,25 @@ export class YardsService {
             return { skip: 'VIN 已取消' };
           }
 
+          const zone = await zoneRepo.findOne({
+            where: { yardId, code: parsed.zoneCode },
+          });
+          if (!zone) {
+            return { fail: `此场地不存在区 ${parsed.zoneCode}` };
+          }
+          if (!zone.isActive) {
+            return { fail: `区 ${parsed.zoneCode} 已停用，不能分配库位` };
+          }
           const targetSlot = await slotRepo.findOne({
-            where: { code: row.slotCode, yardId },
+            where: {
+              yardId,
+              zoneId: zone.id,
+              line: parsed.line,
+              row: parsed.row,
+            },
           });
           if (!targetSlot) {
-            return { fail: `目标库位 ${row.slotCode} 不在此场地` };
+            return { fail: `目标库位 ${row.slotCode} 未生成，请先在库位配置生成` };
           }
           if (targetSlot.isLocked) {
             return { fail: `目标库位 ${row.slotCode} 已锁定` };
@@ -627,12 +679,10 @@ export class YardsService {
             };
           }
 
-          // 幂等：VIN 已在这个 slot → 直接 skip
           if (orderVin.slotId === targetSlot.id) {
             return { skip: '已在目标库位' };
           }
 
-          // 释放旧 slot (如果有)
           if (orderVin.slotId) {
             const oldSlot = await slotRepo.findOne({
               where: { id: orderVin.slotId },
@@ -645,7 +695,6 @@ export class YardsService {
             }
           }
 
-          // 占目标 slot + 更新 VIN
           targetSlot.status = YardSlotStatus.OCCUPIED;
           targetSlot.currentVin = row.vin;
           targetSlot.assignedAt = new Date();
@@ -665,7 +714,7 @@ export class YardsService {
             success: {
               orderId: orderVin.orderId,
               slotId: targetSlot.id,
-              slotCode: targetSlot.code,
+              slotCode: row.slotCode,
               wasExpected,
             },
           };
@@ -681,7 +730,6 @@ export class YardsService {
           });
         } else if (moveResult.success) {
           succeeded += 1;
-          // 事务外记审计：EXPECTED→ARRIVED 视同 INBOUND_SCAN；已 ARRIVED 视同 YARD_MOVE
           await this.audit.log({
             operationType: moveResult.success.wasExpected
               ? OperationType.INBOUND_SCAN

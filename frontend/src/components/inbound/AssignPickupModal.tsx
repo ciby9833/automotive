@@ -44,7 +44,7 @@ export function AssignPickupModal({
 
   useEffect(() => {
     if (!open) return;
-    carriersApi.list().then(setCarriers).catch(() => setCarriers([]));
+    carriersApi.list().then((items) => setCarriers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => setCarriers([]));
     setCarrierId(current?.pickupCarrierId ?? null);
     setPlannedDate(
       current?.plannedPickupDate ? dayjs(current.plannedPickupDate) : null,

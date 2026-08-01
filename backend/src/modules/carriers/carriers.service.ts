@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'crypto';
 import { Carrier } from './entities/carrier.entity';
@@ -16,6 +16,7 @@ import { User } from '../users/entities/user.entity';
 import { Waybill } from '../waybills/entities/waybill.entity';
 import { WaybillStatus } from '../../common/enums/waybill-status.enum';
 import { CreateCarrierDto } from './dto/create-carrier.dto';
+import { UpdateCarrierDto } from './dto/update-carrier.dto';
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { CreateVehicleDto } from './dto/create-vehicle.dto';
 import { CreateCarrierUserDto } from './dto/create-carrier-user.dto';
@@ -27,6 +28,7 @@ import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
 import { AuditService } from '../tracking/audit.service';
 import { OperationType } from '../../common/enums/operation-type.enum';
+import { PartnerStatus } from '../../common/enums/partner-status.enum';
 
 @Injectable()
 export class CarriersService {
@@ -76,6 +78,86 @@ export class CarriersService {
   create(dto: CreateCarrierDto, scope: EffectiveScope): Promise<Carrier> {
     this.scopeService.assertOrgWritable(scope, dto.organizationId);
     return this.carriersRepository.save(this.carriersRepository.create(dto));
+  }
+
+  // ============ 承运商主数据编辑 / 状态化启停 ============
+  // 编辑：不允许改 organizationId（迁移归属会破坏历史订单归属）
+  async update(
+    carrierId: string,
+    dto: UpdateCarrierDto,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<Carrier> {
+    const carrier = await this.findOne(carrierId, scope);
+    if (scope.type === 'CARRIER') {
+      throw new ForbiddenException('承运商账号无权编辑主数据');
+    }
+    const before = {
+      name: carrier.name,
+      shortName: carrier.shortName,
+      type: carrier.type,
+      contactName: carrier.contactName,
+      contactPhone: carrier.contactPhone,
+      email: carrier.email,
+    };
+    if (dto.name !== undefined) carrier.name = dto.name;
+    if (dto.shortName !== undefined) carrier.shortName = dto.shortName ?? null;
+    if (dto.type !== undefined) carrier.type = dto.type;
+    if (dto.contactName !== undefined) carrier.contactName = (dto.contactName ?? null) as string;
+    if (dto.contactPhone !== undefined) carrier.contactPhone = (dto.contactPhone ?? null) as string;
+    if (dto.email !== undefined) carrier.email = (dto.email ?? null) as string;
+    if (dto.quotationNote !== undefined) carrier.quotationNote = (dto.quotationNote ?? null) as string;
+    const saved = await this.carriersRepository.save(carrier);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_UPDATE,
+      operatorUserId,
+      payload: { carrierId, before, patch: dto },
+    });
+    return saved;
+  }
+
+  async setStatus(
+    carrierId: string,
+    status: PartnerStatus,
+    scope: EffectiveScope,
+    operatorUserId?: string,
+  ): Promise<{ carrier: Carrier; inflightCount: number }> {
+    const carrier = await this.findOne(carrierId, scope);
+    if (scope.type === 'CARRIER') {
+      throw new ForbiddenException('承运商账号无权改自身启停状态');
+    }
+    if (carrier.status === status) {
+      return { carrier, inflightCount: 0 };
+    }
+    const inflightCount = await this.waybillsRepository.count({
+      where: {
+        carrierId,
+        status: In([WaybillStatus.NOT_ARRIVED, WaybillStatus.IN_TRANSIT]),
+      },
+    });
+    if (status === PartnerStatus.INACTIVE && inflightCount > 0) {
+      throw new BadRequestException({
+        code: 'PARTNER_HAS_INFLIGHT_BUSINESS',
+        message: `${carrier.name} 有 ${inflightCount} 张未完成运单，请先暂停接单，待运单完成后再停用`,
+        inflightCount,
+        allowedAction: PartnerStatus.PAUSED,
+      });
+    }
+    const previousStatus = carrier.status;
+    carrier.status = status;
+    const saved = await this.carriersRepository.save(carrier);
+    await this.audit.log({
+      operationType: OperationType.CARRIER_STATUS_CHANGE,
+      operatorUserId,
+      payload: {
+        carrierId,
+        name: carrier.name,
+        inflightCount,
+        previousStatus,
+        status,
+      },
+    });
+    return { carrier: saved, inflightCount };
   }
 
   async addDriver(

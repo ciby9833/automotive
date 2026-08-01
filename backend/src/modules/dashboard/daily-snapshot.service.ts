@@ -306,15 +306,23 @@ export class DailySnapshotService
         )
         INSERT INTO slot_daily_snapshots (
           id, snapshot_run_id, business_date, organization_id, yard_id,
-          slot_id, slot_code, row_code, slot_no, status, current_vin,
-          assigned_at, is_locked, locked_at, captured_at
+          slot_id, zone_id, zone_code, line, "row", slot_code,
+          status, current_vin, assigned_at, is_locked, locked_at, captured_at
         )
         SELECT
           uuid_generate_v4(), $2, $3, $1, l.yard_id, l.slot_id,
-          l.state->>'code', l.state->>'row', l.state->>'slotNo',
-          l.state->>'status', l.state->>'currentVin',
+          NULLIF(l.state->>'zone_id', '')::uuid,
+          l.state->>'zone_code',
+          NULLIF(l.state->>'line', '')::int,
+          NULLIF(l.state->>'row', '')::int,
+          CASE WHEN l.state->>'zone_code' IS NOT NULL
+            THEN (l.state->>'zone_code') || '-' || LPAD(NULLIF(l.state->>'line', '')::int::text, 2, '0')
+              || '-' || LPAD(NULLIF(l.state->>'row', '')::int::text, 2, '0')
+            ELSE NULL
+          END,
+          l.state->>'status', l.state->>'current_vin',
           NULLIF(l.state->>'assigned_at', '')::timestamptz,
-          COALESCE((l.state->>'isLocked')::boolean, false),
+          COALESCE((l.state->>'is_locked')::boolean, false),
           NULLIF(l.state->>'locked_at', '')::timestamptz,
           NOW()
         FROM latest l

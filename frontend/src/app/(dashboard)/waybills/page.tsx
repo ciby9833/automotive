@@ -77,7 +77,7 @@ export default function WaybillsPage() {
 
   useEffect(() => {
     yardsApi.list().then(setYards).catch(() => undefined);
-    carriersApi.list().then(setCarriers).catch(() => undefined);
+    carriersApi.list().then((items) => setCarriers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
   }, []);
 
   // 汇总当前所有过滤，供 load 和 export 共用；导出走 all=true 跳过分页

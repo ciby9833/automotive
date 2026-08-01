@@ -8,10 +8,20 @@ import { YardSlot } from '../yards/entities/yard-slot.entity';
 import { InboundService } from './inbound.service';
 import { InboundController } from './inbound.controller';
 import { TrackingModule } from '../tracking/tracking.module';
+import { Customer } from '../customers/entities/customer.entity';
+import { Carrier } from '../carriers/entities/carrier.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, OrderVin, InboundBatch, Yard, YardSlot]),
+    TypeOrmModule.forFeature([
+      Order,
+      OrderVin,
+      InboundBatch,
+      Yard,
+      YardSlot,
+      Customer,
+      Carrier,
+    ]),
     TrackingModule,
   ],
   controllers: [InboundController],

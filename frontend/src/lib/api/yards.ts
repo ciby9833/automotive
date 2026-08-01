@@ -32,17 +32,35 @@ export interface Yard {
   isActive: boolean;
 }
 
+// 3-level: Yard → Zone → Slot；slot 展示码是 `${zoneCode}-${line:02}-${row:02}`
 export interface YardSlot {
   id: string;
   yardId: string;
-  code: string;
-  row: string | null;
-  slotNo: string | null;
+  zoneId: string;
+  zoneCode: string;
+  zoneName: string | null;
+  zoneIsActive: boolean;
+  line: number;
+  row: number;
   status: 'VACANT' | 'OCCUPIED';
   currentVin: string | null;
   assignedAt: string | null;
   isLocked: boolean;
   lockedAt: string | null;
+}
+
+export interface YardZoneSummary {
+  id: string;
+  yardId: string;
+  code: string;
+  name: string | null;
+  lineCount: number;
+  rowCount: number;
+  capacity: number;
+  slotCount: number;
+  occupiedCount: number;
+  isActive: boolean;
+  createdAt: string;
 }
 
 export interface YardStats {
@@ -51,7 +69,6 @@ export interface YardStats {
   vacant: number;
 }
 
-// VIN 库存单行：从 slot 反查所在场地+订单信息
 export interface VinInventoryRow {
   vin: string;
   yardId: string;
@@ -60,18 +77,15 @@ export interface VinInventoryRow {
   organizationId: string;
   slotId: string;
   slotCode: string;
+  zoneCode: string;
+  line: number;
+  row: number;
   assignedAt: string | null;
   stayDays: number;
   model: string | null;
   color: string | null;
   vehicleType: string | null;
   orderCode: string | null;
-}
-
-export interface SlotDto {
-  code: string;
-  row?: string;
-  slotNo?: string;
 }
 
 export const yardsApi = {
@@ -81,27 +95,60 @@ export const yardsApi = {
     unwrap<Yard>(apiClient.post('/yards', dto)),
   slots: (yardId: string) => unwrap<YardSlot[]>(apiClient.get(`/yards/${yardId}/slots`)),
   stats: (yardId: string) => unwrap<YardStats>(apiClient.get(`/yards/${yardId}/stats`)),
-  createSlot: (yardId: string, dto: SlotDto) =>
-    unwrap<YardSlot>(apiClient.post(`/yards/${yardId}/slots`, dto)),
-  // 批量创建：Excel 导入/生成器；返回 { created, skipped }
-  bulkCreateSlots: (yardId: string, slots: SlotDto[]) =>
+
+  // ============ Zone 管理 ============
+  listZones: (yardId: string) =>
+    unwrap<YardZoneSummary[]>(apiClient.get(`/yards/${yardId}/zones`)),
+  listActiveZones: (yardId: string) =>
+    unwrap<Array<{ id: string; code: string; name: string | null; lineCount: number; rowCount: number }>>(
+      apiClient.get(`/yards/${yardId}/zones/active`),
+    ),
+  createZone: (
+    yardId: string,
+    dto: {
+      code: string;
+      name?: string | null;
+      lineCount: number;
+      rowCount: number;
+      isActive?: boolean;
+    },
+  ) => unwrap<YardZoneSummary>(apiClient.post(`/yards/${yardId}/zones`, dto)),
+  updateZone: (
+    yardId: string,
+    zoneId: string,
+    dto: {
+      code?: string;
+      name?: string | null;
+      isActive?: boolean;
+      lineCount?: number;
+      rowCount?: number;
+    },
+  ) => unwrap<YardZoneSummary>(apiClient.patch(`/yards/${yardId}/zones/${zoneId}`, dto)),
+  deleteZone: (yardId: string, zoneId: string) =>
+    unwrap<{ ok: true; deletedSlots: number }>(
+      apiClient.delete(`/yards/${yardId}/zones/${zoneId}`),
+    ),
+  // 按 zone 尺寸批量生成 slot（幂等：已存在的 line/row 跳过）
+  generateSlotsForZone: (
+    yardId: string,
+    zoneId: string,
+    dto: { fromLine?: number; toLine?: number; toRow?: number } = {},
+  ) =>
     unwrap<{ created: number; skipped: number }>(
-      apiClient.post(`/yards/${yardId}/slots/bulk`, { slots }),
+      apiClient.post(`/yards/${yardId}/zones/${zoneId}/generate-slots`, dto),
     ),
-  bulkDeleteSlots: (yardId: string, slotIds: string[]) =>
-    unwrap<{ deleted: number; blocked: number }>(
-      apiClient.delete(`/yards/${yardId}/slots`, { data: { slotIds } }),
-    ),
+
+  // ============ 库位运营 ============
   assignSlot: (slotId: string, vin: string) =>
     unwrap<YardSlot>(apiClient.patch(`/yards/slots/${slotId}/assign`, { vin })),
   releaseSlot: (slotId: string) =>
     unwrap<YardSlot>(apiClient.patch(`/yards/slots/${slotId}/release`)),
-  // 场内移位：一步完成源→目标
   moveSlot: (fromSlotId: string, toSlotId: string) =>
     unwrap<{ from: YardSlot; to: YardSlot }>(
       apiClient.post('/yards/slots/move', { fromSlotId, toSlotId }),
     ),
-  // VIN 库存主视图
+
+  // VIN 库存
   vinInventory: (params?: {
     vin?: string;
     organizationId?: string;
@@ -117,10 +164,9 @@ export const yardsApi = {
     sortOrder?: 'asc' | 'desc';
     all?: boolean;
   }) => unwrap<Paginated<VinInventoryRow>>(apiClient.get('/yards/inventory/vin', { params })),
-  // VIN 全生命周期：orderVin + 出库运单 + 事件流水
   vinLifecycle: (vin: string) =>
     unwrap<VinLifecycle>(apiClient.get(`/yards/vin/${vin}/lifecycle`)),
-  // 批量分配库位 (初始化 / 大规模移位)
+
   batchAssignSlots: (payload: {
     yardId: string;
     items: Array<{ vin: string; slotCode: string }>;

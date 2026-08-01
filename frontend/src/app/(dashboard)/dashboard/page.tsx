@@ -33,6 +33,7 @@ import {
   DashboardMetric,
   DashboardSlot,
 } from "@/lib/api/dashboard";
+import { formatSlotCode } from "@/lib/slots";
 import { useAuthStore } from "@/lib/auth/store";
 import { useTranslation } from "@/i18n/useTranslation";
 import styles from "./dashboard.module.css";
@@ -45,8 +46,8 @@ const STATUS_CLASS = {
 };
 
 function slotGroup(slot: DashboardSlot): string {
-  if (slot.row) return slot.row;
-  return slot.code.match(/^([A-Za-z0-9]+?)[-_ ]?\d/)?.[1]?.toUpperCase() ?? "—";
+  // 3-level: 同一 zone 的库位分一组
+  return slot.zoneCode || "—";
 }
 
 function MetricCard({
@@ -331,7 +332,7 @@ export default function DashboardPage() {
                           className={`${styles.slot} ${STATUS_CLASS[slot.status]}`}
                           onClick={() => setSelectedSlot(slot)}
                         >
-                          <span className={styles.slotCode}>{slot.code}</span>
+                          <span className={styles.slotCode}>{formatSlotCode(slot)}</span>
                           <span className={styles.slotVin}>
                             {slot.currentVin ?? t("dashboard.available")}
                           </span>
@@ -417,7 +418,7 @@ export default function DashboardPage() {
               <div className={styles.detailLabel}>
                 {t("dashboard.slotCode")}
               </div>
-              <div className={styles.detailValue}>{selectedSlot.code}</div>
+              <div className={styles.detailValue}>{formatSlotCode(selectedSlot)}</div>
             </div>
             <div>
               <div className={styles.detailLabel}>

@@ -33,12 +33,16 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     let code = `HTTP_${status}`;
     let message: unknown = rawResponse;
+    let details: Record<string, unknown> | undefined;
     if (typeof rawResponse === 'object' && rawResponse !== null) {
       const body = rawResponse as Record<string, unknown>;
       if (typeof body.code === 'string') {
         code = body.code;
       }
       message = body.message ?? rawResponse;
+      details = Object.fromEntries(
+        Object.entries(body).filter(([key]) => !['code', 'message', 'statusCode'].includes(key)),
+      );
     }
 
     response.status(status).json({
@@ -48,6 +52,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       path: request.url,
       timestamp: new Date().toISOString(),
       message,
+      ...(details && Object.keys(details).length > 0 ? { details } : {}),
     });
   }
 }

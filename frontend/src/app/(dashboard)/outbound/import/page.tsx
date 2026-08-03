@@ -30,7 +30,7 @@ import { useAuthStore } from '@/lib/auth/store';
 import { useTranslation } from '@/i18n/useTranslation';
 
 // 出库订单导入向导
-// 1. 上传客户 (BYD) 提供的发货 Excel → 解析 dealer/towType/group
+// 1. 上传客户发货 Excel → 解析 DealerCode/towType/group；车辆资料以库存 VIN 为准
 // 2. 填订单头 (客户/客户单号/备注)
 // 3. 提交 → 后端匹配已入库 VIN，按 VIN 当前所在库位自动聚合始发仓
 export default function OutboundImportPage() {
@@ -52,7 +52,6 @@ export default function OutboundImportPage() {
     alreadyBound: string[];
     alreadyAllocated: string[];
     originYards: OutboundOriginYard[];
-    autoDerivedDealerCount: number;
   } | null>(null);
   const [parseInfo, setParseInfo] = useState<{
     total: number;
@@ -166,7 +165,6 @@ export default function OutboundImportPage() {
         alreadyBound: res.alreadyBound ?? [],
         alreadyAllocated: res.alreadyAllocated ?? [],
         originYards: res.originYards ?? [],
-        autoDerivedDealerCount: res.autoDerivedDealerCount ?? 0,
       });
       if (bound === 0 && allocated === 0 && res.missing.length === 0) {
         router.push(`/outbound/orders/${res.orderId}`);
@@ -217,15 +215,6 @@ export default function OutboundImportPage() {
                       {y.yardCode ? ` (${y.yardCode})` : ''} · {y.vinCount}
                     </Tag>
                   ))}
-                </div>
-              )}
-              {lastImportResult.autoDerivedDealerCount > 0 && (
-                <div style={{ marginBottom: 4 }}>
-                  <Tag color="gold">
-                    {t('outbound.import.resultDealerDerived', {
-                      n: lastImportResult.autoDerivedDealerCount,
-                    })}
-                  </Tag>
                 </div>
               )}
               {lastImportResult.missing.length > 0 && (
@@ -300,11 +289,7 @@ export default function OutboundImportPage() {
             <div>{t('outbound.import.hintTemplate')}</div>
             <div style={{ marginTop: 4 }}>
               <Tag>VIN</Tag>
-              <Tag>Brand</Tag>
-              <Tag>Model</Tag>
-              <Tag>Color</Tag>
               <Tag>DealerCode</Tag>
-              <Tag>DealerName</Tag>
               <Tag>TowType</Tag>
               <Tag>GroupCode</Tag>
             </div>
@@ -386,10 +371,7 @@ export default function OutboundImportPage() {
             style={{ marginTop: 16 }}
             columns={[
               { title: 'VIN', dataIndex: 'vin' },
-              { title: 'Model', dataIndex: 'model' },
-              { title: 'Color', dataIndex: 'color' },
               { title: 'DealerCode', dataIndex: 'dealerCode' },
-              { title: 'DealerName', dataIndex: 'dealerName' },
               {
                 title: 'TowType',
                 dataIndex: 'towType',

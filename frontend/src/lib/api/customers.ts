@@ -31,7 +31,7 @@ export interface CustomerAddressPayload {
   dealerGroup?: string;
   dealerName: string;
   address: string;
-  code?: string;
+  code: string;
   region?: string;
   contactName?: string;
   contactPhone?: string;

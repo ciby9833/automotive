@@ -24,7 +24,8 @@ export class CustomerAddress extends BaseEntity {
   @Column()
   address: string; // 相当于 BYD Excel 里的 Alamat
 
-  // 客户系统内的门店代码（Z2410265332 类）；导入时用于去重键
+  // 客户系统内的门店代码（Z2410265332 类）；客户内唯一，是出库目的门店的业务键。
+  // nullable 仅用于保留被历史运单引用的冻结旧记录；所有新写入均由 API + DB 约束强制必填。
   @Column({ type: 'varchar', nullable: true })
   code: string | null;
 

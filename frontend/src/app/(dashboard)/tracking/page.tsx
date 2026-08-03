@@ -32,6 +32,7 @@ import {
 import { trackingApi, TimelineEntry } from '@/lib/api/tracking';
 import { getStorageUrl } from '@/lib/api/client';
 import { useTranslation } from '@/i18n/useTranslation';
+import { formatSlotCode } from '@/lib/slots';
 
 // 全生命周期轨迹页：VIN 或订单号查询 → 归一化时间线（照片墙 + 场地/库位 + 操作人 + 备注）
 type SearchMode = 'vin' | 'order';
@@ -42,20 +43,25 @@ function iconOf(type: string): { icon: React.ReactNode; color: string } {
     return { icon: <ImportOutlined />, color: '#3b82f6' };
   if (type.endsWith('CANCEL'))
     return { icon: <CloseCircleOutlined />, color: '#ef4444' };
-  if (type === 'INBOUND_VIN_EDIT') return { icon: <EditOutlined />, color: '#f59e0b' };
-  if (type === 'PICKUP_SCAN') return { icon: <ShoppingCartOutlined />, color: '#8b5cf6' };
+  if (type === 'INBOUND_VIN_EDIT')
+    return { icon: <EditOutlined />, color: '#f59e0b' };
+  if (type === 'PICKUP_SCAN')
+    return { icon: <ShoppingCartOutlined />, color: '#8b5cf6' };
   if (type === 'PICKUP_ASSIGN' || type === 'PICKUP_COMPLETE')
     return { icon: <CheckCircleOutlined />, color: '#0891b2' };
   if (type === 'INBOUND_SCAN' || type === 'INBOUND_UNEXPECTED')
     return { icon: <BuildOutlined />, color: '#16a34a' };
-  if (type === 'INBOUND_UNDO') return { icon: <UndoOutlined />, color: '#f59e0b' };
+  if (type === 'INBOUND_UNDO')
+    return { icon: <UndoOutlined />, color: '#f59e0b' };
   if (type === 'YARD_MOVE') return { icon: <SwapOutlined />, color: '#0ea5e9' };
   if (type === 'WAYBILL_PLAN' || type === 'WAYBILL_ASSIGN')
     return { icon: <CarOutlined />, color: '#6366f1' };
-  if (type.includes('LOAD')) return { icon: <CameraOutlined />, color: '#0ea5e9' };
+  if (type.includes('LOAD'))
+    return { icon: <CameraOutlined />, color: '#0ea5e9' };
   if (type.includes('DEPART') || type === 'DELIVERY_DEPARTURE')
     return { icon: <SendOutlined />, color: '#22c55e' };
-  if (type.includes('SIGN')) return { icon: <CheckCircleOutlined />, color: '#22c55e' };
+  if (type.includes('SIGN'))
+    return { icon: <CheckCircleOutlined />, color: '#22c55e' };
   return { icon: <CarOutlined />, color: '#64748b' };
 }
 
@@ -98,7 +104,12 @@ function renderPayload(
     items.push(
       <span
         key={key}
-        style={{ fontSize: 12, color: '#475569', marginRight: 12, whiteSpace: 'nowrap' }}
+        style={{
+          fontSize: 12,
+          color: '#475569',
+          marginRight: 12,
+          whiteSpace: 'nowrap',
+        }}
       >
         <span style={{ color: '#94a3b8' }}>{label}:</span>{' '}
         {typeof v === 'boolean' ? (v ? '是' : '否') : String(v)}
@@ -106,7 +117,11 @@ function renderPayload(
     );
   }
   if (items.length === 0) return null;
-  return <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap' }}>{items}</div>;
+  return (
+    <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap' }}>
+      {items}
+    </div>
+  );
 }
 
 // 附件缩略图墙：4-per-row，点开原图预览。attachmentUrls 里存的是 storage key，
@@ -127,7 +142,11 @@ function renderAttachments(urls: string[] | null): React.ReactNode {
                 alt={`attachment-${i}`}
                 width={72}
                 height={72}
-                style={{ objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0' }}
+                style={{
+                  objectFit: 'cover',
+                  borderRadius: 4,
+                  border: '1px solid #e2e8f0',
+                }}
                 fallback="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='24' height='24' fill='%23cbd5e1'><path d='M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z'/></svg>"
               />
             );
@@ -139,7 +158,9 @@ function renderAttachments(urls: string[] | null): React.ReactNode {
 }
 
 // 车况快照 (vehicleCheckInfo / 或 waybill 扫码里的电量里程等)
-function renderVehicleCheck(payload: Record<string, unknown> | null): React.ReactNode {
+function renderVehicleCheck(
+  payload: Record<string, unknown> | null,
+): React.ReactNode {
   if (!payload) return null;
   const vc =
     (payload.vehicleCheckInfo as Record<string, unknown> | undefined) ??
@@ -247,7 +268,10 @@ export default function TrackingPage() {
             <Empty description={t('tracking.empty')} style={{ padding: 24 }} />
           )}
           {searched && entries.length === 0 && !loading && (
-            <Empty description={t('tracking.noResult')} style={{ padding: 24 }} />
+            <Empty
+              description={t('tracking.noResult')}
+              style={{ padding: 24 }}
+            />
           )}
           {entries.length > 0 && (
             <Timeline
@@ -264,7 +288,13 @@ export default function TrackingPage() {
                   color: meta.color,
                   dot: meta.icon as React.ReactElement,
                   label: (
-                    <div style={{ fontSize: 12, color: '#94a3b8', textAlign: 'right' }}>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: '#94a3b8',
+                        textAlign: 'right',
+                      }}
+                    >
                       <div>{occurred.toLocaleString()}</div>
                       {isBackdated && (
                         <div style={{ color: '#f59e0b', fontSize: 11 }}>
@@ -285,14 +315,16 @@ export default function TrackingPage() {
                           })()}
                         </Tag>
                         {e.vin && (
-                          <span style={{ fontFamily: 'monospace', fontSize: 13 }}>
+                          <span
+                            style={{ fontFamily: 'monospace', fontSize: 13 }}
+                          >
                             {e.vin}
                           </span>
                         )}
                         {e.yard && (
                           <Tag color="geekblue">
                             {e.yard.name}
-                            {e.slot ? ` · ${e.slot.code}` : ''}
+                            {e.slot ? ` · ${formatSlotCode(e.slot)}` : ''}
                           </Tag>
                         )}
                         {e.operator && (
@@ -326,7 +358,13 @@ export default function TrackingPage() {
                       {renderVehicleCheck(e.payload)}
                       {renderAttachments(e.attachmentUrls)}
                       {e.remark && (
-                        <div style={{ fontSize: 12, color: '#64748b', marginTop: 6 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            color: '#64748b',
+                            marginTop: 6,
+                          }}
+                        >
                           {e.remark}
                         </div>
                       )}

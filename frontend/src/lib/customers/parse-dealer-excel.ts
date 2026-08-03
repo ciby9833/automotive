@@ -73,14 +73,28 @@ export async function parseDealerExcel(file: File): Promise<DealerParseResult> {
   if (!mappedColumns.address) {
     throw new Error('表格里未找到地址列 (Alamat / Address)');
   }
+  if (!mappedColumns.code) {
+    throw new Error('表格里未找到门店代码列 (Code / DealerCode)');
+  }
 
   const rows: CustomerAddressPayload[] = [];
+  const missingCodeRows: number[] = [];
+  const duplicateCodes = new Set<string>();
+  const seenCodes = new Set<string>();
   let lastSeenGroup: string | undefined;
-  for (const r of raw) {
+  for (const [index, r] of raw.entries()) {
     const dealerName = pickString(r, mappedColumns.dealerName);
     if (!dealerName) continue;
     const address = pickString(r, mappedColumns.address);
     if (!address) continue;
+    const code = pickString(r, mappedColumns.code);
+    if (!code) {
+      missingCodeRows.push(index + 2);
+      continue;
+    }
+    const normalizedCode = code.toUpperCase();
+    if (seenCodes.has(normalizedCode)) duplicateCodes.add(code);
+    seenCodes.add(normalizedCode);
 
     const groupRaw = pickString(r, mappedColumns.dealerGroup);
     if (groupRaw) lastSeenGroup = groupRaw;
@@ -89,11 +103,21 @@ export async function parseDealerExcel(file: File): Promise<DealerParseResult> {
       dealerGroup: lastSeenGroup,
       dealerName,
       address,
-      code: pickString(r, mappedColumns.code),
+      code,
       region: pickString(r, mappedColumns.region),
       contactName: pickString(r, mappedColumns.contactName),
       contactPhone: pickString(r, mappedColumns.contactPhone),
     });
+  }
+  if (missingCodeRows.length > 0) {
+    throw new Error(
+      `以下 Excel 行缺少门店代码：${missingCodeRows.slice(0, 20).join(', ')}${missingCodeRows.length > 20 ? '…' : ''}`,
+    );
+  }
+  if (duplicateCodes.size > 0) {
+    throw new Error(
+      `表格内门店代码重复：${Array.from(duplicateCodes).join(', ')}`,
+    );
   }
   return {
     rows,

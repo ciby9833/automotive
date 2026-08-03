@@ -5,12 +5,7 @@ export type VehicleTowType = 'CC' | 'TOWING' | 'TANSYA';
 
 export interface OutboundVinRow {
   vin: string;
-  brand?: string;
-  model?: string;
-  color?: string;
-  vehicleType?: string;
-  dealerCode?: string;
-  dealerName?: string;
+  dealerCode: string;
   towType?: VehicleTowType;
   groupCode?: string;
 }
@@ -36,6 +31,7 @@ export interface OutboundOrderListRow {
   id: string;
   orderCode: string;
   customerOrderNo: string | null;
+  customerId: string;
   customerName: string;
   originYardName: string; // 兼容旧字段：单仓时=仓名，跨仓时="N 个场地"
   originYardSummary: string;
@@ -46,10 +42,22 @@ export interface OutboundOrderListRow {
   status: OutboundOrderStatus;
   cancelledAt: string | null;
   cancelledByUserName: string | null;
+  totalVinCount: number;
+  allocatedVinCount: number;
+  pendingVinCount: number;
+  businessStatus:
+    | 'EMPTY'
+    | 'PENDING'
+    | 'PARTIAL'
+    | 'PLANNED'
+    | 'IN_TRANSIT'
+    | 'COMPLETED'
+    | 'CANCELLED';
 }
 
 export interface OutboundOrderVinDetail {
   id: string;
+  outboundOrderId: string | null;
   vin: string;
   brand: string | null;
   model: string | null;
@@ -74,14 +82,23 @@ export interface OutboundOrderVinDetail {
     customerOrderNo: string | null;
     customerId?: string;
   };
+  outboundOrder?: {
+    id: string;
+    orderCode: string;
+    customerOrderNo: string | null;
+    customerId: string;
+    organizationId: string;
+    createdAt: string;
+    customer?: { id: string; name: string };
+  };
 }
 
 export interface PlanWaybillPayload {
   outboundOrderId: string; // 必填：本次开单锁定的出库单
   orderVinIds: string[];
   carrierId: string;
-  driverId?: string;
-  vehicleId?: string;
+  driverId: string;
+  vehicleId: string;
   towType?: VehicleTowType;
   customerWaybillCode?: string;
   destinationDealerId?: string;
@@ -90,15 +107,14 @@ export interface PlanWaybillPayload {
   remark?: string;
 }
 
-export type BlockedReason =
-  | 'NOT_ARRIVED'
-  | 'NO_SLOT'
-  | 'ALREADY_ALLOCATED'
-  | 'MISSING_DEALER';
+export type BlockedReason = 'NOT_ARRIVED' | 'NO_SLOT' | 'MISSING_DEALER';
 
 export interface BlockedVinRow {
   id: string;
   vin: string;
+  outboundOrderId: string;
+  outboundOrderCode: string;
+  customerName: string;
   dealerCode: string | null;
   dealerName: string | null;
   reason: BlockedReason;
@@ -116,8 +132,6 @@ export const outboundApi = {
       alreadyBound?: string[];
       alreadyAllocated?: string[];
       originYards: OutboundOriginYard[];
-      // 客户 Excel 缺 dealerCode 但有 dealerName 时后端自动派生 pseudo code 的台数
-      autoDerivedDealerCount?: number;
     }>(apiClient.post('/outbound/orders/import', payload)),
 
   listOrders: (params?: {
@@ -142,15 +156,18 @@ export const outboundApi = {
       originYards: OutboundOriginYard[];
     }>(apiClient.get(`/outbound/orders/${id}`)),
 
-  listAvailable: (params: {
+  listPlanPool: (params?: {
+    organizationId?: string;
     customerId?: string;
     yardId?: string;
     dealerCode?: string;
     groupCode?: string;
+    towType?: VehicleTowType;
+    vin?: string;
     outboundOrderId?: string;
   }) =>
     unwrap<OutboundOrderVinDetail[]>(
-      apiClient.get('/outbound/plan/available', { params }),
+      apiClient.get('/outbound/plan/pool', { params }),
     ),
 
   plan: (payload: PlanWaybillPayload) =>
@@ -158,11 +175,15 @@ export const outboundApi = {
       apiClient.post('/outbound/plan', payload),
     ),
 
-  listBlocked: (outboundOrderId: string) =>
+  listPlanExceptions: (params?: {
+    organizationId?: string;
+    customerId?: string;
+    yardId?: string;
+    outboundOrderId?: string;
+    vin?: string;
+  }) =>
     unwrap<BlockedVinRow[]>(
-      apiClient.get('/outbound/plan/blocked', {
-        params: { outboundOrderId },
-      }),
+      apiClient.get('/outbound/plan/exceptions', { params }),
     ),
 
   // DELETE 语义：软取消出库单 (Order 打 CANCELLED + 释放 VIN 出库属性；数据保留供追溯)

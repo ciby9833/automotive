@@ -20,7 +20,12 @@ export interface TimelineEntry {
   orderId: string | null;
   waybillId: string | null;
   yard: { id: string; name: string; code: string } | null;
-  slot: { id: string; code: string } | null;
+  slot: {
+    id: string;
+    line: number;
+    row: number;
+    zone: { id: string; code: string };
+  } | null;
   operator: { id: string; displayName: string } | null;
   attachmentUrls: string[] | null;
   payload: Record<string, unknown> | null;

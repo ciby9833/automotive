@@ -67,7 +67,15 @@ export default function OutboundOrdersPage() {
               }
               options={[
                 { label: t('outbound.orders.filterAll'), value: 'ALL' },
-                { label: t('outbound.orders.filterCancelled'), value: 'CANCELLED' },
+                { label: t('outbound.orders.filterPending'), value: 'PENDING' },
+                {
+                  label: t('outbound.orders.filterCompleted'),
+                  value: 'COMPLETED',
+                },
+                {
+                  label: t('outbound.orders.filterCancelled'),
+                  value: 'CANCELLED',
+                },
               ]}
             />
             <Input.Search
@@ -109,7 +117,11 @@ export default function OutboundOrdersPage() {
           const s = Array.isArray(sorter) ? sorter[0] : sorter;
           setSortBy(s && s.order ? (s.columnKey as string) : undefined);
           setSortOrder(
-            s?.order === 'ascend' ? 'asc' : s?.order === 'descend' ? 'desc' : undefined,
+            s?.order === 'ascend'
+              ? 'asc'
+              : s?.order === 'descend'
+                ? 'desc'
+                : undefined,
           );
         }}
         columns={[
@@ -176,19 +188,45 @@ export default function OutboundOrdersPage() {
             title: t('outbound.orders.status'),
             width: 200,
             render: (_, r) => {
-              if (r.status !== 'CANCELLED') {
-                return <Tag color="blue">{t('outbound.orders.statusActive')}</Tag>;
-              }
+              const config = {
+                EMPTY: {
+                  color: 'default',
+                  label: t('outbound.orders.statusEmpty'),
+                },
+                PENDING: {
+                  color: 'orange',
+                  label: t('outbound.orders.statusPending'),
+                },
+                PARTIAL: {
+                  color: 'gold',
+                  label: t('outbound.orders.statusPartial'),
+                },
+                PLANNED: {
+                  color: 'blue',
+                  label: t('outbound.orders.statusPlanned'),
+                },
+                IN_TRANSIT: {
+                  color: 'cyan',
+                  label: t('outbound.orders.statusInTransit'),
+                },
+                COMPLETED: {
+                  color: 'green',
+                  label: t('outbound.orders.statusCompleted'),
+                },
+                CANCELLED: {
+                  color: 'red',
+                  label: t('outbound.orders.statusCancelled'),
+                },
+              }[r.businessStatus];
               return (
-                <div>
-                  <Tag color="red">{t('outbound.orders.statusCancelled')}</Tag>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
-                    {r.cancelledByUserName ?? '-'}
-                    {r.cancelledAt
-                      ? ` · ${new Date(r.cancelledAt).toLocaleString()}`
-                      : ''}
-                  </div>
-                </div>
+                <Space size={4}>
+                  <Tag color={config.color}>{config.label}</Tag>
+                  {r.totalVinCount > 0 && (
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>
+                      {r.allocatedVinCount}/{r.totalVinCount}
+                    </span>
+                  )}
+                </Space>
               );
             },
           },

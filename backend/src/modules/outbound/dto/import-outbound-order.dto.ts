@@ -5,6 +5,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
@@ -22,43 +23,12 @@ export class ImportOutboundVinRow {
   @Length(8, 32)
   vin: string;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
+  // 目的门店只接受客户地址簿代码；名称、地址由服务端反查主数据。
+  @ApiProperty({ description: '客户地址簿中的门店代码' })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(60)
-  brand?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  model?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  color?: string;
-
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  vehicleType?: string;
-
-  // 经销店代码 (BYD 系统里的引用)
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  dealerCode?: string;
-
-  // 经销店名称 (中文/印尼语，前端展示用)
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(200)
-  dealerName?: string;
+  dealerCode: string;
 
   @ApiProperty({ required: false, enum: VehicleTowType })
   @IsOptional()

@@ -66,9 +66,12 @@ export class OutboundController {
       organizationId,
       status,
       page: page ? Math.max(1, Number(page)) : undefined,
-      pageSize: pageSize ? Math.max(1, Math.min(500, Number(pageSize))) : undefined,
+      pageSize: pageSize
+        ? Math.max(1, Math.min(500, Number(pageSize)))
+        : undefined,
       sortBy,
-      sortOrder: sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
+      sortOrder:
+        sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
       all: all === 'true' || all === '1',
     });
   }
@@ -86,38 +89,50 @@ export class OutboundController {
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
   @Permissions(Permission.OUTBOUND_PLAN)
-  @Get('plan/available')
-  async listAvailable(
+  @Get('plan/pool')
+  async listPlanPool(
     @CurrentUser() user: AuthenticatedUser,
+    @Query('organizationId') organizationId?: string,
     @Query('customerId') customerId?: string,
     @Query('yardId') yardId?: string,
     @Query('dealerCode') dealerCode?: string,
     @Query('groupCode') groupCode?: string,
+    @Query('towType') towType?: string,
+    @Query('vin') vin?: string,
     @Query('outboundOrderId') outboundOrderId?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.outboundService.listAvailableVinsForPlan(scope, {
+    return this.outboundService.listPlanPool(scope, {
+      organizationId,
       customerId,
       yardId,
       dealerCode,
       groupCode,
+      towType,
+      vin,
       outboundOrderId,
     });
   }
 
-  // 出库单里"不可开单的 VIN + 原因"：给业务员看清为什么某台车没进池
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
   @Permissions(Permission.OUTBOUND_PLAN)
-  @Get('plan/blocked')
-  async listBlocked(
+  @Get('plan/exceptions')
+  async listPlanExceptions(
     @CurrentUser() user: AuthenticatedUser,
-    @Query('outboundOrderId', ParseUUIDPipe) outboundOrderId: string,
+    @Query('organizationId') organizationId?: string,
+    @Query('customerId') customerId?: string,
+    @Query('yardId') yardId?: string,
+    @Query('outboundOrderId') outboundOrderId?: string,
+    @Query('vin') vin?: string,
   ) {
     const scope = await this.scopeService.resolve(user);
-    return this.outboundService.listBlockedVinsForOutbound(
+    return this.outboundService.listPlanExceptions(scope, {
+      organizationId,
+      customerId,
+      yardId,
       outboundOrderId,
-      scope,
-    );
+      vin,
+    });
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)

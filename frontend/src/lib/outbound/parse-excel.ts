@@ -8,17 +8,7 @@ const COLUMN_MAP: Record<string, keyof OutboundVinRow> = {
   vinno: 'vin',
   vincode: 'vin',
   vinnumber: 'vin',
-  brand: 'brand',
-  model: 'model',
-  modeltype: 'model',
-  color: 'color',
-  bodycolor: 'color',
-  vehicletype: 'vehicleType',
-  type: 'vehicleType',
   dealercode: 'dealerCode',
-  dealer: 'dealerCode',
-  dealername: 'dealerName',
-  dealerfull: 'dealerName',
   towtype: 'towType',
   towingtype: 'towType',
   transporttype: 'towType',
@@ -89,13 +79,14 @@ export async function parseOutboundExcel(
       '表格里未找到 VIN 列。请确认列名是 "VIN" / "VIN NO" / "VIN code" 之一',
     );
   }
-  if (!mappedColumns.dealerCode && !mappedColumns.dealerName) {
+  if (!mappedColumns.dealerCode) {
     throw new Error(
-      '表格里未找到经销店列 (DealerCode / DealerName)。出库必须知道每台车送去哪个经销店',
+      '表格里未找到 DealerCode 列。目的门店必须使用所选客户地址簿中的门店代码',
     );
   }
 
   const rows: OutboundVinRow[] = [];
+  const missingDealerCodeRows: number[] = [];
   let invalidTowTypeCount = 0;
   for (const r of raw) {
     const vinRaw = r[mappedColumns.vin] as string;
@@ -107,17 +98,22 @@ export async function parseOutboundExcel(
     const towType = normalizeTowType(rawTow);
     if (rawTow && !towType) invalidTowTypeCount += 1;
 
+    const dealerCode = pickString(r, mappedColumns.dealerCode);
+    if (!dealerCode) {
+      missingDealerCodeRows.push(raw.indexOf(r) + 2);
+      continue;
+    }
     rows.push({
       vin,
-      brand: pickString(r, mappedColumns.brand),
-      model: pickString(r, mappedColumns.model),
-      color: pickString(r, mappedColumns.color),
-      vehicleType: pickString(r, mappedColumns.vehicleType),
-      dealerCode: pickString(r, mappedColumns.dealerCode),
-      dealerName: pickString(r, mappedColumns.dealerName),
+      dealerCode,
       towType,
       groupCode: pickString(r, mappedColumns.groupCode),
     });
+  }
+  if (missingDealerCodeRows.length > 0) {
+    throw new Error(
+      `以下 Excel 行缺少 DealerCode：${missingDealerCodeRows.slice(0, 20).join(', ')}${missingDealerCodeRows.length > 20 ? '…' : ''}`,
+    );
   }
   return {
     rows,

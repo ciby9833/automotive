@@ -17,7 +17,9 @@ import { VehicleTowType } from '../../../common/enums/order-type.enum';
 // 且已到仓 + 未开单。始发仓由 VIN 当前库位反推，客户端传值被忽略。
 export class PlanWaybillDto {
   // 出库导入订单 id：本次开单的上下文。缺失或与 VIN 归属不匹配都拒绝
-  @ApiProperty({ description: '出库导入订单 id（本次开单必须限定于该出库单内）' })
+  @ApiProperty({
+    description: '出库导入订单 id（本次开单必须限定于该出库单内）',
+  })
   @IsUUID()
   outboundOrderId: string;
 
@@ -32,17 +34,19 @@ export class PlanWaybillDto {
   @IsUUID()
   carrierId: string;
 
-  @ApiProperty({ required: false, description: '司机 (自营车可空)' })
-  @IsOptional()
+  @ApiProperty({ description: '执行本次运输的司机' })
   @IsUUID()
-  driverId?: string;
+  driverId: string;
 
-  @ApiProperty({ required: false, description: '拖车' })
-  @IsOptional()
+  @ApiProperty({ description: '执行本次运输的拖车/运输车辆' })
   @IsUUID()
-  vehicleId?: string;
+  vehicleId: string;
 
-  @ApiProperty({ required: false, enum: VehicleTowType })
+  @ApiProperty({
+    required: false,
+    enum: VehicleTowType,
+    description: '运输方式；不传时继承所选 VIN 的一致运输方式',
+  })
   @IsOptional()
   @IsEnum(VehicleTowType)
   towType?: VehicleTowType;
@@ -53,18 +57,27 @@ export class PlanWaybillDto {
   @Length(1, 60)
   customerWaybillCode?: string;
 
-  @ApiProperty({ required: false, description: '手动指定目的门店 id (覆盖 dealer_code 自动匹配)' })
+  @ApiProperty({
+    required: false,
+    description: '手动指定目的门店 id (覆盖 dealer_code 自动匹配)',
+  })
   @IsOptional()
   @IsUUID()
   destinationDealerId?: string;
 
-  @ApiProperty({ required: false, description: '本次运单收件人（可空，默认取门店联系人）' })
+  @ApiProperty({
+    required: false,
+    description: '本次运单收件人（可空，默认取门店联系人）',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(120)
   recipientName?: string;
 
-  @ApiProperty({ required: false, description: '收件人电话（可空，默认取门店电话）' })
+  @ApiProperty({
+    required: false,
+    description: '收件人电话（可空，默认取门店电话）',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(60)

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   Alert,
@@ -9,7 +9,6 @@ import {
   Col,
   Divider,
   Drawer,
-  Empty,
   Form,
   Input,
   Row,
@@ -19,279 +18,309 @@ import {
   Tag,
   message,
 } from 'antd';
+import { ExclamationCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { PageHeader } from '@/components/layout/PageHeader';
+import { OrgFilter } from '@/components/layout/OrgFilter';
+import { DriverVehiclePicker } from '@/components/carriers/DriverVehiclePicker';
 import {
-  outboundApi,
+  BlockedVinRow,
   OutboundOrderListRow,
   OutboundOrderVinDetail,
-  BlockedVinRow,
   VehicleTowType,
+  outboundApi,
 } from '@/lib/api/outbound';
-import { customersApi, Customer, CustomerAddress } from '@/lib/api/customers';
-import { yardsApi, Yard } from '@/lib/api/yards';
-import { carriersApi, Carrier } from '@/lib/api/carriers';
-import { DriverVehiclePicker } from '@/components/carriers/DriverVehiclePicker';
+import { Carrier, carriersApi } from '@/lib/api/carriers';
+import { Customer, CustomerAddress, customersApi } from '@/lib/api/customers';
+import { Yard, yardsApi } from '@/lib/api/yards';
 import { useTranslation } from '@/i18n/useTranslation';
 import { formatSlotCode } from '@/lib/slots';
 
-// 出库开单：从库存里选 VIN → 分配供应商 → 生成运单
-// 业务规则：一张运单只能派往同一经销店 (后端校验，前端做同经销店过滤引导)
 function OutboundPlanInner() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const initialOrderId = searchParams.get('orderId') ?? undefined;
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [yards, setYards] = useState<Yard[]>([]);
-  const [carriers, setCarriers] = useState<Carrier[]>([]);
-  const [outboundOrders, setOutboundOrders] = useState<OutboundOrderListRow[]>([]);
-  const [available, setAvailable] = useState<OutboundOrderVinDetail[]>([]);
-  const [loading, setLoading] = useState(false);
-
+  const [organizationsId, setOrganizationId] = useState<string>();
+  const [customerId, setCustomerId] = useState<string>();
   const [outboundOrderId, setOutboundOrderId] = useState<string | undefined>(
     initialOrderId,
   );
-  const [customerId, setCustomerId] = useState<string | undefined>();
-  const [yardId, setYardId] = useState<string | undefined>();
-  const [dealerCode, setDealerCode] = useState<string | undefined>();
-  const [groupCode, setGroupCode] = useState<string | undefined>();
-  const [blocked, setBlocked] = useState<BlockedVinRow[]>([]);
-  const [blockedOpen, setBlockedOpen] = useState(false);
+  const [yardId, setYardId] = useState<string>();
+  const [dealerCode, setDealerCode] = useState<string>();
+  const [groupCode, setGroupCode] = useState<string>();
+  const [filterTowType, setFilterTowType] = useState<VehicleTowType>();
+  const [vinQuery, setVinQuery] = useState('');
+
+  const [orders, setOrders] = useState<OutboundOrderListRow[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [yards, setYards] = useState<Yard[]>([]);
+  const [carriers, setCarriers] = useState<Carrier[]>([]);
+  const [pool, setPool] = useState<OutboundOrderVinDetail[]>([]);
+  const [exceptions, setExceptions] = useState<BlockedVinRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [exceptionsOpen, setExceptionsOpen] = useState(false);
 
   const [selectedIds, setSelectedIds] = useState<React.Key[]>([]);
-  const [carrierId, setCarrierId] = useState<string | undefined>();
+  const [carrierId, setCarrierId] = useState<string>();
   const [driverId, setDriverId] = useState<string | null>(null);
   const [vehicleId, setVehicleId] = useState<string | null>(null);
-  const [towType, setTowType] = useState<VehicleTowType | undefined>();
+  const [towTypeOverride, setTowTypeOverride] = useState<VehicleTowType>();
+  const [manualDealerId, setManualDealerId] = useState<string>();
+  const [customerAddresses, setCustomerAddresses] = useState<CustomerAddress[]>(
+    [],
+  );
   const [customerWaybillCode, setCustomerWaybillCode] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientPhone, setRecipientPhone] = useState('');
   const [remark, setRemark] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  // 客户地址簿：按选中的 VIN 的 customerId 加载，用于展示门店信息 + 兜底填收件人
-  const [customerAddresses, setCustomerAddresses] = useState<CustomerAddress[]>([]);
-  // 手动选门店：业务员可覆盖自动匹配（VIN dealer_code）指定别的门店
-  const [manualDealerId, setManualDealerId] = useState<string | undefined>();
 
   useEffect(() => {
-    customersApi.list().then((items) => setCustomers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
-    yardsApi.list().then(setYards).catch(() => undefined);
-    carriersApi.list().then((items) => setCarriers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
-    // 下拉展示所有出库单：走 all=true 绕过分页
-    outboundApi.listOrders({ all: true }).then((res) => setOutboundOrders(res.items)).catch(() => undefined);
+    carriersApi
+      .list()
+      .then((items) =>
+        setCarriers(items.filter((item) => item.status === 'ACTIVE')),
+      )
+      .catch(() => undefined);
   }, []);
 
-  const reload = () => {
+  useEffect(() => {
+    Promise.all([
+      outboundApi.listOrders({
+        all: true,
+        status: 'PENDING',
+        organizationId: organizationsId,
+      }),
+      customersApi.list(organizationsId),
+      yardsApi.list(organizationsId),
+    ])
+      .then(([orderResult, customerRows, yardRows]) => {
+        setOrders(orderResult.items);
+        setCustomers(customerRows.filter((item) => item.status === 'ACTIVE'));
+        setYards(yardRows.filter((item) => item.isActive));
+      })
+      .catch(() => message.error(t('outbound.plan.referenceLoadFailed')));
+  }, [organizationsId, t]);
+
+  const queryParams = useMemo(
+    () => ({
+      organizationId: organizationsId,
+      customerId,
+      outboundOrderId,
+      yardId,
+      dealerCode,
+      groupCode,
+      towType: filterTowType,
+      vin: vinQuery.trim() || undefined,
+    }),
+    [
+      organizationsId,
+      customerId,
+      outboundOrderId,
+      yardId,
+      dealerCode,
+      groupCode,
+      filterTowType,
+      vinQuery,
+    ],
+  );
+
+  const reload = useCallback(async () => {
     setLoading(true);
-    outboundApi
-      .listAvailable({
-        customerId,
-        yardId,
-        dealerCode,
-        groupCode,
-        outboundOrderId,
-      })
-      .then((rows) => {
-        setAvailable(rows);
-        // 过滤条件变了，之前选的 VIN 可能不在新列表里 — 只保留还在的
-        setSelectedIds((prev) => {
-          const nowIds = new Set(rows.map((r) => r.id));
-          return prev.filter((k) => nowIds.has(String(k)));
-        });
-      })
-      .catch(() => message.error(t('outbound.plan.loadFailed')))
-      .finally(() => setLoading(false));
+    try {
+      const [poolRows, exceptionRows] = await Promise.all([
+        outboundApi.listPlanPool(queryParams),
+        outboundApi.listPlanExceptions({
+          organizationId: queryParams.organizationId,
+          customerId: queryParams.customerId,
+          outboundOrderId: queryParams.outboundOrderId,
+          yardId: queryParams.yardId,
+          vin: queryParams.vin,
+        }),
+      ]);
+      setPool(poolRows);
+      setExceptions(exceptionRows);
+      setSelectedIds((current) => {
+        const visible = new Set(poolRows.map((row) => row.id));
+        return current.filter((id) => visible.has(String(id)));
+      });
+    } catch {
+      message.error(t('outbound.plan.loadFailed'));
+    } finally {
+      setLoading(false);
+    }
+  }, [queryParams, t]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  const resetFilters = () => {
+    setOrganizationId(undefined);
+    setCustomerId(undefined);
+    setOutboundOrderId(undefined);
+    setYardId(undefined);
+    setDealerCode(undefined);
+    setGroupCode(undefined);
+    setFilterTowType(undefined);
+    setVinQuery('');
+    setSelectedIds([]);
   };
 
-  useEffect(() => {
-    reload();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, yardId, dealerCode, groupCode, outboundOrderId]);
-
-  // 选出库单时并行拉"不可开单"列表；换单/清单时清空
-  useEffect(() => {
-    if (!outboundOrderId) {
-      setBlocked([]);
-      return;
-    }
-    outboundApi
-      .listBlocked(outboundOrderId)
-      .then(setBlocked)
-      .catch(() => setBlocked([]));
-  }, [outboundOrderId]);
-
-  // 从选中的 VIN 推导：经销店集合、始发仓集合
   const selected = useMemo(
-    () => available.filter((v) => selectedIds.includes(v.id)),
-    [available, selectedIds],
+    () => pool.filter((row) => selectedIds.includes(row.id)),
+    [pool, selectedIds],
   );
-  const dealerSet = useMemo(
-    () =>
-      new Set(
-        selected
-          .map((v) => v.dealerName ?? v.dealerCode)
-          .filter(Boolean) as string[],
-      ),
-    [selected],
-  );
-  const yardSet = useMemo(
-    () =>
-      new Set(
-        selected
-          .map((v) => v.slot?.yard?.id)
-          .filter(Boolean) as string[],
-      ),
-    [selected],
-  );
-  const inferredOriginYardId = useMemo(() => {
-    if (yardSet.size === 1) return selected[0]?.slot?.yard?.id;
-    return yardId;
-  }, [selected, yardSet, yardId]);
+  const base = selected[0];
+  const baseOrderId = base?.outboundOrderId ?? undefined;
+  const baseYardId = base?.slot?.yard?.id;
+  const baseDealerCode = base?.dealerCode ?? undefined;
 
-  // 从选中 VIN 里推导 customerId：拉该客户的地址簿，匹配 dealer_code → 展示门店信息
-  const selectedCustomerId = useMemo(
-    () => selected[0]?.order?.customerId,
-    [selected],
+  const isCompatible = useCallback(
+    (row: OutboundOrderVinDetail) => {
+      if (!base) return true;
+      return (
+        row.outboundOrderId === baseOrderId &&
+        row.slot?.yard?.id === baseYardId &&
+        row.dealerCode === baseDealerCode
+      );
+    },
+    [base, baseOrderId, baseYardId, baseDealerCode],
   );
+
+  const selectedCustomerId = base?.outboundOrder?.customerId;
   useEffect(() => {
-    setManualDealerId(undefined);
     if (!selectedCustomerId) {
       setCustomerAddresses([]);
       return;
     }
     customersApi
       .get(selectedCustomerId)
-      .then((c) => setCustomerAddresses(c.addresses ?? []))
+      .then((customer) =>
+        setCustomerAddresses(
+          (customer.addresses ?? []).filter(
+            (address) => address.isActive && address.code,
+          ),
+        ),
+      )
       .catch(() => setCustomerAddresses([]));
   }, [selectedCustomerId]);
 
-  // 匹配的门店：手动选优先，其次按 dealer_code 自动匹配
   const autoMatchedDealer = useMemo(() => {
-    const dc = selected[0]?.dealerCode;
-    if (!dc) return null;
-    return customerAddresses.find((a) => a.code === dc) ?? null;
-  }, [selected, customerAddresses]);
+    if (!baseDealerCode) return null;
+    const normalized = baseDealerCode.trim().toUpperCase();
+    return (
+      customerAddresses.find(
+        (address) => address.code?.trim().toUpperCase() === normalized,
+      ) ?? null
+    );
+  }, [baseDealerCode, customerAddresses]);
   const matchedDealer = useMemo(() => {
-    if (manualDealerId) {
-      return customerAddresses.find((a) => a.id === manualDealerId) ?? null;
-    }
-    return autoMatchedDealer;
+    if (!manualDealerId) return autoMatchedDealer;
+    return (
+      customerAddresses.find((address) => address.id === manualDealerId) ?? null
+    );
   }, [manualDealerId, autoMatchedDealer, customerAddresses]);
+
+  const inheritedTowType = useMemo(() => {
+    const values = new Set(
+      selected.map((row) => row.towType).filter(Boolean) as VehicleTowType[],
+    );
+    return values.size === 1 ? [...values][0] : undefined;
+  }, [selected]);
+  const effectiveTowType = towTypeOverride ?? inheritedTowType;
 
   const dealerOptions = useMemo(() => {
     const map = new Map<string, string>();
-    for (const v of available) {
-      if (v.dealerCode) {
-        map.set(v.dealerCode, v.dealerName ?? v.dealerCode);
-      }
+    for (const row of pool) {
+      if (row.dealerCode)
+        map.set(row.dealerCode, row.dealerName ?? row.dealerCode);
     }
-    return Array.from(map.entries()).map(([code, name]) => ({
-      value: code,
-      label: `${name} (${code})`,
+    return [...map].map(([value, name]) => ({
+      value,
+      label: `${name} (${value})`,
     }));
-  }, [available]);
-
-  // 出库单上下文里的分组统计：按仓 / 按经销商 / 按分组各多少可开 VIN
-  // 用于顶部快速筛选卡：点某个仓 → 一键把 yardId 过滤条件设上，选中即分单
-  const yardStats = useMemo(() => {
-    const m = new Map<string, { id: string; name: string; count: number }>();
-    for (const v of available) {
-      const y = v.slot?.yard;
-      if (!y) continue;
-      const entry = m.get(y.id);
-      if (entry) entry.count += 1;
-      else m.set(y.id, { id: y.id, name: `${y.name} (${y.code})`, count: 1 });
-    }
-    return Array.from(m.values());
-  }, [available]);
-  const dealerStats = useMemo(() => {
-    const m = new Map<string, { code: string; label: string; count: number }>();
-    for (const v of available) {
-      if (!v.dealerCode) continue;
-      const entry = m.get(v.dealerCode);
-      const label = v.dealerName ?? v.dealerCode;
-      if (entry) entry.count += 1;
-      else m.set(v.dealerCode, { code: v.dealerCode, label, count: 1 });
-    }
-    return Array.from(m.values());
-  }, [available]);
-  const groupStats = useMemo(() => {
-    const m = new Map<string, { code: string; count: number }>();
-    for (const v of available) {
-      if (!v.groupCode) continue;
-      const entry = m.get(v.groupCode);
-      if (entry) entry.count += 1;
-      else m.set(v.groupCode, { code: v.groupCode, count: 1 });
-    }
-    return Array.from(m.values());
-  }, [available]);
-
-  const groupOptions = useMemo(() => {
-    const s = new Set<string>();
-    for (const v of available) if (v.groupCode) s.add(v.groupCode);
-    return Array.from(s).map((g) => ({ value: g, label: g }));
-  }, [available]);
+  }, [pool]);
+  const groupOptions = useMemo(
+    () =>
+      [
+        ...new Set(
+          pool.map((row) => row.groupCode).filter(Boolean) as string[],
+        ),
+      ].map((value) => ({ value, label: value })),
+    [pool],
+  );
 
   const validationError = useMemo(() => {
-    if (selected.length === 0) return null;
-    if (!outboundOrderId) return t('outbound.plan.needOutboundOrder');
-    if (dealerSet.size > 1) return t('outbound.plan.errMultiDealer');
-    if (yardSet.size > 1) return t('outbound.plan.errMultiYard');
+    if (!selected.length) return null;
+    if (new Set(selected.map((row) => row.outboundOrderId)).size > 1)
+      return t('outbound.plan.errMultiOrder');
+    if (new Set(selected.map((row) => row.slot?.yard?.id)).size > 1)
+      return t('outbound.plan.errMultiYard');
+    if (new Set(selected.map((row) => row.dealerCode)).size > 1)
+      return t('outbound.plan.errMultiDealer');
+    if (!matchedDealer) return t('outbound.plan.errNoDealer');
     if (!carrierId) return t('outbound.plan.errNoCarrier');
-    if (!inferredOriginYardId) return t('outbound.plan.errNoYard');
+    if (!driverId) return t('outbound.plan.errNoDriver');
+    if (!vehicleId) return t('outbound.plan.errNoVehicle');
+    if (!effectiveTowType) return t('outbound.plan.errNoTowType');
     return null;
   }, [
-    selected.length,
-    outboundOrderId,
-    dealerSet.size,
-    yardSet.size,
+    selected,
+    matchedDealer,
     carrierId,
-    inferredOriginYardId,
+    driverId,
+    vehicleId,
+    effectiveTowType,
     t,
   ]);
 
   const submit = async () => {
-    if (validationError || selected.length === 0 || !carrierId) return;
-    if (!outboundOrderId) {
-      message.warning(t('outbound.plan.needOutboundOrder'));
+    if (
+      validationError ||
+      !selected.length ||
+      !baseOrderId ||
+      !matchedDealer ||
+      !carrierId ||
+      !driverId ||
+      !vehicleId ||
+      !effectiveTowType
+    )
       return;
-    }
     setSubmitting(true);
     try {
-      const res = await outboundApi.plan({
-        outboundOrderId,
-        orderVinIds: selected.map((v) => v.id),
+      const result = await outboundApi.plan({
+        outboundOrderId: baseOrderId,
+        orderVinIds: selected.map((row) => row.id),
         carrierId,
-        driverId: driverId ?? undefined,
-        vehicleId: vehicleId ?? undefined,
-        towType,
+        driverId,
+        vehicleId,
+        towType: effectiveTowType,
+        destinationDealerId: matchedDealer.id,
         customerWaybillCode: customerWaybillCode || undefined,
-        destinationDealerId: manualDealerId || undefined,
         recipientName: recipientName || undefined,
         recipientPhone: recipientPhone || undefined,
         remark: remark || undefined,
       });
       message.success(
         t('outbound.plan.success', {
-          waybillCode: res.waybillCode,
+          waybillCode: result.waybillCode,
           n: selected.length,
         }),
       );
-      // 重置右侧 + 刷新可用池
       setSelectedIds([]);
+      setCarrierId(undefined);
+      setDriverId(null);
+      setVehicleId(null);
+      setTowTypeOverride(undefined);
+      setManualDealerId(undefined);
       setCustomerWaybillCode('');
       setRecipientName('');
       setRecipientPhone('');
-      setManualDealerId(undefined);
-      setDriverId(null);
-      setVehicleId(null);
       setRemark('');
-      reload();
-      if (outboundOrderId) {
-        outboundApi.listBlocked(outboundOrderId).then(setBlocked).catch(() => undefined);
-      }
-    } catch (err) {
-      const detail = (err as { response?: { data?: { message?: string } } })
+      await reload();
+    } catch (error) {
+      const detail = (error as { response?: { data?: { message?: string } } })
         .response?.data?.message;
       message.error(detail || t('outbound.plan.failed'));
     } finally {
@@ -303,431 +332,428 @@ function OutboundPlanInner() {
     <div>
       <PageHeader
         title={t('outbound.plan.title')}
-        subtitle={t('outbound.plan.subtitle')}
+        subtitle={t('outbound.plan.workbenchSubtitle')}
+        actions={
+          <Button icon={<ReloadOutlined />} onClick={() => void reload()}>
+            {t('common.refresh')}
+          </Button>
+        }
       />
 
+      <Card style={{ marginBottom: 16 }}>
+        <Space wrap>
+          <OrgFilter
+            value={organizationsId}
+            onChange={(value) => {
+              setOrganizationId(value);
+              setCustomerId(undefined);
+              setOutboundOrderId(undefined);
+              setYardId(undefined);
+              setSelectedIds([]);
+            }}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder={t('outbound.plan.filterCustomer')}
+            style={{ width: 200 }}
+            value={customerId}
+            onChange={(value) => {
+              setCustomerId(value);
+              setOutboundOrderId(undefined);
+              setSelectedIds([]);
+            }}
+            options={customers.map((customer) => ({
+              value: customer.id,
+              label: customer.name,
+            }))}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            virtual={false}
+            placeholder={t('outbound.plan.filterOutboundOrder')}
+            style={{ width: 330 }}
+            value={outboundOrderId}
+            onChange={(value) => {
+              setOutboundOrderId(value);
+              setSelectedIds([]);
+            }}
+            options={orders
+              .filter((order) => !customerId || order.customerId === customerId)
+              .map((order) => ({
+                value: order.id,
+                label: `${order.orderCode}${order.customerOrderNo ? ` · ${order.customerOrderNo}` : ''} · ${order.customerName}`,
+              }))}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder={t('outbound.plan.filterYard')}
+            style={{ width: 190 }}
+            value={yardId}
+            onChange={(value) => {
+              setYardId(value);
+              setSelectedIds([]);
+            }}
+            options={yards.map((yard) => ({
+              value: yard.id,
+              label: `${yard.name} (${yard.code})`,
+            }))}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder={t('outbound.plan.filterDealer')}
+            style={{ width: 220 }}
+            value={dealerCode}
+            onChange={(value) => {
+              setDealerCode(value);
+              setSelectedIds([]);
+            }}
+            options={dealerOptions}
+          />
+          <Select
+            allowClear
+            placeholder={t('outbound.plan.towType')}
+            style={{ width: 140 }}
+            value={filterTowType}
+            onChange={(value) => {
+              setFilterTowType(value);
+              setSelectedIds([]);
+            }}
+            options={['CC', 'TOWING', 'TANSYA'].map((value) => ({
+              value,
+              label: value,
+            }))}
+          />
+          <Select
+            allowClear
+            placeholder={t('outbound.plan.filterGroup')}
+            style={{ width: 130 }}
+            value={groupCode}
+            onChange={(value) => {
+              setGroupCode(value);
+              setSelectedIds([]);
+            }}
+            options={groupOptions}
+          />
+          <Input.Search
+            allowClear
+            placeholder={t('outbound.plan.searchVin')}
+            style={{ width: 210 }}
+            onSearch={(value) => {
+              setVinQuery(value);
+              setSelectedIds([]);
+            }}
+          />
+          <Button onClick={resetFilters}>{t('common.reset')}</Button>
+        </Space>
+      </Card>
+
       <Row gutter={16}>
-        <Col span={16}>
+        <Col span={17}>
           <Card
             title={t('outbound.plan.availablePool')}
             extra={
-              <span style={{ fontSize: 12, color: '#64748b' }}>
-                {t('outbound.plan.availableCount', { n: available.length })}
-              </span>
+              <Space>
+                <span>
+                  {t('outbound.plan.availableCount', { n: pool.length })}
+                </span>
+                <Button
+                  danger={exceptions.length > 0}
+                  icon={<ExclamationCircleOutlined />}
+                  onClick={() => setExceptionsOpen(true)}
+                >
+                  {t('outbound.plan.exceptionCount', { n: exceptions.length })}
+                </Button>
+              </Space>
             }
           >
-            <Space wrap style={{ marginBottom: 12 }}>
-              <Select
-                placeholder={t('outbound.plan.filterOutboundOrder')}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 340 }}
-                value={outboundOrderId}
-                onChange={(v) => {
-                  setOutboundOrderId(v);
-                  // 换/清出库单时把选中 VIN 清空，避免脏数据
-                  setSelectedIds([]);
-                  // 清出库单时把其他 filter 也重置（否则用户会莫名其妙看不到自己客户的车）
-                  if (!v) {
-                    setCustomerId(undefined);
-                    setYardId(undefined);
-                    setDealerCode(undefined);
-                    setGroupCode(undefined);
-                  }
-                }}
-                options={outboundOrders.map((o) => ({
-                  value: o.id,
-                  label: `${o.orderCode}${o.customerOrderNo ? ' · ' + o.customerOrderNo : ''} · ${o.customerName}`,
-                }))}
-              />
-              <Select
-                placeholder={t('outbound.plan.filterCustomer')}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 200 }}
-                value={customerId}
-                onChange={setCustomerId}
-                options={customers.map((c) => ({ value: c.id, label: c.name }))}
-              />
-              <Select
-                placeholder={t('outbound.plan.filterYard')}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 200 }}
-                value={yardId}
-                onChange={setYardId}
-                options={yards.map((y) => ({
-                  value: y.id,
-                  label: `${y.name} (${y.code})`,
-                }))}
-              />
-              <Select
-                placeholder={t('outbound.plan.filterDealer')}
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                style={{ width: 220 }}
-                value={dealerCode}
-                onChange={setDealerCode}
-                options={dealerOptions}
-              />
-              <Select
-                placeholder={t('outbound.plan.filterGroup')}
-                allowClear
-                style={{ width: 140 }}
-                value={groupCode}
-                onChange={setGroupCode}
-                options={groupOptions}
-              />
-            </Space>
-            {outboundOrderId && (
-              <div
-                style={{
-                  background: '#f8fafc',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 6,
-                  padding: '10px 12px',
-                  marginBottom: 12,
-                  fontSize: 12,
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                  <span style={{ color: '#475569' }}>
-                    {t('outbound.plan.contextTitle')}
-                  </span>
-                  {blocked.length > 0 && (
-                    <Button
-                      size="small"
-                      type="link"
-                      danger
-                      onClick={() => setBlockedOpen(true)}
-                    >
-                      {t('outbound.plan.viewBlocked', { n: blocked.length })}
-                    </Button>
-                  )}
-                </div>
-                <Space wrap size={4}>
-                  <span style={{ color: '#94a3b8' }}>{t('outbound.plan.groupByYard')}:</span>
-                  {yardStats.map((y) => (
-                    <Tag
-                      key={y.id}
-                      color={yardId === y.id ? 'blue' : undefined}
-                      style={{ cursor: 'pointer' }}
-                      onClick={() => setYardId(yardId === y.id ? undefined : y.id)}
-                    >
-                      {y.name} · {y.count}
-                    </Tag>
-                  ))}
-                </Space>
-                <div style={{ marginTop: 4 }}>
-                  <Space wrap size={4}>
-                    <span style={{ color: '#94a3b8' }}>{t('outbound.plan.groupByDealer')}:</span>
-                    {dealerStats.map((d) => (
-                      <Tag
-                        key={d.code}
-                        color={dealerCode === d.code ? 'purple' : undefined}
-                        style={{ cursor: 'pointer' }}
-                        onClick={() =>
-                          setDealerCode(dealerCode === d.code ? undefined : d.code)
-                        }
-                      >
-                        {d.label} · {d.count}
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message={t('outbound.plan.poolHint')}
+            />
+            <Table
+              rowKey="id"
+              size="small"
+              loading={loading}
+              dataSource={pool}
+              scroll={{ x: 1200 }}
+              pagination={{ pageSize: 20, showSizeChanger: true }}
+              rowSelection={{
+                selectedRowKeys: selectedIds,
+                hideSelectAll: true,
+                getCheckboxProps: (row) => ({
+                  disabled: !isCompatible(row),
+                  title: !isCompatible(row)
+                    ? t('outbound.plan.incompatibleVin')
+                    : undefined,
+                }),
+                onChange: (keys) => {
+                  setSelectedIds(keys);
+                  setTowTypeOverride(undefined);
+                  setManualDealerId(undefined);
+                },
+              }}
+              columns={[
+                { title: 'VIN', dataIndex: 'vin', width: 180, fixed: 'left' },
+                {
+                  title: t('outbound.plan.order'),
+                  width: 190,
+                  render: (_, row) => (
+                    <div>
+                      <div>{row.outboundOrder?.orderCode ?? '-'}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                        {row.outboundOrder?.customerOrderNo ?? '-'}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  title: t('outbound.plan.customer'),
+                  width: 150,
+                  render: (_, row) => row.outboundOrder?.customer?.name ?? '-',
+                },
+                {
+                  title: t('outbound.plan.dealer'),
+                  width: 170,
+                  render: (_, row) => (
+                    <div>
+                      <div>{row.dealerName ?? '-'}</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                        {row.dealerCode ?? '-'}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  title: t('outbound.plan.tow'),
+                  dataIndex: 'towType',
+                  width: 95,
+                  render: (value: string | null) =>
+                    value ? <Tag color="blue">{value}</Tag> : '-',
+                },
+                {
+                  title: t('outbound.plan.group'),
+                  dataIndex: 'groupCode',
+                  width: 90,
+                  render: (value: string | null) =>
+                    value ? <Tag color="purple">{value}</Tag> : '-',
+                },
+                {
+                  title: t('outbound.plan.slot'),
+                  width: 160,
+                  render: (_, row) =>
+                    row.slot ? (
+                      <Tag color="green">
+                        {row.slot.yard?.code}·{formatSlotCode(row.slot)}
                       </Tag>
-                    ))}
-                  </Space>
-                </div>
-                {groupStats.length > 0 && (
-                  <div style={{ marginTop: 4 }}>
-                    <Space wrap size={4}>
-                      <span style={{ color: '#94a3b8' }}>
-                        {t('outbound.plan.groupByGroup')}:
-                      </span>
-                      {groupStats.map((g) => (
-                        <Tag
-                          key={g.code}
-                          color={groupCode === g.code ? 'green' : undefined}
-                          style={{ cursor: 'pointer' }}
-                          onClick={() =>
-                            setGroupCode(groupCode === g.code ? undefined : g.code)
-                          }
-                        >
-                          {g.code} · {g.count}
-                        </Tag>
-                      ))}
-                    </Space>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {!outboundOrderId ? (
-              <Empty
-                description={t('outbound.plan.pickOrderFirst')}
-                style={{ padding: '48px 0' }}
-              />
-            ) : (
-              <Table
-                rowKey="id"
-                size="small"
-                loading={loading}
-                dataSource={available}
-                rowSelection={{
-                  selectedRowKeys: selectedIds,
-                  onChange: setSelectedIds,
-                }}
-                pagination={{ pageSize: 20 }}
-                columns={[
-                  { title: 'VIN', dataIndex: 'vin', width: 190 },
-                  {
-                    title: t('outbound.plan.dealer'),
-                    render: (_, r) => r.dealerName ?? r.dealerCode ?? '-',
-                  },
-                  {
-                    title: t('outbound.plan.tow'),
-                    dataIndex: 'towType',
-                    render: (v: string | null) =>
-                      v ? <Tag color="blue">{v}</Tag> : '-',
-                  },
-                  {
-                    title: t('outbound.plan.group'),
-                    dataIndex: 'groupCode',
-                    render: (v: string | null) =>
-                      v ? <Tag color="purple">{v}</Tag> : '-',
-                  },
-                  {
-                    title: t('outbound.plan.slot'),
-                    render: (_, r) =>
-                      r.slot ? (
-                        <Tag color="green">
-                          {r.slot.yard?.code}·{formatSlotCode(r.slot)}
-                        </Tag>
-                      ) : (
-                        '-'
-                      ),
-                  },
-                ]}
-              />
-            )}
+                    ) : (
+                      '-'
+                    ),
+                },
+                {
+                  title: t('outbound.plan.importedAt'),
+                  width: 160,
+                  render: (_, row) =>
+                    row.outboundOrder?.createdAt
+                      ? new Date(row.outboundOrder.createdAt).toLocaleString()
+                      : '-',
+                },
+              ]}
+            />
           </Card>
         </Col>
 
-        <Col span={8}>
+        <Col span={7}>
           <Card title={t('outbound.plan.summary')}>
-            <div style={{ marginBottom: 12, fontSize: 13 }}>
+            <Space direction="vertical" size={4} style={{ width: '100%' }}>
               <div>
                 {t('outbound.plan.selectedCount')}:{' '}
                 <strong>{selected.length}</strong>
               </div>
-              {dealerSet.size > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  {t('outbound.plan.summaryDealer')}:{' '}
-                  {Array.from(dealerSet).map((d) => (
-                    <Tag key={d}>{d}</Tag>
-                  ))}
-                </div>
-              )}
-              {yardSet.size > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  {t('outbound.plan.summaryYard')}:{' '}
-                  {Array.from(yardSet).map((yid) => {
-                    const y = yards.find((yy) => yy.id === yid);
-                    return (
-                      <Tag key={yid}>{y ? `${y.name} (${y.code})` : yid}</Tag>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+              <div>
+                {t('outbound.plan.selectedOrder')}:{' '}
+                <strong>{base?.outboundOrder?.orderCode ?? '-'}</strong>
+              </div>
+              <div>
+                {t('outbound.plan.summaryYard')}:{' '}
+                {base?.slot?.yard
+                  ? `${base.slot.yard.name} (${base.slot.yard.code})`
+                  : '-'}
+              </div>
+            </Space>
 
-            {/* 匹配到的门店信息：从客户地址簿按 dealer_code 反查，帮业务员核对 */}
             {selected.length > 0 && (
               <>
                 <Divider style={{ margin: '12px 0' }} />
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ fontWeight: 500, marginBottom: 4 }}>
-                    {t('outbound.plan.destinationDealer')}
-                  </div>
-                  {/* 手动选门店：默认走 auto，用户可覆盖 */}
-                  {customerAddresses.length > 0 && (
+                <Form layout="vertical">
+                  <Form.Item
+                    label={t('outbound.plan.destinationDealer')}
+                    required
+                  >
                     <Select
-                      style={{ width: '100%', marginBottom: 8 }}
-                      allowClear
                       showSearch
                       optionFilterProp="label"
-                      placeholder={
-                        autoMatchedDealer
-                          ? t('outbound.plan.dealerAutoSelected', {
-                              name: autoMatchedDealer.dealerName,
-                            })
-                          : t('outbound.plan.dealerSelectPlaceholder')
-                      }
-                      value={manualDealerId}
+                      placeholder={t('outbound.plan.dealerSelectPlaceholder')}
+                      value={manualDealerId ?? autoMatchedDealer?.id}
                       onChange={setManualDealerId}
-                      options={customerAddresses.map((a) => ({
-                        value: a.id,
-                        label: `${a.dealerName}${a.code ? ' (' + a.code + ')' : ''}${a.region ? ' · ' + a.region : ''}`,
+                      options={customerAddresses.map((address) => ({
+                        value: address.id,
+                        label: `${address.dealerName} (${address.code})${address.region ? ` · ${address.region}` : ''}`,
                       }))}
                     />
-                  )}
-                  {matchedDealer ? (
+                  </Form.Item>
+                  {matchedDealer && (
                     <div
                       style={{
                         background: '#f0fdf4',
-                        padding: 10,
-                        borderRadius: 4,
                         border: '1px solid #bbf7d0',
+                        borderRadius: 6,
+                        padding: 10,
+                        marginBottom: 12,
+                        fontSize: 12,
                       }}
                     >
-                      <div style={{ fontWeight: 500 }}>
-                        {matchedDealer.dealerName}
-                      </div>
-                      <div style={{ color: '#64748b', marginTop: 2 }}>
+                      <strong>{matchedDealer.dealerName}</strong>
+                      <div style={{ color: '#64748b' }}>
                         {matchedDealer.address}
                       </div>
-                      {matchedDealer.region && (
-                        <Tag color="blue" style={{ marginTop: 4 }}>
-                          {matchedDealer.region}
-                        </Tag>
-                      )}
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        background: '#fef2f2',
-                        padding: 10,
-                        borderRadius: 4,
-                        border: '1px solid #fecaca',
-                        color: '#991b1b',
-                      }}
-                    >
-                      {t('outbound.plan.dealerNotFound', {
-                        code: selected[0]?.dealerCode ?? '',
-                      })}
                     </div>
                   )}
-                </div>
+                  {manualDealerId &&
+                    manualDealerId !== autoMatchedDealer?.id && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        style={{ marginBottom: 12 }}
+                        message={t('outbound.plan.destinationOverridden', {
+                          from:
+                            autoMatchedDealer?.dealerName ??
+                            baseDealerCode ??
+                            '-',
+                          to: matchedDealer?.dealerName ?? '-',
+                        })}
+                      />
+                    )}
+
+                  <Form.Item label={t('outbound.plan.carrier')} required>
+                    <Select
+                      showSearch
+                      optionFilterProp="label"
+                      placeholder={t('outbound.plan.carrierPlaceholder')}
+                      value={carrierId}
+                      onChange={(value) => {
+                        setCarrierId(value);
+                        setDriverId(null);
+                        setVehicleId(null);
+                      }}
+                      options={carriers.map((carrier) => ({
+                        value: carrier.id,
+                        label: `${carrier.name}${carrier.type === 'SELF_OWNED' ? ' (自营)' : ''}`,
+                      }))}
+                    />
+                  </Form.Item>
+                  <DriverVehiclePicker
+                    carrierId={carrierId}
+                    driverId={driverId}
+                    vehicleId={vehicleId}
+                    required
+                    allowClear={false}
+                    onChange={({
+                      driverId: nextDriver,
+                      vehicleId: nextVehicle,
+                    }) => {
+                      setDriverId(nextDriver);
+                      setVehicleId(nextVehicle);
+                    }}
+                  />
+                  <Form.Item
+                    label={t('outbound.plan.towType')}
+                    required
+                    extra={
+                      inheritedTowType
+                        ? t('outbound.plan.towTypeInherited', {
+                            type: inheritedTowType,
+                          })
+                        : t('outbound.plan.towTypeNeedsConfirm')
+                    }
+                  >
+                    <Select
+                      value={effectiveTowType}
+                      onChange={setTowTypeOverride}
+                      options={['CC', 'TOWING', 'TANSYA'].map((value) => ({
+                        value,
+                        label: value,
+                      }))}
+                    />
+                  </Form.Item>
+                  {towTypeOverride && towTypeOverride !== inheritedTowType && (
+                    <Alert
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                      message={t('outbound.plan.towTypeOverridden', {
+                        from: inheritedTowType ?? '-',
+                        to: towTypeOverride,
+                      })}
+                    />
+                  )}
+                  <Form.Item label={t('outbound.plan.customerWaybillCode')}>
+                    <Input
+                      value={customerWaybillCode}
+                      onChange={(event) =>
+                        setCustomerWaybillCode(event.target.value)
+                      }
+                    />
+                  </Form.Item>
+                  <Form.Item label={t('outbound.plan.recipientName')}>
+                    <Input
+                      value={recipientName}
+                      onChange={(event) => setRecipientName(event.target.value)}
+                      placeholder={matchedDealer?.contactName ?? undefined}
+                    />
+                  </Form.Item>
+                  <Form.Item label={t('outbound.plan.recipientPhone')}>
+                    <Input
+                      value={recipientPhone}
+                      onChange={(event) =>
+                        setRecipientPhone(event.target.value)
+                      }
+                      placeholder={matchedDealer?.contactPhone ?? undefined}
+                    />
+                  </Form.Item>
+                  <Form.Item label={t('outbound.plan.remark')}>
+                    <Input.TextArea
+                      rows={2}
+                      value={remark}
+                      onChange={(event) => setRemark(event.target.value)}
+                    />
+                  </Form.Item>
+                </Form>
               </>
             )}
 
-            <Divider style={{ margin: '12px 0' }} />
-
-            <Form layout="vertical">
-              <Form.Item label={t('outbound.plan.carrier')} required>
-                <Select
-                  placeholder={t('outbound.plan.carrierPlaceholder')}
-                  showSearch
-                  optionFilterProp="label"
-                  value={carrierId}
-                  onChange={(v) => {
-                    setCarrierId(v);
-                    // 换承运商 → 清空司机/拖车避免张冠李戴
-                    setDriverId(null);
-                    setVehicleId(null);
-                  }}
-                  options={carriers.map((c) => ({
-                    value: c.id,
-                    label: `${c.name}${c.type === 'SELF_OWNED' ? ' (自营)' : ''}`,
-                  }))}
-                />
-              </Form.Item>
-              <DriverVehiclePicker
-                carrierId={carrierId}
-                driverId={driverId}
-                vehicleId={vehicleId}
-                onChange={(v) => {
-                  setDriverId(v.driverId);
-                  setVehicleId(v.vehicleId);
-                }}
-              />
-              <Form.Item label={t('outbound.plan.towType')}>
-                <Select
-                  placeholder={t('outbound.plan.towTypePlaceholder')}
-                  allowClear
-                  value={towType}
-                  onChange={setTowType}
-                  options={[
-                    { value: 'CC', label: 'CC' },
-                    { value: 'TOWING', label: 'TOWING' },
-                    { value: 'TANSYA', label: 'TANSYA' },
-                  ]}
-                />
-              </Form.Item>
-              <Form.Item label={t('outbound.plan.customerWaybillCode')}>
-                <Input
-                  value={customerWaybillCode}
-                  onChange={(e) => setCustomerWaybillCode(e.target.value)}
-                  placeholder="e.g. BYD-WB-2026-07-001"
-                />
-              </Form.Item>
-              <Form.Item
-                label={t('outbound.plan.recipientName')}
-                extra={
-                  matchedDealer?.contactName
-                    ? t('outbound.plan.recipientDefaultHint', {
-                        name: matchedDealer.contactName,
-                      })
-                    : undefined
-                }
-              >
-                <Input
-                  value={recipientName}
-                  onChange={(e) => setRecipientName(e.target.value)}
-                  placeholder={
-                    matchedDealer?.contactName ??
-                    t('outbound.plan.recipientPlaceholder')
-                  }
-                />
-              </Form.Item>
-              <Form.Item
-                label={t('outbound.plan.recipientPhone')}
-                extra={
-                  matchedDealer?.contactPhone
-                    ? t('outbound.plan.recipientDefaultHint', {
-                        name: matchedDealer.contactPhone,
-                      })
-                    : undefined
-                }
-              >
-                <Input
-                  value={recipientPhone}
-                  onChange={(e) => setRecipientPhone(e.target.value)}
-                  placeholder={
-                    matchedDealer?.contactPhone ??
-                    t('outbound.plan.recipientPhonePlaceholder')
-                  }
-                />
-              </Form.Item>
-              <Form.Item label={t('outbound.plan.remark')}>
-                <Input.TextArea
-                  rows={2}
-                  value={remark}
-                  onChange={(e) => setRemark(e.target.value)}
-                />
-              </Form.Item>
-            </Form>
-
-            {validationError && (
+            {validationError && selected.length > 0 && (
               <Alert
                 type="warning"
                 message={validationError}
                 style={{ marginBottom: 12 }}
               />
             )}
-
             <Button
               type="primary"
               block
               size="large"
               loading={submitting}
-              disabled={
-                selected.length === 0 ||
-                !!validationError ||
-                !carrierId ||
-                !inferredOriginYardId
-              }
+              disabled={!selected.length || !!validationError}
               onClick={submit}
             >
               {t('outbound.plan.submit', { n: selected.length })}
@@ -737,53 +763,56 @@ function OutboundPlanInner() {
       </Row>
 
       <Drawer
-        title={t('outbound.plan.blockedTitle')}
-        width={640}
-        open={blockedOpen}
-        onClose={() => setBlockedOpen(false)}
+        title={t('outbound.plan.exceptionTitle')}
+        width={800}
+        open={exceptionsOpen}
+        onClose={() => setExceptionsOpen(false)}
       >
         <Alert
           type="info"
           showIcon
           style={{ marginBottom: 12 }}
-          message={t('outbound.plan.blockedHint')}
+          message={t('outbound.plan.exceptionHint')}
         />
         <Table
           rowKey="id"
           size="small"
-          dataSource={blocked}
-          pagination={false}
+          dataSource={exceptions}
+          pagination={{ pageSize: 20 }}
           columns={[
             { title: 'VIN', dataIndex: 'vin', width: 180 },
             {
-              title: t('outbound.plan.dealer'),
-              render: (_, r) =>
-                r.dealerName ?? r.dealerCode ?? '-',
+              title: t('outbound.plan.order'),
+              dataIndex: 'outboundOrderCode',
+              width: 190,
+            },
+            {
+              title: t('outbound.plan.customer'),
+              dataIndex: 'customerName',
+              width: 150,
             },
             {
               title: t('outbound.plan.blockedReason'),
               dataIndex: 'reason',
-              render: (v: BlockedVinRow['reason']) => {
-                const cfg: Record<string, { color: string; label: string }> = {
-                  NOT_ARRIVED: { color: 'default', label: t('outbound.plan.reasonNotArrived') },
-                  NO_SLOT: { color: 'orange', label: t('outbound.plan.reasonNoSlot') },
-                  ALREADY_ALLOCATED: { color: 'blue', label: t('outbound.plan.reasonAllocated') },
-                  MISSING_DEALER: { color: 'red', label: t('outbound.plan.reasonMissingDealer') },
+              render: (reason: BlockedVinRow['reason']) => {
+                const labels = {
+                  NOT_ARRIVED: t('outbound.plan.reasonNotArrived'),
+                  NO_SLOT: t('outbound.plan.reasonNoSlot'),
+                  MISSING_DEALER: t('outbound.plan.reasonMissingDealer'),
                 };
-                const c = cfg[v];
-                return <Tag color={c.color}>{c.label}</Tag>;
+                return <Tag color="orange">{labels[reason]}</Tag>;
               },
             },
             {
+              title: t('outbound.plan.dealer'),
+              render: (_, row) => row.dealerName ?? row.dealerCode ?? '-',
+            },
+            {
               title: t('outbound.plan.slot'),
-              render: (_, r) =>
-                r.slotCode ? (
-                  <Tag color="green">
-                    {r.yardName ? `${r.yardName}·` : ''}{r.slotCode}
-                  </Tag>
-                ) : (
-                  '-'
-                ),
+              render: (_, row) =>
+                row.slotCode
+                  ? `${row.yardName ? `${row.yardName}·` : ''}${row.slotCode}`
+                  : '-',
             },
           ]}
         />
@@ -792,7 +821,6 @@ function OutboundPlanInner() {
   );
 }
 
-// useSearchParams 需要 Suspense 边界
 export default function OutboundPlanPage() {
   return (
     <Suspense>

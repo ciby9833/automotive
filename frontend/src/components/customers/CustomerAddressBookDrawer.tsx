@@ -20,6 +20,7 @@ import {
 import type { UploadProps } from 'antd';
 import {
   DeleteOutlined,
+  DownloadOutlined,
   EditOutlined,
   InboxOutlined,
   PlusOutlined,
@@ -31,6 +32,7 @@ import {
   CustomerAddressPayload,
 } from '@/lib/api/customers';
 import { parseDealerExcel } from '@/lib/customers/parse-dealer-excel';
+import { downloadCustomerAddressTemplate } from '@/lib/customers/generate-address-template';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface Props {
@@ -196,6 +198,12 @@ export function CustomerAddressBookDrawer({
             {t('customers.addressBook.import')}
           </Button>
         </Upload>
+        <Button
+          icon={<DownloadOutlined />}
+          onClick={downloadCustomerAddressTemplate}
+        >
+          {t('customers.addressBook.downloadTemplate')}
+        </Button>
         <Button icon={<PlusOutlined />} onClick={openAddModal}>
           {t('customers.addressBook.add')}
         </Button>
@@ -357,7 +365,11 @@ export function CustomerAddressBookDrawer({
           <Form.Item label={t('customers.addressBook.region')} name="region">
             <Input placeholder="GREATER JAKARTA" />
           </Form.Item>
-          <Form.Item label={t('customers.addressBook.code')} name="code">
+          <Form.Item
+            label={t('customers.addressBook.code')}
+            name="code"
+            rules={[{ required: true, whitespace: true }]}
+          >
             <Input placeholder="Z2410265332" />
           </Form.Item>
           <Form.Item

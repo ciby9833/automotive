@@ -301,7 +301,8 @@ export class DailySnapshotService
           SELECT DISTINCT ON (slot_id)
             slot_id, yard_id, event_type, state
           FROM yard_slot_state_events
-          WHERE organization_id = $1 AND occurred_at < $4
+          WHERE organization_id = $1
+            AND occurred_at < $4
           ORDER BY slot_id, occurred_at DESC, id DESC
         )
         INSERT INTO slot_daily_snapshots (

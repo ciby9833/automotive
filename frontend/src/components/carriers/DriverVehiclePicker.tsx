@@ -1,15 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Button,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  message,
-} from 'antd';
+import { Button, Form, Input, Modal, Select, Space, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { carriersApi, Driver, Vehicle } from '@/lib/api/carriers';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -23,6 +15,7 @@ interface Props {
   onChange: (v: { driverId: string | null; vehicleId: string | null }) => void;
   layout?: 'vertical' | 'horizontal';
   allowClear?: boolean;
+  required?: boolean;
 }
 
 export function DriverVehiclePicker({
@@ -32,6 +25,7 @@ export function DriverVehiclePicker({
   onChange,
   layout = 'vertical',
   allowClear = true,
+  required = false,
 }: Props) {
   const { t } = useTranslation();
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -48,8 +42,14 @@ export function DriverVehiclePicker({
       setVehicles([]);
       return;
     }
-    carriersApi.listDrivers(carrierId).then(setDrivers).catch(() => setDrivers([]));
-    carriersApi.listVehicles(carrierId).then(setVehicles).catch(() => setVehicles([]));
+    carriersApi
+      .listDrivers(carrierId)
+      .then(setDrivers)
+      .catch(() => setDrivers([]));
+    carriersApi
+      .listVehicles(carrierId)
+      .then(setVehicles)
+      .catch(() => setVehicles([]));
   }, [carrierId]);
 
   useEffect(() => {
@@ -107,7 +107,7 @@ export function DriverVehiclePicker({
 
   const items = (
     <>
-      <Form.Item label={t('driverPicker.driver')}>
+      <Form.Item label={t('driverPicker.driver')} required={required}>
         <Space.Compact style={{ width: '100%' }}>
           <Select
             style={{ flex: 1 }}
@@ -118,7 +118,9 @@ export function DriverVehiclePicker({
             placeholder={
               disabled
                 ? t('driverPicker.pickCarrierFirst')
-                : t('driverPicker.driverPlaceholder')
+                : required
+                  ? t('driverPicker.driverRequiredPlaceholder')
+                  : t('driverPicker.driverPlaceholder')
             }
             value={driverId ?? undefined}
             onChange={(v) =>
@@ -136,7 +138,7 @@ export function DriverVehiclePicker({
           />
         </Space.Compact>
       </Form.Item>
-      <Form.Item label={t('driverPicker.vehicle')}>
+      <Form.Item label={t('driverPicker.vehicle')} required={required}>
         <Space.Compact style={{ width: '100%' }}>
           <Select
             style={{ flex: 1 }}
@@ -147,7 +149,9 @@ export function DriverVehiclePicker({
             placeholder={
               disabled
                 ? t('driverPicker.pickCarrierFirst')
-                : t('driverPicker.vehiclePlaceholder')
+                : required
+                  ? t('driverPicker.vehicleRequiredPlaceholder')
+                  : t('driverPicker.vehiclePlaceholder')
             }
             value={vehicleId ?? undefined}
             onChange={(v) =>
@@ -171,7 +175,9 @@ export function DriverVehiclePicker({
   return (
     <>
       {layout === 'horizontal' ? (
-        <Space size="middle" style={{ width: '100%' }}>{items}</Space>
+        <Space size="middle" style={{ width: '100%' }}>
+          {items}
+        </Space>
       ) : (
         items
       )}

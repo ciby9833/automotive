@@ -276,7 +276,9 @@ export class WaybillsService {
   async create(dto: CreateWaybillDto, scope: EffectiveScope): Promise<Waybill> {
     this.scopeService.assertOrgWritable(scope, dto.organizationId);
     if (dto.carrierId) {
-      const carrier = await this.carriersRepository.findOne({ where: { id: dto.carrierId } });
+      const carrier = await this.carriersRepository.findOne({
+        where: { id: dto.carrierId },
+      });
       if (!carrier) throw new NotFoundException('承运商不存在');
       if (carrier.status !== PartnerStatus.ACTIVE) {
         throw new BadRequestException('承运商当前未开放新增业务');
@@ -557,7 +559,10 @@ export class WaybillsService {
     const waybill = await this.findByIdUnscoped(id);
     if (!waybill) throw new NotFoundException('运单不存在');
     // scope 校验
-    if (scope.type === 'ORG' && !scope.orgIds.includes(waybill.organizationId)) {
+    if (
+      scope.type === 'ORG' &&
+      !scope.orgIds.includes(waybill.organizationId)
+    ) {
       throw new ForbiddenException('无权撤销此运单');
     }
     if (scope.type !== 'ORG') {
@@ -722,12 +727,13 @@ export class WaybillsService {
     if (!waybill) throw new NotFoundException('运单不存在');
     this.assertCanLoad(waybill, user);
     if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
-      throw new BadRequestException(
-        `运单已 ${waybill.status}，无法再次启运`,
-      );
+      throw new BadRequestException(`运单已 ${waybill.status}，无法再次启运`);
     }
     if (waybill.transportType !== TransportType.DELIVERY) {
       throw new BadRequestException('此接口仅用于派送运单启运');
+    }
+    if (!waybill.driverId || !waybill.vehicleId) {
+      throw new BadRequestException('启运前必须完成司机和运输车辆分配');
     }
 
     const { updated, vins } = await this.dataSource.transaction(async (mgr) => {
@@ -860,7 +866,8 @@ export class WaybillsService {
       if (driver.carrierId !== waybill.carrierId) {
         throw new BadRequestException('司机不属于此运单的承运商');
       }
-      if (!driver.isActive) throw new BadRequestException('司机已停用，无法分派');
+      if (!driver.isActive)
+        throw new BadRequestException('司机已停用，无法分派');
     }
     if (dto.vehicleId) {
       const vehicle = await this.vehiclesRepository.findOne({
@@ -870,7 +877,8 @@ export class WaybillsService {
       if (vehicle.carrierId !== waybill.carrierId) {
         throw new BadRequestException('拖车不属于此运单的承运商');
       }
-      if (!vehicle.isActive) throw new BadRequestException('拖车已停用，无法分派');
+      if (!vehicle.isActive)
+        throw new BadRequestException('拖车已停用，无法分派');
     }
 
     const before = { driverId: waybill.driverId, vehicleId: waybill.vehicleId };

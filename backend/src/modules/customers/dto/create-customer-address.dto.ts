@@ -13,7 +13,10 @@ import {
 } from 'class-validator';
 
 export class CreateCustomerAddressDto {
-  @ApiProperty({ required: false, description: 'Dealer Group (集团层级，如 Arista)' })
+  @ApiProperty({
+    required: false,
+    description: 'Dealer Group (集团层级，如 Arista)',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -31,13 +34,16 @@ export class CreateCustomerAddressDto {
   @MaxLength(500)
   address: string;
 
-  @ApiProperty({ required: false, description: '客户系统的门店代码 (Z2410265332)' })
-  @IsOptional()
+  @ApiProperty({ description: '客户系统的门店代码 (Z2410265332)' })
   @IsString()
+  @IsNotEmpty()
   @MaxLength(60)
-  code?: string;
+  code: string;
 
-  @ApiProperty({ required: false, description: '地理大区 (GREATER JAKARTA 等)' })
+  @ApiProperty({
+    required: false,
+    description: '地理大区 (GREATER JAKARTA 等)',
+  })
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -71,4 +77,3 @@ export class ImportCustomerAddressesDto {
   @Type(() => CreateCustomerAddressDto)
   addresses: CreateCustomerAddressDto[];
 }
-

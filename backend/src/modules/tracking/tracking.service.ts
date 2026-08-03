@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WaybillStatusLog } from './entities/waybill-status-log.entity';
@@ -22,7 +27,12 @@ export interface TimelineEntry {
   orderId: string | null;
   waybillId: string | null;
   yard: { id: string; name: string; code: string } | null;
-  slot: { id: string; code: string } | null;
+  slot: {
+    id: string;
+    line: number;
+    row: number;
+    zone: { id: string; code: string };
+  } | null;
   operator: { id: string; displayName: string } | null;
   attachmentUrls: string[] | null;
   payload: Record<string, unknown> | null;
@@ -164,10 +174,12 @@ export class TrackingService {
         slot: o.slot
           ? {
               id: o.slot.id,
-              // 只有加载了 zone relation 时才能计算 code；其余场景 code=''
-              code: o.slot.zone
-                ? `${o.slot.zone.code}-${String(o.slot.line).padStart(2, '0')}-${String(o.slot.row).padStart(2, '0')}`
-                : '',
+              line: o.slot.line,
+              row: o.slot.row,
+              zone: {
+                id: o.slot.zone.id,
+                code: o.slot.zone.code,
+              },
             }
           : null,
         operator: o.operator
@@ -176,10 +188,10 @@ export class TrackingService {
         // 旧数据兜底：老日志把照片放 payload.photoKeys；新代码统一在顶层 attachment_urls
         attachmentUrls:
           o.attachmentUrls ??
-          ((o.payload as { photoKeys?: string[] } | null)?.photoKeys ?? null),
+          (o.payload as { photoKeys?: string[] } | null)?.photoKeys ??
+          null,
         payload: o.payload,
-        remark:
-          (o.payload as { remark?: string } | null)?.remark ?? null,
+        remark: (o.payload as { remark?: string } | null)?.remark ?? null,
       })),
       ...scanLogs.map<TimelineEntry>((s) => ({
         source: 'waybill_scan',

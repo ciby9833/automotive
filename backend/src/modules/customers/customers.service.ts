@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -180,7 +181,13 @@ export class CustomersService {
     scope: EffectiveScope,
   ): Promise<CustomerAddress> {
     await this.findOne(customerId, scope);
-    const address = this.addressesRepository.create({ ...dto, customerId });
+    const normalizedCode = this.normalizeAddressCode(dto.code);
+    await this.assertAddressCodeUnique(customerId, normalizedCode);
+    const address = this.addressesRepository.create({
+      ...dto,
+      code: normalizedCode,
+      customerId,
+    });
     return this.addressesRepository.save(address);
   }
 
@@ -194,7 +201,13 @@ export class CustomersService {
     });
     if (!address) throw new NotFoundException('地址不存在');
     await this.findOne(address.customerId, scope);
-    Object.assign(address, dto);
+    const normalizedCode = this.normalizeAddressCode(dto.code ?? address.code);
+    await this.assertAddressCodeUnique(
+      address.customerId,
+      normalizedCode,
+      address.id,
+    );
+    Object.assign(address, dto, { code: normalizedCode });
     return this.addressesRepository.save(address);
   }
 
@@ -215,37 +228,51 @@ export class CustomersService {
   ): Promise<{ created: number; updated: number; skipped: number }> {
     await this.findOne(customerId, scope);
 
-    // 入参内自我去重（相同 code）
+    // code 是地址簿业务键：导入内重复直接拒绝，避免“最后一行覆盖前一行”。
     const seen = new Set<string>();
-    const rows = dto.addresses.filter((a) => {
-      if (!a.code) return true;
-      const key = a.code.trim().toUpperCase();
-      if (seen.has(key)) return false;
+    const duplicateCodes = new Set<string>();
+    const rows = dto.addresses.map((address) => {
+      const code = this.normalizeAddressCode(address.code);
+      const key = code.toUpperCase();
+      if (seen.has(key)) duplicateCodes.add(code);
       seen.add(key);
-      return true;
+      return { ...address, code };
     });
+    if (duplicateCodes.size > 0) {
+      throw new BadRequestException(
+        `导入文件存在重复门店编码：${Array.from(duplicateCodes).join(', ')}`,
+      );
+    }
     if (rows.length === 0) {
       throw new BadRequestException('导入的地址列表为空');
     }
 
     // 查已存在的 code
-    const codes = rows.map((r) => r.code).filter((c): c is string => !!c);
-    const existing =
-      codes.length > 0
-        ? await this.addressesRepository
-            .createQueryBuilder('a')
-            .where('a.customer_id = :cid', { cid: customerId })
-            .andWhere('a.code IN (:...codes)', { codes })
-            .getMany()
-        : [];
-    const existingByCode = new Map(existing.map((e) => [e.code, e]));
+    const codes = rows.map((r) => r.code.toUpperCase());
+    const existing = await this.addressesRepository
+      .createQueryBuilder('a')
+      .where('a.customer_id = :cid', { cid: customerId })
+      .andWhere('UPPER(BTRIM(a.code)) IN (:...codes)', { codes })
+      .getMany();
+    const existingByCode = new Map<string, CustomerAddress>();
+    for (const address of existing) {
+      const key = address.code?.trim().toUpperCase();
+      if (!key) continue;
+      if (existingByCode.has(key)) {
+        throw new ConflictException(
+          `客户地址簿已存在重复门店编码：${address.code}`,
+        );
+      }
+      existingByCode.set(key, address);
+    }
 
     let created = 0;
     let updated = 0;
     const toSave: CustomerAddress[] = [];
     for (const row of rows) {
-      if (row.code && existingByCode.has(row.code)) {
-        const cur = existingByCode.get(row.code)!;
+      const key = row.code.toUpperCase();
+      if (existingByCode.has(key)) {
+        const cur = existingByCode.get(key)!;
         Object.assign(cur, row);
         toSave.push(cur);
         updated += 1;
@@ -260,8 +287,33 @@ export class CustomersService {
     return {
       created,
       updated,
-      skipped: dto.addresses.length - rows.length,
+      skipped: 0,
     };
+  }
+
+  private normalizeAddressCode(code: string | null | undefined): string {
+    const normalized = code?.trim();
+    if (!normalized) throw new BadRequestException('门店代码必填');
+    return normalized;
+  }
+
+  private async assertAddressCodeUnique(
+    customerId: string,
+    code: string,
+    excludeAddressId?: string,
+  ): Promise<void> {
+    const qb = this.addressesRepository
+      .createQueryBuilder('address')
+      .where('address.customer_id = :customerId', { customerId })
+      .andWhere('UPPER(BTRIM(address.code)) = :code', {
+        code: code.toUpperCase(),
+      });
+    if (excludeAddressId) {
+      qb.andWhere('address.id <> :excludeAddressId', { excludeAddressId });
+    }
+    if (await qb.getExists()) {
+      throw new ConflictException(`门店代码已存在：${code}`);
+    }
   }
 
   findByIdUnscoped(id: string): Promise<Customer | null> {

@@ -8,9 +8,15 @@ export class YardZoneRefactor1788000000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // A table DROP does not execute ON DELETE actions. Clear references explicitly
     // before removing the legacy table so the new FK constraints are valid.
-    await queryRunner.query(`UPDATE "order_vins" SET "slot_id" = NULL WHERE "slot_id" IS NOT NULL`);
-    await queryRunner.query(`UPDATE "operation_logs" SET "slot_id" = NULL WHERE "slot_id" IS NOT NULL`);
-    await queryRunner.query(`TRUNCATE TABLE "inventory_daily_snapshots", "slot_daily_snapshots"`);
+    await queryRunner.query(
+      `UPDATE "order_vins" SET "slot_id" = NULL WHERE "slot_id" IS NOT NULL`,
+    );
+    await queryRunner.query(
+      `UPDATE "operation_logs" SET "slot_id" = NULL WHERE "slot_id" IS NOT NULL`,
+    );
+    await queryRunner.query(
+      `TRUNCATE TABLE "yard_slot_state_events", "inventory_daily_snapshots", "slot_daily_snapshots"`,
+    );
     await queryRunner.query(`DROP TABLE IF EXISTS "yard_slots" CASCADE`);
 
     await queryRunner.query(`
@@ -192,6 +198,8 @@ export class YardZoneRefactor1788000000000 implements MigrationInterface {
   }
 
   public async down(): Promise<void> {
-    throw new Error('YardZoneRefactor is irreversible in the development reset flow');
+    throw new Error(
+      'YardZoneRefactor is irreversible in the development reset flow',
+    );
   }
 }

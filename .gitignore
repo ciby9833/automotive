@@ -12,6 +12,9 @@
 **/.env.*.local
 !**/.env.example
 !**/.env.local.example
+app/release/*.jks
+app/release/*.keystore
+app/release/keystore.properties
 
 # ========== 日志 ==========
 *.log

@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.io.File
 
 plugins {
     alias(libs.plugins.android.application)
@@ -21,6 +22,18 @@ fun Project.readLocalProperty(key: String): String? {
     return props.getProperty(key)
 }
 
+val releaseKeystorePropertiesFile = rootProject.file("../release/keystore.properties")
+val releaseKeystoreProperties = Properties().apply {
+    if (releaseKeystorePropertiesFile.exists()) {
+        releaseKeystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun Project.releaseStoreFile(path: String): File {
+    val raw = File(path)
+    return if (raw.isAbsolute) raw else rootProject.file("../$path")
+}
+
 android {
     namespace = "com.automotive.alms"
     compileSdk = 36
@@ -29,13 +42,33 @@ android {
         applicationId = "com.automotive.alms"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
     }
 
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+
+    signingConfigs {
+        create("release") {
+            if (releaseKeystorePropertiesFile.exists()) {
+                val storeFilePath = releaseKeystoreProperties.getProperty("storeFile")
+                storeFile = releaseStoreFile(storeFilePath)
+                storePassword = releaseKeystoreProperties.getProperty("storePassword")
+                keyAlias = releaseKeystoreProperties.getProperty("keyAlias")
+                keyPassword = releaseKeystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (releaseKeystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     flavorDimensions += "env"

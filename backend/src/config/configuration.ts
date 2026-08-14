@@ -50,4 +50,8 @@ export default () => ({
     // 仅控制“检查是否到达机构日切时间”的频率；真实日切由机构策略表决定。
     schedulerCron: process.env.SNAPSHOT_SCHEDULER_CRON ?? '0 * * * * *',
   },
+  appRelease: {
+    maxUploadMb: parseInt(process.env.APP_RELEASE_MAX_UPLOAD_MB ?? '300', 10),
+    androidPackageName: process.env.APP_RELEASE_ANDROID_PACKAGE_NAME ?? '',
+  },
 });

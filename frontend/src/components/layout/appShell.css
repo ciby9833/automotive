@@ -111,6 +111,15 @@
 .header-user-role {
   font-size: 12px;
 }
+.app-download-entry {
+  color: var(--app-primary-text);
+}
+@media (max-width: 760px) {
+  .app-download-entry-label,
+  .header-user-role {
+    display: none;
+  }
+}
 
 .workspace-tabs {
   flex-shrink: 0;

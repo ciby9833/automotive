@@ -73,8 +73,13 @@ export class StorageService implements OnModuleInit {
       stream,
       size: stat.size,
       contentType:
-        (stat.metaData as Record<string, string> | undefined)?.['content-type'] ??
-        'application/octet-stream',
+        (stat.metaData as Record<string, string> | undefined)?.[
+          'content-type'
+        ] ?? 'application/octet-stream',
     };
+  }
+
+  async deleteObject(key: string): Promise<void> {
+    await this.client.removeObject(this.bucket, key);
   }
 }

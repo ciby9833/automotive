@@ -7,6 +7,7 @@ data class InboundScanRequest(
     val vin: String,
     val zoneId: String,
     val photoUrls: List<String>,
+    val vehicleCheckInfo: Map<String, String>? = null,
     val remark: String? = null,
 )
 

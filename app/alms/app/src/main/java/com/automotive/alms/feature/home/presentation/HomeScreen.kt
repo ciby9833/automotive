@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -74,12 +75,14 @@ fun HomeScreen(
     permissionManager: PermissionManager,
     onOpenPickup: () -> Unit,
     onOpenInbound: () -> Unit,
+    onOpenLoadScan: () -> Unit,
     onOpenWaybills: () -> Unit,
     onOpenInventory: () -> Unit,
     onOpenOutbound: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val session by sessionStore.state.collectAsState()
+    val context = LocalContext.current
     val user = session.loginResult?.user
     val actions = HomeActions.all.filter { permissionManager.has(it.requiredPermission) }
     var selectedTab by rememberSaveable { mutableStateOf(MainTab.Home.key) }
@@ -128,6 +131,7 @@ fun HomeScreen(
                         when (route) {
                             AppRoute.InboundScan -> onOpenInbound()
                             AppRoute.PickupScan -> onOpenPickup()
+                            AppRoute.LoadScan -> onOpenLoadScan()
                             AppRoute.WaybillList -> onOpenWaybills()
                             AppRoute.YardInventory -> onOpenInventory()
                             AppRoute.OutboundOrders -> onOpenOutbound()
@@ -213,6 +217,7 @@ private fun ProfileScreen(
     role: Role?,
     onLogout: () -> Unit,
 ) {
+    val context = LocalContext.current
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -244,7 +249,7 @@ private fun ProfileScreen(
                 text = stringResource(language.labelRes),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { AppLocaleManager.setLanguage(language) }
+                    .clickable { AppLocaleManager.setLanguage(context, language) }
                     .padding(vertical = 14.dp),
                 style = MaterialTheme.typography.bodyLarge,
             )
@@ -268,6 +273,7 @@ private fun AvatarMenu(
     role: Role?,
     onLogout: () -> Unit,
 ) {
+    val context = LocalContext.current
     var expanded by remember { mutableStateOf(false) }
     Box(modifier = Modifier.padding(end = 12.dp)) {
         Box(
@@ -311,7 +317,7 @@ private fun AvatarMenu(
                                         .padding(end = 6.dp)
                                         .clickable {
                                             expanded = false
-                                            AppLocaleManager.setLanguage(language)
+                                            AppLocaleManager.setLanguage(context, language)
                                         },
                                 )
                             }
@@ -352,6 +358,7 @@ private fun iconFor(route: AppRoute): ImageVector {
     return when (route) {
         AppRoute.InboundScan -> Icons.Filled.Warehouse
         AppRoute.PickupScan -> Icons.Filled.QrCodeScanner
+        AppRoute.LoadScan -> Icons.Filled.LocalShipping
         AppRoute.WaybillList -> Icons.Filled.LocalShipping
         AppRoute.YardInventory -> Icons.Filled.Inventory
         AppRoute.OutboundOrders -> Icons.AutoMirrored.Filled.Assignment
@@ -363,6 +370,7 @@ private fun accentFor(route: AppRoute): Color {
     return when (route) {
         AppRoute.InboundScan -> Color(0xFF116B58)
         AppRoute.PickupScan -> Color(0xFF315D8C)
+        AppRoute.LoadScan -> Color(0xFF7B4FA1)
         AppRoute.WaybillList -> Color(0xFF7B4FA1)
         AppRoute.YardInventory -> Color(0xFF8A5B13)
         AppRoute.OutboundOrders -> Color(0xFFB4472D)

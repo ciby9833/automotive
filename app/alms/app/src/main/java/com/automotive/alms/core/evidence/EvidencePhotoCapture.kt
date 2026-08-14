@@ -1,6 +1,7 @@
 package com.automotive.alms.core.evidence
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -48,9 +49,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.automotive.alms.BuildConfig
+import com.automotive.alms.R
 import com.automotive.alms.core.model.LoginResult
 import com.automotive.alms.core.ui.Dimens
 import com.automotive.alms.core.upload.UploadedFile
@@ -96,10 +99,17 @@ fun EvidencePhotoCapture(
     onUploadPhoto: suspend (ByteArray) -> UploadedFile,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    title: String = "现场照片",
+    title: String? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val resolvedTitle = title ?: stringResource(R.string.evidence_default_title)
+    val missingWatermarkMessage = stringResource(R.string.evidence_missing_watermark)
+    val previewFailedMessage = stringResource(R.string.evidence_preview_failed)
+    val uploadFailedMessage = stringResource(R.string.evidence_upload_failed)
+    val gpsUnavailableMessage = stringResource(R.string.evidence_gps_unavailable)
+    val locationPermissionRequiredMessage = stringResource(R.string.evidence_location_permission_required)
+    val cameraPermissionRequiredMessage = stringResource(R.string.evidence_camera_permission_required)
     var photoUri by remember { mutableStateOf<Uri?>(null) }
     var pendingWatermark by remember { mutableStateOf<WatermarkData?>(null) }
     var previewPhoto by remember { mutableStateOf<EvidencePhoto?>(null) }
@@ -115,19 +125,19 @@ fun EvidencePhotoCapture(
         error = null
         scope.launch {
             runCatching {
-                val watermark = pendingWatermark ?: kotlin.error("缺少拍照水印信息")
+                val watermark = pendingWatermark ?: kotlin.error(missingWatermarkMessage)
                 val bytes = context.readWatermarkedJpeg(capturedUri, watermark)
                 EvidencePhoto(
                     uploadedFile = onUploadPhoto(bytes),
                     bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        ?: kotlin.error("照片预览生成失败"),
+                        ?: kotlin.error(previewFailedMessage),
                     latitude = watermark.latitude,
                     longitude = watermark.longitude,
                 )
             }.onSuccess {
                 onPhotosChange(photos + it)
             }.onFailure {
-                error = it.localizedMessage ?: "照片上传失败"
+                error = it.localizedMessage ?: uploadFailedMessage
             }
             busy = false
         }
@@ -140,7 +150,7 @@ fun EvidencePhotoCapture(
             val location = context.resolveCurrentLocation()
             if (location == null) {
                 busy = false
-                error = "无法获取 GPS，请到开阔区域后重试"
+                error = gpsUnavailableMessage
                 return@launch
             }
             pendingWatermark = WatermarkData(
@@ -165,7 +175,7 @@ fun EvidencePhotoCapture(
         if (result.values.any { it }) {
             launchCameraAfterLocation()
         } else {
-            error = "需要定位权限才能拍摄带 GPS 的存证照片"
+            error = locationPermissionRequiredMessage
         }
     }
 
@@ -184,7 +194,7 @@ fun EvidencePhotoCapture(
                 )
             }
         } else {
-            error = "需要相机权限才能拍摄存证照片"
+            error = cameraPermissionRequiredMessage
         }
     }
 
@@ -207,7 +217,11 @@ fun EvidencePhotoCapture(
 
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
-            text = if (photos.isEmpty()) "$title（至少 1 张）" else "$title（${photos.size} 张）",
+            text = if (photos.isEmpty()) {
+                stringResource(R.string.evidence_title_required, resolvedTitle)
+            } else {
+                stringResource(R.string.evidence_title_count, resolvedTitle, photos.size)
+            },
             style = MaterialTheme.typography.titleSmall,
         )
         if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
@@ -253,7 +267,7 @@ fun EvidencePhotoCapture(
             onDismissRequest = { previewPhoto = null },
             confirmButton = {
                 TextButton(onClick = { previewPhoto = null }) {
-                    Text("关闭")
+                    Text(stringResource(R.string.common_close))
                 }
             },
             text = {
@@ -295,7 +309,7 @@ private suspend fun Context.readWatermarkedJpeg(
 ): ByteArray = withContext(Dispatchers.IO) {
     val bitmap = contentResolver.openInputStream(uri)?.use { input ->
         BitmapFactory.decodeStream(input)
-    } ?: kotlin.error("照片文件为空")
+    } ?: kotlin.error(getString(R.string.evidence_empty_file))
     bitmap.withWatermark(watermark).toJpegBytes()
 }
 
@@ -348,6 +362,7 @@ private fun Context.hasAnyLocationPermission(): Boolean {
         hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
 }
 
+@SuppressLint("MissingPermission")
 private suspend fun Context.resolveCurrentLocation(): Location? {
     if (!hasAnyLocationPermission()) return null
     val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -362,6 +377,7 @@ private suspend fun Context.resolveCurrentLocation(): Location? {
     }.maxByOrNull { it.time }
 }
 
+@SuppressLint("MissingPermission")
 private suspend fun LocationManager.awaitSingleLocation(provider: String): Location? {
     return suspendCancellableCoroutine { continuation ->
         val listener = object : LocationListener {

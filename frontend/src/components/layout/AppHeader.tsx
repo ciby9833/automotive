@@ -1,19 +1,20 @@
-'use client';
+"use client";
 
-import { Avatar, Button, Dropdown, Typography } from 'antd';
+import { Avatar, Button, Dropdown, Typography } from "antd";
 import {
   LogoutOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  MobileOutlined,
   UserOutlined,
-} from '@ant-design/icons';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/lib/auth/store';
-import { Role } from '@/lib/auth/role';
-import { useTranslation } from '@/i18n/useTranslation';
-import { OrganizationSwitcher } from './OrganizationSwitcher';
-import { LanguageSwitcher } from './LanguageSwitcher';
-import { useLayoutStore } from './layoutStore';
+} from "@ant-design/icons";
+import { useRouter } from "next/navigation";
+import { useAuthStore } from "@/lib/auth/store";
+import { Role } from "@/lib/auth/role";
+import { useTranslation } from "@/i18n/useTranslation";
+import { OrganizationSwitcher } from "./OrganizationSwitcher";
+import { LanguageSwitcher } from "./LanguageSwitcher";
+import { useLayoutStore } from "./layoutStore";
 
 const INTERNAL_ROLES = new Set([
   Role.HQ_ADMIN,
@@ -44,14 +45,29 @@ export function AppHeader() {
       />
       <div className="app-header-spacer" />
       {isInternal && <OrganizationSwitcher />}
+      <Button
+        type="text"
+        icon={<MobileOutlined />}
+        href="/app-download"
+        target="_blank"
+        className="app-download-entry"
+      >
+        <span className="app-download-entry-label">{t("nav.appDownload")}</span>
+      </Button>
       <LanguageSwitcher />
       <Dropdown
         menu={{
-          items: [{ key: 'logout', label: t('auth.logout'), icon: <LogoutOutlined /> }],
+          items: [
+            {
+              key: "logout",
+              label: t("auth.logout"),
+              icon: <LogoutOutlined />,
+            },
+          ],
           onClick: () => {
             logout();
             clearTabs(); // 登出清空 tabs，避免下次登录残留
-            router.replace('/login');
+            router.replace("/login");
           },
         }}
       >

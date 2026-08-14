@@ -3,24 +3,10 @@ package com.automotive.alms.feature.pickup.presentation
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Rect
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
-import android.net.Uri
-import android.os.Bundle
-import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -36,8 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -66,16 +50,18 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
-import com.automotive.alms.BuildConfig
 import com.automotive.alms.R
+import com.automotive.alms.core.evidence.EvidencePhoto
+import com.automotive.alms.core.evidence.EvidencePhotoCapture
+import com.automotive.alms.core.evidence.accountUnitName
+import com.automotive.alms.core.evidence.operatorName
 import com.automotive.alms.core.model.LoginResult
 import com.automotive.alms.core.network.ApiException
+import com.automotive.alms.core.scanner.VinBarcodeScannerScreen
 import com.automotive.alms.core.ui.Dimens
 import com.automotive.alms.core.ui.ScreenScaffold
 import com.automotive.alms.core.ui.StatusPill
@@ -87,48 +73,11 @@ import com.automotive.alms.feature.pickup.model.PickupOrderScanResult
 import com.automotive.alms.feature.pickup.model.PickupOrderSummary
 import com.automotive.alms.feature.pickup.model.PickupVin
 import com.automotive.alms.feature.tracking.service.DriverLocationService
-import java.io.File
-import java.io.ByteArrayOutputStream
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.coroutines.resume
 
 private const val STATUS_PENDING = "PENDING"
 private const val STATUS_IN_PROGRESS = "IN_PROGRESS"
 private const val STATUS_COMPLETED = "COMPLETED"
-private const val GPS_MAX_AGE_MS = 180_000L
-
-private data class EvidencePhoto(
-    val uploadedFile: UploadedFile,
-    val bitmap: Bitmap,
-    val latitude: Double,
-    val longitude: Double,
-)
-
-private data class GpsSnapshot(
-    val location: Location,
-    val capturedAtMillis: Long,
-) {
-    fun isFresh(nowMillis: Long = System.currentTimeMillis()): Boolean {
-        return nowMillis - capturedAtMillis <= GPS_MAX_AGE_MS
-    }
-}
-
-private data class WatermarkData(
-    val vin: String,
-    val gpsText: String,
-    val latitude: Double,
-    val longitude: Double,
-    val operatorName: String,
-    val accountUnitName: String,
-    val timestamp: String,
-)
 
 @Composable
 fun PickupScanScreen(
@@ -144,42 +93,12 @@ fun PickupScanScreen(
     var message by remember { mutableStateOf<String?>(null) }
     var selectedStatus by rememberSaveable { mutableStateOf(STATUS_PENDING) }
     var outOfOrderVin by remember { mutableStateOf<String?>(null) }
-    var gpsSnapshot by remember { mutableStateOf<GpsSnapshot?>(null) }
-    var gpsRefreshing by remember { mutableStateOf(false) }
     val successText = stringResource(R.string.pickup_success)
     val outOfOrderText = stringResource(R.string.pickup_out_of_order)
 
-    fun refreshGps(force: Boolean = false) {
-        val current = gpsSnapshot
-        if (!force && current?.isFresh() == true) return
-        if (!context.hasAnyLocationPermission() || gpsRefreshing) return
-        gpsRefreshing = true
-        scope.launch {
-            runCatching { context.resolveCurrentLocation() }
-                .getOrNull()
-                ?.let { gpsSnapshot = GpsSnapshot(it, System.currentTimeMillis()) }
-            gpsRefreshing = false
-        }
-    }
-
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
-    ) {
-        refreshGps(force = true)
-    }
-
-    fun ensureGpsRefresh(force: Boolean = false) {
-        if (context.hasAnyLocationPermission()) {
-            refreshGps(force = force)
-        } else {
-            locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
-            )
-        }
-    }
+    ) {}
 
     fun loadOrders() {
         loading = true
@@ -200,7 +119,6 @@ fun PickupScanScreen(
                 .onSuccess {
                     selectedOrderId = orderId
                     detail = it
-                    ensureGpsRefresh(force = true)
                 }
                 .onFailure { message = errorMessage(it) }
             loading = false
@@ -209,7 +127,14 @@ fun PickupScanScreen(
 
     LaunchedEffect(Unit) {
         loadOrders()
-        ensureGpsRefresh(force = true)
+        if (!context.hasAnyLocationPermission()) {
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                ),
+            )
+        }
     }
 
     DisposableEffect(detail?.order?.id) {
@@ -309,9 +234,6 @@ fun PickupScanScreen(
                         ),
                     )
                 },
-                gpsSnapshot = gpsSnapshot,
-                gpsRefreshing = gpsRefreshing,
-                onRequestGpsRefresh = { ensureGpsRefresh(force = true) },
                 onSubmitted = { result ->
                     message = if (result.outOfOrder) {
                         outOfOrderVin = result.vin.vin
@@ -443,18 +365,13 @@ private fun PickupOrderDetailContent(
     ) -> PickupOrderScanResult,
     operatorName: String,
     accountUnitName: String,
-    gpsSnapshot: GpsSnapshot?,
-    gpsRefreshing: Boolean,
-    onRequestGpsRefresh: () -> Unit,
     onSubmitted: (PickupOrderScanResult) -> Unit,
 ) {
     var scannedVin by rememberSaveable(detail?.order?.id) { mutableStateOf<String?>(null) }
     var vinInput by rememberSaveable(detail?.order?.id) { mutableStateOf("") }
+    var scanningVin by remember { mutableStateOf(false) }
 
     if (scannedVin != null && detail != null) {
-        LaunchedEffect(scannedVin) {
-            onRequestGpsRefresh()
-        }
         PickupEvidenceContent(
             modifier = modifier,
             order = detail,
@@ -464,9 +381,6 @@ private fun PickupOrderDetailContent(
             onSubmitScan = onSubmitScan,
             operatorName = operatorName,
             accountUnitName = accountUnitName,
-            gpsSnapshot = gpsSnapshot,
-            gpsRefreshing = gpsRefreshing,
-            onRequestGpsRefresh = onRequestGpsRefresh,
             onSubmitted = {
                 scannedVin = null
                 vinInput = ""
@@ -523,6 +437,7 @@ private fun PickupOrderDetailContent(
                 vin = vinInput,
                 onVinChange = { vinInput = it.trim().uppercase() },
                 onScan = { scannedVin = vinInput },
+                onOpenCameraScan = { scanningVin = true },
             )
         }
 
@@ -550,6 +465,18 @@ private fun PickupOrderDetailContent(
             VinRow(item = item, completed = true)
         }
     }
+
+    if (scanningVin) {
+        VinBarcodeScannerScreen(
+            title = stringResource(R.string.pickup_scan_vin_title),
+            onVinScanned = { vin ->
+                vinInput = vin
+                scannedVin = vin
+                scanningVin = false
+            },
+            onClose = { scanningVin = false },
+        )
+    }
 }
 
 @Composable
@@ -557,6 +484,7 @@ private fun VinScanEntry(
     vin: String,
     onVinChange: (String) -> Unit,
     onScan: () -> Unit,
+    onOpenCameraScan: () -> Unit,
 ) {
     Card(
         shape = RoundedCornerShape(Dimens.CardRadius),
@@ -576,11 +504,17 @@ private fun VinScanEntry(
                 shape = RoundedCornerShape(Dimens.CardRadius),
             )
             Button(
+                onClick = onOpenCameraScan,
+                modifier = Modifier.padding(top = 8.dp),
+            ) {
+                Icon(Icons.Filled.PhotoCamera, contentDescription = null)
+            }
+            Button(
                 onClick = onScan,
                 enabled = vin.length >= 8,
                 modifier = Modifier.padding(top = 8.dp),
             ) {
-                Text(stringResource(R.string.pickup_scan_action))
+                Text(stringResource(R.string.pickup_lookup))
             }
         }
     }
@@ -601,105 +535,13 @@ private fun PickupEvidenceContent(
     ) -> PickupOrderScanResult,
     operatorName: String,
     accountUnitName: String,
-    gpsSnapshot: GpsSnapshot?,
-    gpsRefreshing: Boolean,
-    onRequestGpsRefresh: () -> Unit,
     onSubmitted: (PickupOrderScanResult) -> Unit,
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var remark by rememberSaveable(order.order.id, vin) { mutableStateOf("") }
     var photos by remember { mutableStateOf<List<EvidencePhoto>>(emptyList()) }
-    var photoUri by remember { mutableStateOf<Uri?>(null) }
-    var pendingWatermark by remember { mutableStateOf<WatermarkData?>(null) }
-    var previewPhoto by remember { mutableStateOf<EvidencePhoto?>(null) }
     var submitting by remember { mutableStateOf(false) }
-    var uploadingPhoto by remember { mutableStateOf(false) }
-    var waitingForGpsCapture by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-
-    val uploadFailed = stringResource(R.string.pickup_photo_upload_failed)
-    val gpsRequired = stringResource(R.string.pickup_gps_required)
-    val cameraLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-    ) { saved ->
-        val capturedUri = photoUri
-        if (!saved || capturedUri == null) return@rememberLauncherForActivityResult
-        uploadingPhoto = true
-        error = null
-        scope.launch {
-            runCatching {
-                val watermark = pendingWatermark ?: kotlin.error(gpsRequired)
-                val bytes = context.readWatermarkedJpeg(capturedUri, watermark)
-                EvidencePhoto(
-                    uploadedFile = onUploadPhoto(bytes),
-                    bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size),
-                    latitude = watermark.latitude,
-                    longitude = watermark.longitude,
-                )
-            }
-                .onSuccess { photos = photos + it }
-                .onFailure { error = errorMessage(it).ifBlank { uploadFailed } }
-            uploadingPhoto = false
-        }
-    }
-
-    fun startCameraWithLocation(snapshot: GpsSnapshot) {
-        val location = snapshot.location
-        pendingWatermark = WatermarkData(
-            vin = vin,
-            gpsText = location.toGpsText(),
-            latitude = location.latitude,
-            longitude = location.longitude,
-            operatorName = operatorName,
-            accountUnitName = accountUnitName,
-            timestamp = LocalDateTime.now().format(WATERMARK_TIME_FORMATTER),
-        )
-        val uri = context.createPickupPhotoUri()
-        photoUri = uri
-        cameraLauncher.launch(uri)
-    }
-
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        if (granted || context.hasPermission(Manifest.permission.CAMERA)) {
-            val snapshot = gpsSnapshot
-            if (snapshot?.isFresh() == true) {
-                startCameraWithLocation(snapshot)
-            } else {
-                waitingForGpsCapture = true
-                onRequestGpsRefresh()
-            }
-        } else {
-            error = context.getString(R.string.pickup_permission_denied)
-        }
-    }
-
-    fun requestCapture() {
-        if (!context.hasPermission(Manifest.permission.CAMERA)) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
-            return
-        }
-        val snapshot = gpsSnapshot
-        if (snapshot?.isFresh() == true) {
-            error = null
-            waitingForGpsCapture = false
-            startCameraWithLocation(snapshot)
-            return
-        }
-        waitingForGpsCapture = true
-        error = null
-        onRequestGpsRefresh()
-    }
-
-    LaunchedEffect(gpsSnapshot, waitingForGpsCapture) {
-        val snapshot = gpsSnapshot
-        if (waitingForGpsCapture && snapshot?.isFresh() == true) {
-            waitingForGpsCapture = false
-            startCameraWithLocation(snapshot)
-        }
-    }
 
     LazyColumn(
         modifier = modifier,
@@ -710,18 +552,15 @@ private fun PickupEvidenceContent(
                 modifier = Modifier.padding(top = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(onClick = onBack, enabled = !submitting && !uploadingPhoto) {
+                OutlinedButton(onClick = onBack, enabled = !submitting) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                     Text(
                         text = stringResource(R.string.pickup_task_detail),
                         modifier = Modifier.padding(start = 6.dp),
                     )
                 }
-                if (submitting || uploadingPhoto || gpsRefreshing || waitingForGpsCapture) {
+                if (submitting) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-                if (waitingForGpsCapture && !gpsRefreshing && gpsSnapshot?.isFresh() != true) {
-                    Text(text = gpsRequired, color = MaterialTheme.colorScheme.error)
                 }
                 error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
             }
@@ -745,18 +584,16 @@ private fun PickupEvidenceContent(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(Dimens.CardRadius),
                     )
-                    PhotoThumbList(
+                    EvidencePhotoCapture(
+                        subject = stringResource(R.string.pickup_photo_subject, vin),
+                        operatorName = operatorName,
+                        accountUnitName = accountUnitName,
                         photos = photos,
-                        enabled = !submitting && !uploadingPhoto && !gpsRefreshing && !waitingForGpsCapture,
-                        uploading = uploadingPhoto,
-                        resolvingGps = gpsRefreshing || waitingForGpsCapture,
-                        onAddPhoto = { requestCapture() },
-                        onPreviewPhoto = { previewPhoto = it },
-                        onRemovePhoto = { removed ->
-                            photos = photos.filterNot {
-                                it.uploadedFile.key == removed.uploadedFile.key
-                            }
-                        },
+                        onPhotosChange = { photos = it },
+                        onUploadPhoto = onUploadPhoto,
+                        enabled = !submitting,
+                        title = stringResource(R.string.pickup_photo_title),
+                        modifier = Modifier.fillMaxWidth(),
                     )
                     Button(
                         onClick = {
@@ -776,7 +613,7 @@ private fun PickupEvidenceContent(
                                 submitting = false
                             }
                         },
-                        enabled = photos.isNotEmpty() && !submitting && !uploadingPhoto && !gpsRefreshing && !waitingForGpsCapture,
+                        enabled = photos.isNotEmpty() && !submitting,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         Icon(Icons.Filled.CheckCircle, contentDescription = null)
@@ -786,80 +623,6 @@ private fun PickupEvidenceContent(
                         )
                     }
                 }
-            }
-        }
-    }
-
-    previewPhoto?.let { photo ->
-        AlertDialog(
-            onDismissRequest = { previewPhoto = null },
-            confirmButton = {
-                TextButton(onClick = { previewPhoto = null }) {
-                    Text(stringResource(R.string.pickup_out_of_order_confirm))
-                }
-            },
-            text = {
-                Image(
-                    bitmap = photo.bitmap.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            },
-        )
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PhotoThumbList(
-    photos: List<EvidencePhoto>,
-    enabled: Boolean,
-    uploading: Boolean,
-    resolvingGps: Boolean,
-    onAddPhoto: () -> Unit,
-    onPreviewPhoto: (EvidencePhoto) -> Unit,
-    onRemovePhoto: (EvidencePhoto) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (photos.isNotEmpty()) {
-            Text(
-                text = stringResource(R.string.pickup_photo_count, photos.size),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            photos.forEach { photo ->
-                Box {
-                    Image(
-                        bitmap = photo.bitmap.asImageBitmap(),
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(86.dp)
-                            .clickable { onPreviewPhoto(photo) },
-                    )
-                    IconButton(onClick = { onRemovePhoto(photo) }) {
-                        Icon(Icons.Filled.Delete, contentDescription = null)
-                    }
-                }
-            }
-            OutlinedButton(
-                onClick = onAddPhoto,
-                enabled = enabled,
-                modifier = Modifier.size(86.dp),
-                shape = RoundedCornerShape(Dimens.CardRadius),
-            ) {
-                Icon(
-                    imageVector = if (uploading || resolvingGps) {
-                        Icons.Filled.PhotoCamera
-                    } else {
-                        Icons.Filled.Add
-                    },
-                    contentDescription = null,
-                )
             }
         }
     }
@@ -989,62 +752,6 @@ private fun vinStatusLabel(item: PickupVin): String {
     }
 }
 
-private fun Context.createPickupPhotoUri(): Uri {
-    val dir = File(cacheDir, "pickup_photos").apply { mkdirs() }
-    val file = File(dir, "pickup-${System.currentTimeMillis()}.jpg")
-    return FileProvider.getUriForFile(this, "${BuildConfig.APPLICATION_ID}.fileprovider", file)
-}
-
-private suspend fun Context.readWatermarkedJpeg(
-    uri: Uri,
-    watermark: WatermarkData,
-): ByteArray = withContext(Dispatchers.IO) {
-    val bitmap = contentResolver.openInputStream(uri)?.use { input ->
-        BitmapFactory.decodeStream(input)
-    } ?: kotlin.error("Photo file is empty")
-    bitmap.withWatermark(watermark).toJpegBytes()
-}
-
-private fun Bitmap.withWatermark(watermark: WatermarkData): Bitmap {
-    val result = copy(Bitmap.Config.ARGB_8888, true)
-    val canvas = Canvas(result)
-    val density = result.width / 390f
-    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = (13f * density).coerceAtLeast(18f)
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-    }
-    val lines = listOf(
-        "VIN ${watermark.vin}",
-        "GPS ${watermark.gpsText}",
-        "${watermark.timestamp}  ${watermark.operatorName}",
-        watermark.accountUnitName,
-    )
-    val lineHeight = (textPaint.textSize * 1.35f).toInt()
-    val padding = (12f * density).toInt().coerceAtLeast(16)
-    val panelHeight = lineHeight * lines.size + padding * 2
-    val top = result.height - panelHeight
-    Paint().apply {
-        color = Color.argb(150, 0, 0, 0)
-        canvas.drawRect(0f, top.toFloat(), result.width.toFloat(), result.height.toFloat(), this)
-    }
-    lines.forEachIndexed { index, line ->
-        canvas.drawText(
-            line,
-            padding.toFloat(),
-            (top + padding + lineHeight * (index + 1)).toFloat(),
-            textPaint,
-        )
-    }
-    return result
-}
-
-private fun Bitmap.toJpegBytes(): ByteArray {
-    val output = ByteArrayOutputStream()
-    compress(Bitmap.CompressFormat.JPEG, 90, output)
-    return output.toByteArray()
-}
-
 private fun Context.hasPermission(permission: String): Boolean {
     return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
 }
@@ -1054,71 +761,8 @@ private fun Context.hasAnyLocationPermission(): Boolean {
         hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
 }
 
-private suspend fun Context.resolveCurrentLocation(): Location? {
-    if (!hasAnyLocationPermission()) return null
-    val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
-        .filter { provider -> manager.isProviderEnabled(provider) }
-    val current = providers.firstNotNullOfOrNull { provider ->
-        withTimeoutOrNull(8000) { manager.awaitSingleLocation(provider) }
-    }
-    if (current != null) return current
-    return providers.mapNotNull { provider ->
-        runCatching { manager.getLastKnownLocation(provider) }.getOrNull()
-    }.maxByOrNull { it.time }
-}
-
-private suspend fun LocationManager.awaitSingleLocation(provider: String): Location? {
-    return suspendCancellableCoroutine { continuation ->
-        val listener = object : LocationListener {
-            override fun onLocationChanged(location: Location) {
-                if (continuation.isActive) continuation.resume(location)
-                removeUpdates(this)
-            }
-
-            @Deprecated("Deprecated by Android")
-            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) = Unit
-
-            override fun onProviderEnabled(provider: String) = Unit
-            override fun onProviderDisabled(provider: String) {
-                if (continuation.isActive) continuation.resume(null)
-                removeUpdates(this)
-            }
-        }
-        runCatching {
-            requestSingleUpdate(provider, listener, Looper.getMainLooper())
-        }.onFailure {
-            if (continuation.isActive) continuation.resume(null)
-        }
-        continuation.invokeOnCancellation { removeUpdates(listener) }
-    }
-}
-
-private fun Location.toGpsText(): String {
-    return String.format(Locale.US, "%.6f, %.6f", latitude, longitude)
-}
-
-private fun LoginResult?.operatorName(): String {
-    return this?.user?.displayName?.takeIf { it.isNotBlank() }
-        ?: this?.user?.username
-        ?: "-"
-}
-
-private fun LoginResult?.accountUnitName(): String {
-    val result = this ?: return "-"
-    return result.accountUnit?.name
-        ?: result.externalContext?.carrierName
-        ?: result.externalContext?.customerName
-        ?: result.memberships.firstOrNull { it.organizationId == result.activeOrgId }?.organizationName
-        ?: result.memberships.firstOrNull()?.organizationName
-        ?: result.user.username
-}
-
 private fun errorMessage(throwable: Throwable): String {
     return (throwable as? ApiException)?.message
         ?: throwable.localizedMessage
         ?: "Request failed"
 }
-
-private val WATERMARK_TIME_FORMATTER: DateTimeFormatter =
-    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")

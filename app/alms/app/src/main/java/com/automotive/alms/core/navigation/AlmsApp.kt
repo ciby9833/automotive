@@ -17,6 +17,7 @@ import com.automotive.alms.feature.home.presentation.HomeScreen
 import com.automotive.alms.feature.inbound.presentation.InboundScanScreen
 import com.automotive.alms.feature.outbound.presentation.OutboundOrdersScreen
 import com.automotive.alms.feature.pickup.presentation.PickupScanScreen
+import com.automotive.alms.feature.waybill.presentation.LoadScanScreen
 import com.automotive.alms.feature.waybill.presentation.WaybillListScreen
 import com.automotive.alms.feature.yard.presentation.YardInventoryScreen
 
@@ -84,6 +85,7 @@ fun AlmsApp(container: AppContainer) {
                 permissionManager = container.permissionManager,
                 onOpenPickup = { navController.navigate(AppRoute.PickupScan.path) },
                 onOpenInbound = { navController.navigate(AppRoute.InboundScan.path) },
+                onOpenLoadScan = { navController.navigate(AppRoute.LoadScan.path) },
                 onOpenWaybills = { navController.navigate(AppRoute.WaybillList.path) },
                 onOpenInventory = { navController.navigate(AppRoute.YardInventory.path) },
                 onOpenOutbound = { navController.navigate(AppRoute.OutboundOrders.path) },
@@ -104,6 +106,12 @@ fun AlmsApp(container: AppContainer) {
         composable(AppRoute.PickupScan.path) {
             PickupScanScreen(
                 repository = container.pickupRepository,
+                loginResult = session.loginResult,
+            )
+        }
+        composable(AppRoute.LoadScan.path) {
+            LoadScanScreen(
+                repository = container.waybillRepository,
                 loginResult = session.loginResult,
             )
         }

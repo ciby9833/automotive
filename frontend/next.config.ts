@@ -5,6 +5,11 @@ import type { NextConfig } from "next";
 // 再原子化合并进线上 .next，避免直接覆盖导致老 chunk 消失、老 tab 404。
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
+  turbopack: {
+    resolveAlias: {
+      "@alms/apk-wasm": "./node_modules/@h-t-m/app-inspect/dist/apk_parser.js",
+    },
+  },
 };
 
 export default nextConfig;

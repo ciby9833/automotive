@@ -1,12 +1,13 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { Button, Card, Form, Input, Modal, Typography, message } from 'antd';
-import { forgotPassword, login } from '@/lib/api/auth';
-import { useAuthStore } from '@/lib/auth/store';
-import { useTranslation } from '@/i18n/useTranslation';
-import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Button, Card, Form, Input, Modal, Typography, message } from "antd";
+import { forgotPassword, login } from "@/lib/api/auth";
+import { useAuthStore } from "@/lib/auth/store";
+import { useTranslation } from "@/i18n/useTranslation";
+import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
+import { MobileOutlined } from "@ant-design/icons";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,7 +23,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await login(values.username, values.password);
-      if (res.mode === 'NEEDS_SELECTION') {
+      if (res.mode === "NEEDS_SELECTION") {
         // 多 membership：拿预授权 token 去选择页；后续 setAuth 由 select-org 页处理
         setPreAuth({
           token: res.accessToken,
@@ -30,7 +31,7 @@ export default function LoginPage() {
           memberships: res.memberships ?? [],
           permissions: res.permissions ?? [],
         });
-        router.replace('/select-org');
+        router.replace("/select-org");
         return;
       }
       setAuth({
@@ -43,9 +44,9 @@ export default function LoginPage() {
         accountUnit: res.accountUnit ?? null,
         permissions: res.permissions ?? [],
       });
-      router.replace('/dashboard');
+      router.replace("/dashboard");
     } catch {
-      message.error(t('auth.loginFailed'));
+      message.error(t("auth.loginFailed"));
     } finally {
       setLoading(false);
     }
@@ -55,7 +56,7 @@ export default function LoginPage() {
     setForgotLoading(true);
     try {
       await forgotPassword(values.email);
-      message.success(t('auth.forgotPasswordSent'));
+      message.success(t("auth.forgotPasswordSent"));
       setForgotOpen(false);
       forgotForm.resetFields();
     } finally {
@@ -65,43 +66,52 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-1 items-center justify-center bg-slate-50">
-      <div style={{ position: 'absolute', top: 24, right: 24 }}>
+      <div style={{ position: "absolute", top: 24, right: 24 }}>
         <LanguageSwitcher />
       </div>
       <Card style={{ width: 380 }}>
-        <Typography.Title level={3} style={{ textAlign: 'center' }}>
-          {t('auth.title')}
+        <Typography.Title level={3} style={{ textAlign: "center" }}>
+          {t("auth.title")}
         </Typography.Title>
         <Form layout="vertical" onFinish={onFinish}>
           <Form.Item
-            label={t('auth.username')}
+            label={t("auth.username")}
             name="username"
-            rules={[{ required: true, message: t('auth.usernameRequired') }]}
+            rules={[{ required: true, message: t("auth.usernameRequired") }]}
           >
             <Input autoFocus />
           </Form.Item>
           <Form.Item
-            label={t('auth.password')}
+            label={t("auth.password")}
             name="password"
-            rules={[{ required: true, message: t('auth.passwordRequired') }]}
+            rules={[{ required: true, message: t("auth.passwordRequired") }]}
           >
             <Input.Password />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block loading={loading}>
-              {t('auth.login')}
+              {t("auth.login")}
             </Button>
           </Form.Item>
         </Form>
-        <div style={{ textAlign: 'center' }}>
+        <div style={{ textAlign: "center" }}>
           <Typography.Link onClick={() => setForgotOpen(true)}>
-            {t('auth.forgotPassword')}
+            {t("auth.forgotPassword")}
           </Typography.Link>
         </div>
+        <Button
+          type="link"
+          block
+          icon={<MobileOutlined />}
+          href="/app-download"
+          style={{ marginTop: 10 }}
+        >
+          {t("nav.appDownload")}
+        </Button>
       </Card>
 
       <Modal
-        title={t('auth.forgotPasswordTitle')}
+        title={t("auth.forgotPasswordTitle")}
         open={forgotOpen}
         onCancel={() => setForgotOpen(false)}
         onOk={() => forgotForm.submit()}
@@ -110,9 +120,9 @@ export default function LoginPage() {
       >
         <Form form={forgotForm} layout="vertical" onFinish={onForgotPassword}>
           <Form.Item
-            label={t('auth.email')}
+            label={t("auth.email")}
             name="email"
-            rules={[{ required: true, type: 'email' }]}
+            rules={[{ required: true, type: "email" }]}
           >
             <Input autoFocus />
           </Form.Item>

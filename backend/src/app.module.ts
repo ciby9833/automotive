@@ -21,6 +21,7 @@ import { InvitationsModule } from './modules/invitations/invitations.module';
 import { InboundModule } from './modules/inbound/inbound.module';
 import { ScopeModule } from './common/scope/scope.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { AppReleasesModule } from './modules/app-releases/app-releases.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
     InboundModule,
     OutboundModule,
     DashboardModule,
+    AppReleasesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

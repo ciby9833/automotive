@@ -27,6 +27,12 @@ object HomeActions {
             requiredPermission = Permission.PICKUP_SCAN,
         ),
         HomeAction(
+            titleRes = R.string.load_scan,
+            subtitleRes = R.string.load_scan_subtitle,
+            route = AppRoute.LoadScan,
+            requiredPermission = Permission.WAYBILL_SCAN,
+        ),
+        HomeAction(
             titleRes = R.string.waybills,
             subtitleRes = R.string.waybills_subtitle,
             route = AppRoute.WaybillList,

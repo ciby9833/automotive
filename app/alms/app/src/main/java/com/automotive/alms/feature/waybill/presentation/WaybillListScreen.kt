@@ -75,6 +75,7 @@ fun WaybillListScreen(
     var gatePhotos by remember { mutableStateOf<List<EvidencePhoto>>(emptyList()) }
     var vinPhotos by remember { mutableStateOf<Map<String, List<EvidencePhoto>>>(emptyMap()) }
     var remark by rememberSaveable { mutableStateOf("") }
+    val requestFailed = stringResource(R.string.common_request_failed)
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
@@ -90,7 +91,7 @@ fun WaybillListScreen(
         scope.launch {
             runCatching { repository.list(selectedStatus) }
                 .onSuccess { waybills = it }
-                .onFailure { error = appError(it) }
+                .onFailure { error = appError(it, requestFailed) }
             loading = false
         }
     }
@@ -108,7 +109,7 @@ fun WaybillListScreen(
                     selectedId = id
                     detail = it
                 }
-                .onFailure { error = appError(it) }
+                .onFailure { error = appError(it, requestFailed) }
             loading = false
         }
     }
@@ -155,7 +156,13 @@ fun WaybillListScreen(
                     }
                 },
             ) {
-                Text(if (selectedId == null) "刷新" else "返回")
+                Text(
+                    if (selectedId == null) {
+                        stringResource(R.string.common_refresh)
+                    } else {
+                        stringResource(R.string.common_back)
+                    },
+                )
             }
         },
     ) { padding ->
@@ -169,13 +176,13 @@ fun WaybillListScreen(
             ) {
                 if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusChip("待装/待启运", STATUS_NOT_ARRIVED, selectedStatus) {
+                    StatusChip(stringResource(R.string.waybill_filter_pending), STATUS_NOT_ARRIVED, selectedStatus) {
                         selectedStatus = it
                     }
-                    StatusChip("运输中", STATUS_IN_TRANSIT, selectedStatus) {
+                    StatusChip(stringResource(R.string.waybill_filter_transit), STATUS_IN_TRANSIT, selectedStatus) {
                         selectedStatus = it
                     }
-                    StatusChip("已完成", STATUS_ARRIVED, selectedStatus) {
+                    StatusChip(stringResource(R.string.waybill_filter_arrived), STATUS_ARRIVED, selectedStatus) {
                         selectedStatus = it
                     }
                 }
@@ -224,7 +231,7 @@ fun WaybillListScreen(
                             vinPhotos = vinPhotos - vin
                             remark = ""
                             loadDetail(detail!!.id)
-                        }.onFailure { error = appError(it) }
+                        }.onFailure { error = appError(it, requestFailed) }
                         loading = false
                     }
                 },
@@ -240,7 +247,7 @@ fun WaybillListScreen(
                             gatePhotos = emptyList()
                             remark = ""
                             loadDetail(detail!!.id)
-                        }.onFailure { error = appError(it) }
+                        }.onFailure { error = appError(it, requestFailed) }
                         loading = false
                     }
                 },
@@ -261,7 +268,7 @@ fun WaybillListScreen(
                             vinPhotos = vinPhotos - vin
                             remark = ""
                             loadDetail(detail!!.id)
-                        }.onFailure { error = appError(it) }
+                        }.onFailure { error = appError(it, requestFailed) }
                         loading = false
                     }
                 },
@@ -272,8 +279,8 @@ fun WaybillListScreen(
     error?.let {
         AlertDialog(
             onDismissRequest = { error = null },
-            confirmButton = { TextButton(onClick = { error = null }) { Text("确定") } },
-            title = { Text("操作失败") },
+            confirmButton = { TextButton(onClick = { error = null }) { Text(stringResource(R.string.common_confirm)) } },
+            title = { Text(stringResource(R.string.waybill_operation_failed)) },
             text = { Text(it) },
         )
     }
@@ -310,7 +317,7 @@ private fun WaybillCard(waybill: Waybill, onClick: () -> Unit) {
                 "${waybill.originYard?.name ?: waybill.originText ?: "-"} → " +
                     (waybill.destinationDealer?.dealerName ?: waybill.destinationYard?.name ?: "-"),
             )
-            Text("VIN ${waybill.vins.size}", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.waybill_vin_count, waybill.vins.size), style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -335,7 +342,7 @@ private fun WaybillDetailContent(
     if (detail == null) {
         Column(modifier = modifier) {
             if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            Text("加载中")
+            Text(stringResource(R.string.common_loading))
         }
         return
     }
@@ -352,10 +359,15 @@ private fun WaybillDetailContent(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Text(detail.waybillCode, style = MaterialTheme.typography.titleMedium)
-                    Text("状态：${detail.status}")
-                    Text("承运商：${detail.carrier?.shortName ?: detail.carrier?.name ?: "-"}")
-                    Text("目的地：${detail.destinationDealer?.dealerName ?: detail.destinationYard?.name ?: "-"}")
-                    Text("联系人：${detail.recipientName ?: "-"} ${detail.recipientPhone ?: ""}")
+                    Text(stringResource(R.string.waybill_status_label, detail.status))
+                    Text(stringResource(R.string.waybill_carrier_label, detail.carrier?.shortName ?: detail.carrier?.name ?: "-"))
+                    Text(
+                        stringResource(
+                            R.string.waybill_destination_label,
+                            detail.destinationDealer?.dealerName ?: detail.destinationYard?.name ?: "-",
+                        ),
+                    )
+                    Text(stringResource(R.string.waybill_contact_label, detail.recipientName ?: "-", detail.recipientPhone ?: ""))
                 }
             }
         }
@@ -368,19 +380,19 @@ private fun WaybillDetailContent(
                     OutlinedTextField(
                         value = remark,
                         onValueChange = onRemarkChange,
-                        label = { Text("备注") },
+                        label = { Text(stringResource(R.string.common_remark)) },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     if (detail.status == STATUS_NOT_ARRIVED) {
                         EvidencePhotoCapture(
-                            subject = "启运 ${detail.waybillCode}",
+                            subject = stringResource(R.string.waybill_depart_subject, detail.waybillCode),
                             operatorName = loginResult.operatorName(),
                             accountUnitName = loginResult.accountUnitName(),
                             photos = gatePhotos,
                             onPhotosChange = onGatePhotosChange,
                             onUploadPhoto = { bytes -> onUploadPhoto("depart-${detail.waybillCode}", bytes) },
                             enabled = !loading,
-                            title = "启运闸口照片",
+                            title = stringResource(R.string.waybill_depart_photo_title),
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Button(
@@ -388,7 +400,7 @@ private fun WaybillDetailContent(
                             onClick = onDepart,
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("整单启运")
+                            Text(stringResource(R.string.waybill_depart_submit))
                         }
                     }
                 }
@@ -430,47 +442,55 @@ private fun WaybillVinCard(
             Text(vin.vin, fontWeight = FontWeight.SemiBold)
             Text(listOfNotNull(vin.model, vin.color).joinToString(" / ").ifBlank { "-" })
             Text(
-                "装车：${vin.loadedAt ?: "未装"} · 签收：${if (vin.isSigned) "已签" else "未签"}",
+                stringResource(
+                    R.string.waybill_vin_scan_status,
+                    vin.loadedAt ?: stringResource(R.string.waybill_load_missing),
+                    if (vin.isSigned) {
+                        stringResource(R.string.waybill_signed_yes)
+                    } else {
+                        stringResource(R.string.waybill_signed_no)
+                    },
+                ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (waybillStatus == STATUS_NOT_ARRIVED && vin.loadedAt == null) {
                 EvidencePhotoCapture(
-                    subject = "装车 VIN ${vin.vin}",
+                    subject = stringResource(R.string.waybill_load_subject, vin.vin),
                     operatorName = loginResult.operatorName(),
                     accountUnitName = loginResult.accountUnitName(),
                     photos = photos,
                     onPhotosChange = onPhotosChange,
                     onUploadPhoto = { bytes -> onUploadPhoto("load-${vin.vin}", bytes) },
                     enabled = !loading,
-                    title = "装车存证照片",
+                    title = stringResource(R.string.waybill_load_photo_title),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(enabled = photos.isNotEmpty() && !loading, onClick = { onLoadVin(vin.vin) }) {
-                    Text("确认装车")
+                    Text(stringResource(R.string.waybill_load_submit))
                 }
             }
             if (waybillStatus == STATUS_IN_TRANSIT && !vin.isSigned) {
                 EvidencePhotoCapture(
-                    subject = "签收 VIN ${vin.vin}",
+                    subject = stringResource(R.string.waybill_sign_subject, vin.vin),
                     operatorName = loginResult.operatorName(),
                     accountUnitName = loginResult.accountUnitName(),
                     photos = photos,
                     onPhotosChange = onPhotosChange,
                     onUploadPhoto = { bytes -> onUploadPhoto("sign-${vin.vin}", bytes) },
                     enabled = !loading,
-                    title = "签收存证照片",
+                    title = stringResource(R.string.waybill_sign_photo_title),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(enabled = photos.isNotEmpty() && !loading, onClick = { onSignVin(vin.vin) }) {
-                    Text("确认签收")
+                    Text(stringResource(R.string.waybill_sign_submit))
                 }
             }
         }
     }
 }
 
-private fun appError(error: Throwable): String {
-    return (error as? ApiException)?.message ?: error.message ?: "请求失败"
+private fun appError(error: Throwable, fallback: String): String {
+    return (error as? ApiException)?.message ?: error.message ?: fallback
 }
 
 private fun android.content.Context.hasLocationPermission(): Boolean {

@@ -107,6 +107,7 @@ export class WaybillsController {
     Role.HQ_ADMIN,
     Role.ORG_ADMIN,
     Role.YARD_STAFF,
+    Role.CARRIER_DRIVER,
     Role.CARRIER_STAFF,
     Role.CUSTOMER,
   )

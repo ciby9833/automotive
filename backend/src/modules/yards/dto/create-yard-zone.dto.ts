@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -15,6 +16,7 @@ import {
 const ZONE_CODE_PATTERN = /^[A-Za-z0-9_]{1,16}$/;
 
 export class CreateYardZoneDto {
+  @IsOptional() @IsIn(['PARKING', 'STAGING']) purpose?: 'PARKING' | 'STAGING';
   @ApiProperty({ description: 'Zone 编码；只能字母数字下划线，最长 16 字符' })
   @IsString()
   @IsNotEmpty()
@@ -48,6 +50,7 @@ export class CreateYardZoneDto {
 }
 
 export class UpdateYardZoneDto {
+  @IsOptional() @IsIn(['PARKING', 'STAGING']) purpose?: 'PARKING' | 'STAGING';
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

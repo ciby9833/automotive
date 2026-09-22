@@ -1,3 +1,4 @@
+import { InventoryModule } from '../inventory/inventory.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Order } from '../orders/entities/order.entity';
@@ -13,6 +14,7 @@ import { Carrier } from '../carriers/entities/carrier.entity';
 
 @Module({
   imports: [
+    InventoryModule,
     TypeOrmModule.forFeature([
       Order,
       OrderVin,

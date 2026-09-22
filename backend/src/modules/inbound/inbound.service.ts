@@ -1,3 +1,4 @@
+import { InventoryService } from '../inventory/inventory.service';
 import {
   BadRequestException,
   ConflictException,
@@ -12,10 +13,7 @@ import { Order } from '../orders/entities/order.entity';
 import { OrderVin } from '../orders/entities/order-vin.entity';
 import { InboundBatch } from './entities/inbound-batch.entity';
 import { Yard } from '../yards/entities/yard.entity';
-import {
-  YardSlot,
-  YardSlotStatus,
-} from '../yards/entities/yard-slot.entity';
+import { YardSlot, YardSlotStatus } from '../yards/entities/yard-slot.entity';
 import { YardZone } from '../yards/entities/yard-zone.entity';
 import { formatSlotCode } from '../yards/slot-code.util';
 import { TransportType } from '../../common/enums/order-type.enum';
@@ -52,6 +50,7 @@ import {
 @Injectable()
 export class InboundService {
   constructor(
+    private readonly inventory: InventoryService,
     @InjectRepository(Order)
     private readonly ordersRepo: Repository<Order>,
     @InjectRepository(OrderVin)
@@ -77,16 +76,24 @@ export class InboundService {
     dto: ImportInboundOrderDto,
     scope: EffectiveScope,
     operatorUserId?: string,
-  ): Promise<{ orderId: string; orderCode: string; created: number; skipped: number }> {
+  ): Promise<{
+    orderId: string;
+    orderCode: string;
+    created: number;
+    skipped: number;
+  }> {
     // 目的仓必须在 scope 里
     const yard = await this.yardRepo.findOne({
       where: { id: dto.destinationYardId },
     });
     if (!yard) throw new NotFoundException('目的仓不存在');
     this.scopeService.assertOrgWritable(scope, yard.organizationId);
-    const customer = await this.customersRepo.findOne({ where: { id: dto.customerId } });
+    const customer = await this.customersRepo.findOne({
+      where: { id: dto.customerId },
+    });
     if (!customer) throw new NotFoundException('客户不存在');
-    if (customer.organizationId !== yard.organizationId) throw new ForbiddenException('客户与目的场地必须属于同一机构');
+    if (customer.organizationId !== yard.organizationId)
+      throw new ForbiddenException('客户与目的场地必须属于同一机构');
     if (customer.status !== PartnerStatus.ACTIVE) {
       throw new BadRequestException('客户当前未开放新增业务');
     }
@@ -108,9 +115,7 @@ export class InboundService {
     const toInsert = uniqueVins.filter((v) => !existingSet.has(v.vin));
 
     if (toInsert.length === 0) {
-      throw new ConflictException(
-        '导入的 VIN 全部已在系统中，无需重复导入',
-      );
+      throw new ConflictException('导入的 VIN 全部已在系统中，无需重复导入');
     }
 
     const result = await this.dataSource.transaction(async (mgr) => {
@@ -324,11 +329,14 @@ export class InboundService {
         pickedUp: string;
       }>();
     const countMap = new Map(
-      counts.map((c) => [c.orderId, {
-        total: Number(c.total),
-        arrived: Number(c.arrived),
-        pickedUp: Number(c.pickedUp),
-      }]),
+      counts.map((c) => [
+        c.orderId,
+        {
+          total: Number(c.total),
+          arrived: Number(c.arrived),
+          pickedUp: Number(c.pickedUp),
+        },
+      ]),
     );
 
     // PENDING/COMPLETED 已下推到 SQL，这里不再做 JS 过滤，只映射字段
@@ -427,14 +435,27 @@ export class InboundService {
         'cancelled',
       )
       .where('v.orderId = :id', { id })
-      .getRawOne<{ total: number; arrived: number; pickedUp: number; cancelled: number }>();
-    const totals = totalsRow ?? { total: 0, arrived: 0, pickedUp: 0, cancelled: 0 };
+      .getRawOne<{
+        total: number;
+        arrived: number;
+        pickedUp: number;
+        cancelled: number;
+      }>();
+    const totals = totalsRow ?? {
+      total: 0,
+      arrived: 0,
+      pickedUp: 0,
+      cancelled: 0,
+    };
 
     return { order, vins, totals };
   }
 
   // ============ 提货扫描 (供应商司机) ============
-  async pickupScan(dto: PickupScanDto, user: AuthenticatedUser): Promise<OrderVin> {
+  async pickupScan(
+    dto: PickupScanDto,
+    user: AuthenticatedUser,
+  ): Promise<OrderVin> {
     if (user.role !== Role.CARRIER_DRIVER && user.role !== Role.CARRIER_STAFF) {
       throw new ForbiddenException('只有供应商司机/业务员可执行提货扫描');
     }
@@ -445,8 +466,12 @@ export class InboundService {
       where: { vin: dto.vin },
       relations: { order: true },
     });
-    if (!vin) throw new NotFoundException('系统里未找到此 VIN，请确认是否已导入订单');
-    if (vin.order?.pickupCarrierId !== user.carrierId || vin.order.status === OrderStatus.CANCELLED)
+    if (!vin)
+      throw new NotFoundException('系统里未找到此 VIN，请确认是否已导入订单');
+    if (
+      vin.order?.pickupCarrierId !== user.carrierId ||
+      vin.order.status === OrderStatus.CANCELLED
+    )
       throw new ForbiddenException('此 VIN 未分派给您的承运商或订单已取消');
     if (vin.pickedUpAt) {
       throw new BadRequestException(
@@ -563,25 +588,37 @@ export class InboundService {
   }
 
   // ============ 入库扫描 (场地业务员) ============
-  async inboundScan(dto: InboundScanDto, user: AuthenticatedUser): Promise<OrderVin> {
+  async inboundScan(
+    dto: InboundScanDto,
+    user: AuthenticatedUser,
+  ): Promise<OrderVin> {
+    dto = { ...dto, vin: dto.vin.trim().toUpperCase() };
+    if (!dto.photoUrls?.length) throw new BadRequestException('入库照片必填');
     const scope = await this.scopeService.resolve(user);
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('入库扫描仅内部场地业务员可执行');
     }
 
     const saved = await this.dataSource.transaction(async (mgr) => {
-      const vin = await mgr.findOne(OrderVin, {
-        where: { vin: dto.vin },
-        relations: { order: true },
-      });
+      await this.inventory.lockVin(mgr, dto.vin);
+      const vin = await mgr
+        .getRepository(OrderVin)
+        .createQueryBuilder('v')
+        .innerJoinAndSelect('v.order', 'o')
+        .where('v.vin=:vin', { vin: dto.vin })
+        .setLock('pessimistic_write', undefined, ['v'])
+        .getOne();
       if (!vin)
         throw new NotFoundException('系统里未找到此 VIN，请确认是否已导入订单');
-      if (vin.arrivalStatus === OrderVinArrivalStatus.ARRIVED) {
+      if (vin.arrivalStatus !== OrderVinArrivalStatus.EXPECTED) {
         throw new BadRequestException(
           `此 VIN 已到仓 (库位 ${vin.slotId ?? '?'})，无法重复入库`,
         );
       }
 
+      if (vin.order.status !== OrderStatus.ACTIVE)
+        throw new BadRequestException('订单已取消，不能入库');
+      this.scopeService.assertOrgWritable(scope, vin.order.organizationId);
       // 目的仓必须在 scope 内
       if (vin.order?.destinationYardId) {
         if (
@@ -589,9 +626,7 @@ export class InboundService {
           scope.scopeYardId &&
           vin.order.destinationYardId !== scope.scopeYardId
         ) {
-          throw new ForbiddenException(
-            '此 VIN 目的仓与您所在场地不匹配',
-          );
+          throw new ForbiddenException('此 VIN 目的仓与您所在场地不匹配');
         }
         if (!scope.orgIds.includes(vin.order.organizationId)) {
           throw new ForbiddenException('无权处理此 VIN');
@@ -600,7 +635,9 @@ export class InboundService {
 
       // 找库位：slotId 手动指定优先，否则 zoneId 自动分配。
       if (!dto.slotId && !dto.zoneId) {
-        throw new BadRequestException('必须提供 slotId (手动) 或 zoneId (自动)');
+        throw new BadRequestException(
+          '必须提供 slotId (手动) 或 zoneId (自动)',
+        );
       }
       const destYardId = vin.order?.destinationYardId ?? undefined;
       if (!destYardId) {
@@ -609,8 +646,7 @@ export class InboundService {
       let slot: YardSlot | null;
       if (dto.slotId) {
         slot = await this.findSlotById(mgr, dto.slotId, destYardId);
-        if (!slot)
-          throw new NotFoundException('目的场地里未找到指定库位');
+        if (!slot) throw new NotFoundException('目的场地里未找到指定库位');
       } else {
         slot = await this.pickAutoSlot(mgr, {
           yardId: destYardId,
@@ -618,8 +654,7 @@ export class InboundService {
           preferModel: vin.model ?? null,
           preferColor: vin.color ?? null,
         });
-        if (!slot)
-          throw new NotFoundException('指定区域里没有可用空位');
+        if (!slot) throw new NotFoundException('指定区域里没有可用空位');
       }
       const slotDisplay = slot.zone
         ? formatSlotCode(slot.zone.code, slot.line, slot.row)
@@ -661,27 +696,14 @@ export class InboundService {
       vin.vehicleCheckInfo = dto.vehicleCheckInfo ?? null;
       vin.arrivalRemark = dto.remark ?? null;
       vin.slot = slot;
-      return mgr.save(vin);
+      await mgr.save(vin);
+      await this.inventory.receive(mgr, vin, slot, {
+        userId: user.userId,
+        reason: dto.remark,
+      });
+      return vin;
     });
 
-    const savedSlotCode = saved.slot?.zone
-      ? formatSlotCode(saved.slot.zone.code, saved.slot.line, saved.slot.row)
-      : null;
-    await this.audit.log({
-      operationType: OperationType.INBOUND_SCAN,
-      orderId: saved.orderId,
-      vin: saved.vin,
-      yardId: saved.slot?.yardId ?? null,
-      slotId: saved.slot?.id ?? null,
-      attachmentUrls: dto.photoUrls ?? null,
-      operatorUserId: user.userId,
-      eventAt: saved.arrivedAt ?? new Date(),
-      payload: {
-        slotCode: savedSlotCode,
-        vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
-        remark: dto.remark ?? null,
-      },
-    });
     return saved;
   }
 
@@ -697,14 +719,18 @@ export class InboundService {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('入库扫描仅内部场地业务员可执行');
     }
-    const customer = await this.customersRepo.findOne({ where: { id: dto.customerId } });
+    const customer = await this.customersRepo.findOne({
+      where: { id: dto.customerId },
+    });
     if (!customer) throw new NotFoundException('客户不存在');
     if (customer.status !== PartnerStatus.ACTIVE) {
       throw new BadRequestException('客户当前未开放新增业务');
     }
 
     // 已存在同 VIN 直接拒绝，让业务员走标准入库扫描
-    const existing = await this.orderVinsRepo.findOne({ where: { vin: dto.vin } });
+    const existing = await this.orderVinsRepo.findOne({
+      where: { vin: dto.vin },
+    });
     if (existing) {
       throw new BadRequestException(
         `VIN ${dto.vin} 已在系统里 (订单 ${existing.orderId})，请走标准入库扫描`,
@@ -716,35 +742,40 @@ export class InboundService {
     if (!yard) throw new NotFoundException('目的场地不存在');
     this.scopeService.assertOrgWritable(scope, yard.organizationId);
 
-    // 找/建散车订单
-    if (customer.organizationId !== yard.organizationId) throw new ForbiddenException('客户与目的场地必须属于同一机构');
-    if (scope.role === Role.YARD_STAFF && scope.scopeYardId !== yardId)
-      throw new ForbiddenException('仅可在当前绑定场地入库');
-    const strayOrderCode = `INBOUND-STRAY-${dto.customerId.slice(0, 8)}-${yardId.slice(0, 8)}`;
-    let strayOrder = await this.ordersRepo.findOne({
-      where: {
-        orderCode: strayOrderCode,
-        customerId: dto.customerId,
-        destinationYardId: yardId,
-        transportType: TransportType.TRANSFER,
-      },
-    });
-    if (!strayOrder) {
-      const data: Partial<Order> = {
-        orderCode: strayOrderCode,
-        customerOrderNo: null,
-        organizationId: yard.organizationId,
-        customerId: dto.customerId,
-        transportType: TransportType.TRANSFER,
-        destinationYardId: yardId,
-        originText: '异常入库 / 散车',
-        remark: '场地扫码时补录的未登记 VIN 会自动挂到此订单',
-      };
-      strayOrder = await this.ordersRepo.save(this.ordersRepo.create(data));
-    }
-
-    // 事务：建 VIN + 走入库分配 + 落存证
     const saved = await this.dataSource.transaction(async (mgr) => {
+      await this.inventory.lockVin(mgr, dto.vin);
+      // 找/建散车订单
+      if (customer.organizationId !== yard.organizationId)
+        throw new ForbiddenException('客户与目的场地必须属于同一机构');
+      if (scope.role === Role.YARD_STAFF && scope.scopeYardId !== yardId)
+        throw new ForbiddenException('仅可在当前绑定场地入库');
+      const strayOrderCode = `INBOUND-STRAY-${dto.customerId.slice(0, 8)}-${yardId.slice(0, 8)}`;
+      let strayOrder = await mgr.getRepository(Order).findOne({
+        where: {
+          orderCode: strayOrderCode,
+          customerId: dto.customerId,
+          destinationYardId: yardId,
+          transportType: TransportType.TRANSFER,
+        },
+      });
+      if (!strayOrder) {
+        const data: Partial<Order> = {
+          orderCode: strayOrderCode,
+          customerOrderNo: null,
+          organizationId: yard.organizationId,
+          customerId: dto.customerId,
+          transportType: TransportType.TRANSFER,
+          destinationYardId: yardId,
+          originText: '异常入库 / 散车',
+          remark: '场地扫码时补录的未登记 VIN 会自动挂到此订单',
+        };
+        strayOrder = await mgr
+          .getRepository(Order)
+          .save(mgr.getRepository(Order).create(data));
+      }
+
+      // 事务：建 VIN + 走入库分配 + 落存证
+
       const vinRepo = mgr.getRepository(OrderVin);
       const slotRepo = mgr.getRepository(YardSlot);
 
@@ -778,8 +809,7 @@ export class InboundService {
           preferModel: vin.model ?? null,
           preferColor: vin.color ?? null,
         });
-        if (!slot)
-          throw new NotFoundException('指定区域里没有可用空位');
+        if (!slot) throw new NotFoundException('指定区域里没有可用空位');
       }
       const slotDisplay = slot.zone
         ? formatSlotCode(slot.zone.code, slot.line, slot.row)
@@ -818,32 +848,14 @@ export class InboundService {
       vin.vehicleCheckInfo = dto.vehicleCheckInfo ?? null;
       vin.arrivalRemark = dto.remark ?? null;
       vin.slot = slot;
-      return vinRepo.save(vin);
+      await vinRepo.save(vin);
+      await this.inventory.receive(mgr, vin, slot, {
+        userId: user.userId,
+        reason: dto.remark,
+      });
+      return vin;
     });
 
-    await this.audit.log({
-      operationType: OperationType.INBOUND_UNEXPECTED,
-      orderId: strayOrder.id,
-      vin: saved.vin,
-      yardId: saved.slot?.yardId ?? null,
-      slotId: saved.slot?.id ?? null,
-      attachmentUrls: dto.photoUrls ?? null,
-      operatorUserId: user.userId,
-      eventAt: saved.arrivedAt ?? new Date(),
-      payload: {
-        strayOrderCode,
-        customerId: dto.customerId,
-        slotCode: saved.slot?.zone
-          ? formatSlotCode(saved.slot.zone.code, saved.slot.line, saved.slot.row)
-          : null,
-        brand: dto.brand ?? null,
-        model: dto.model ?? null,
-        color: dto.color ?? null,
-        motorNo: dto.motorNo ?? null,
-        vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
-        remark: dto.remark ?? null,
-      },
-    });
     return saved;
   }
 
@@ -881,7 +893,10 @@ export class InboundService {
     return this.batchRepo.save(batch);
   }
 
-  async listBatches(scope: EffectiveScope, yardId?: string): Promise<InboundBatch[]> {
+  async listBatches(
+    scope: EffectiveScope,
+    yardId?: string,
+  ): Promise<InboundBatch[]> {
     const qb = this.batchRepo
       .createQueryBuilder('batch')
       .leftJoinAndSelect('batch.yard', 'yard')
@@ -889,7 +904,9 @@ export class InboundService {
       .addOrderBy('batch.createdAt', 'DESC');
     this.scopeService.applyScopeToQuery(qb, 'batch', scope);
     if (scope.type === 'ORG' && scope.role === Role.YARD_STAFF) {
-      qb.andWhere('batch.yardId = :boundYard', { boundYard: scope.scopeYardId });
+      qb.andWhere('batch.yardId = :boundYard', {
+        boundYard: scope.scopeYardId,
+      });
     }
     if (yardId) {
       qb.andWhere('batch.yardId = :yardId', { yardId });
@@ -934,7 +951,10 @@ export class InboundService {
       relations: { order: { customer: true } },
     });
     if (!found) throw new NotFoundException('系统里未找到此 VIN');
-    if (found.order?.pickupCarrierId !== user.carrierId || found.order.status === OrderStatus.CANCELLED)
+    if (
+      found.order?.pickupCarrierId !== user.carrierId ||
+      found.order.status === OrderStatus.CANCELLED
+    )
       throw new NotFoundException('未找到分派给您的提货车辆');
     if (found.pickedUpAt) {
       return {
@@ -1009,7 +1029,9 @@ export class InboundService {
       throw new BadRequestException('VIN 已取消');
     }
     if (vin.arrivalStatus !== OrderVinArrivalStatus.EXPECTED) {
-      throw new BadRequestException('已提货/已到仓的 VIN 不能取消，请先撤销入库');
+      throw new BadRequestException(
+        '已提货/已到仓的 VIN 不能取消，请先撤销入库',
+      );
     }
     if (vin.isAllocated || vin.outboundOrderId) {
       throw new BadRequestException('VIN 已被出库单占用，请先撤销出库单');
@@ -1209,7 +1231,8 @@ export class InboundService {
         where: { id: dto.pickupCarrierId },
       });
       if (!carrier) throw new NotFoundException('承运商不存在');
-      if (carrier.organizationId !== order.organizationId) throw new ForbiddenException('承运商与订单必须属于同一机构');
+      if (carrier.organizationId !== order.organizationId)
+        throw new ForbiddenException('承运商与订单必须属于同一机构');
       if (carrier.status !== PartnerStatus.ACTIVE) {
         throw new BadRequestException('承运商当前未开放新增业务，无法分派');
       }
@@ -1219,8 +1242,11 @@ export class InboundService {
         .getRepository(User)
         .findOne({ where: { id: dto.pickupDriverUserId } });
       if (!driverUser) throw new NotFoundException('司机账号不存在');
-      if (!driverUser.isActive || driverUser.role !== Role.CARRIER_DRIVER ||
-        driverUser.carrierId !== (dto.pickupCarrierId ?? order.pickupCarrierId))
+      if (
+        !driverUser.isActive ||
+        driverUser.role !== Role.CARRIER_DRIVER ||
+        driverUser.carrierId !== (dto.pickupCarrierId ?? order.pickupCarrierId)
+      )
         throw new BadRequestException('司机账号未启用或不属于此承运商');
     }
 
@@ -1287,10 +1313,7 @@ export class InboundService {
       createdAt: Date;
     }>
   > {
-    if (
-      user.role !== Role.CARRIER_DRIVER &&
-      user.role !== Role.CARRIER_STAFF
-    ) {
+    if (user.role !== Role.CARRIER_DRIVER && user.role !== Role.CARRIER_STAFF) {
       throw new ForbiddenException('仅承运商账号可查看提货任务池');
     }
     if (!user.carrierId) {
@@ -1332,7 +1355,12 @@ export class InboundService {
       )
       .where('v.order_id IN (:...ids)', { ids: orders.map((o) => o.id) })
       .groupBy('v.order_id')
-      .getRawMany<{ orderId: string; total: number; pickedUp: number; settled: number }>();
+      .getRawMany<{
+        orderId: string;
+        total: number;
+        pickedUp: number;
+        settled: number;
+      }>();
     const statMap = new Map(stats.map((s) => [s.orderId, s]));
 
     return orders.map((o) => {
@@ -1359,10 +1387,7 @@ export class InboundService {
 
   // 单个提货任务详情（承运商视角）
   async getPickupOrderDetail(orderId: string, user: AuthenticatedUser) {
-    if (
-      user.role !== Role.CARRIER_DRIVER &&
-      user.role !== Role.CARRIER_STAFF
-    ) {
+    if (user.role !== Role.CARRIER_DRIVER && user.role !== Role.CARRIER_STAFF) {
       throw new ForbiddenException('仅承运商账号可查看提货任务');
     }
     if (!user.carrierId) {
@@ -1405,10 +1430,7 @@ export class InboundService {
     outOfOrder: boolean;
     orderPickupStatus: OrderPickupStatus;
   }> {
-    if (
-      user.role !== Role.CARRIER_DRIVER &&
-      user.role !== Role.CARRIER_STAFF
-    ) {
+    if (user.role !== Role.CARRIER_DRIVER && user.role !== Role.CARRIER_STAFF) {
       throw new ForbiddenException('仅承运商账号可执行提货扫描');
     }
     if (!user.carrierId) {
@@ -1476,9 +1498,10 @@ export class InboundService {
 
     // 触发 VIN 所在真实订单的状态流转（可能是 targetOrder 也可能是别的）
     const affectedOrderId = vin.orderId;
-    const affectedOrder = affectedOrderId === orderId
-      ? targetOrder
-      : await this.ordersRepo.findOne({ where: { id: affectedOrderId } });
+    const affectedOrder =
+      affectedOrderId === orderId
+        ? targetOrder
+        : await this.ordersRepo.findOne({ where: { id: affectedOrderId } });
     if (affectedOrder) {
       const now = new Date();
       let statusChanged = false;
@@ -1530,7 +1553,8 @@ export class InboundService {
     return {
       vin: saved,
       outOfOrder,
-      orderPickupStatus: affectedOrder?.pickupStatus ?? OrderPickupStatus.PENDING,
+      orderPickupStatus:
+        affectedOrder?.pickupStatus ?? OrderPickupStatus.PENDING,
     };
   }
 

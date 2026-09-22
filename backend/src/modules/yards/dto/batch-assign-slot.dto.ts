@@ -13,8 +13,8 @@ import {
 } from 'class-validator';
 
 export class BatchAssignSlotRow {
-  // 只做 lookup 不新建 VIN；不匹配的行会作为 skipped 返回。
-  // 长度限制放宽以适配初始化时的临时/短编码测试
+  // 只查询已有在库 VIN，不新建车辆；不匹配的行作为 failed 返回。
+  // 兼容已有历史车辆编码；本接口不承担入库。
   @ApiProperty()
   @IsString()
   @Length(1, 32)
@@ -26,9 +26,7 @@ export class BatchAssignSlotRow {
   slotCode: string;
 }
 
-// 场内批量分配库位 (初始化 / 大规模移位)
-// 场景：go-live 时物理车辆已在场地，一次性把 (VIN, TargetSlot) 对入库
-// 也支持已入库 VIN 的批量移位 (释放旧 slot → 占新 slot)
+// 仅对本场地已在库车辆批量移位；入库和盘点调整使用独立入口。
 export class BatchAssignSlotDto {
   @ApiProperty({ description: '目标场地 id (所有 VIN 必须都放到该场地)' })
   @IsUUID()

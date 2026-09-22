@@ -1,12 +1,16 @@
+import { yardCapacity } from './yard-capacity';
+import { YardInventory } from '../inventory/entities/yard-inventory.entity';
+import { Order } from '../orders/entities/order.entity';
+import { InventoryAdjustmentDto } from './dto/inventory-adjustment.dto';
+import { InventoryService } from '../inventory/inventory.service';
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository, SelectQueryBuilder } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import {
   DEFAULT_PAGE_SIZE,
   EXPORT_MAX_ROWS,
@@ -23,8 +27,6 @@ import { CreateYardDto } from './dto/create-yard.dto';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
-import { AuditService } from '../tracking/audit.service';
-import { OperationType } from '../../common/enums/operation-type.enum';
 import {
   formatSlotCode,
   parseSlotCode,
@@ -38,11 +40,11 @@ export interface VinInventoryRow {
   yardCode: string;
   yardName: string;
   organizationId: string;
-  slotId: string;
-  slotCode: string; // 计算得到：`${zone.code}-${line:02}-${row:02}`
-  zoneCode: string;
-  line: number;
-  row: number;
+  slotId: string | null;
+  slotCode: string | null; // 计算得到：`${zone.code}-${line:02}-${row:02}`
+  zoneCode: string | null;
+  line: number | null;
+  row: number | null;
   assignedAt: Date | null;
   stayDays: number;
   model: string | null;
@@ -59,6 +61,7 @@ export interface SlotView {
   zoneCode: string;
   zoneName: string | null;
   zoneIsActive: boolean;
+  zonePurpose: 'PARKING' | 'STAGING';
   line: number;
   row: number;
   status: YardSlotStatus;
@@ -77,6 +80,7 @@ function slotToView(slot: YardSlot): SlotView {
     zoneCode,
     zoneName: slot.zone?.name ?? null,
     zoneIsActive: slot.zone?.isActive ?? false,
+    zonePurpose: slot.zone.purpose,
     line: slot.line,
     row: slot.row,
     status: slot.status,
@@ -90,6 +94,7 @@ function slotToView(slot: YardSlot): SlotView {
 @Injectable()
 export class YardsService {
   constructor(
+    private readonly inventory: InventoryService,
     @InjectRepository(Yard)
     private readonly yardsRepository: Repository<Yard>,
     @InjectRepository(YardSlot)
@@ -104,7 +109,6 @@ export class YardsService {
     private readonly statusLogsRepository: Repository<WaybillStatusLog>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
-    private readonly audit: AuditService,
   ) {}
 
   findAll(scope: EffectiveScope, narrowToOrgId?: string): Promise<Yard[]> {
@@ -139,7 +143,7 @@ export class YardsService {
 
   // 场地下所有库位（联 zone）；按 zone.code, line, row 排序，前端表格易读
   async findSlots(yardId: string, scope: EffectiveScope): Promise<SlotView[]> {
-    await this.findOne(yardId, scope);
+    const yard = await this.findOne(yardId, scope);
     const slots = await this.slotsRepository.find({
       where: { yardId },
       relations: { zone: true },
@@ -153,194 +157,147 @@ export class YardsService {
         if (a.line !== b.line) return a.line - b.line;
         return a.row - b.row;
       })
-      .map(slotToView);
+      .map((slot) => ({
+        ...slotToView(slot),
+        zoneIsActive: yard.isActive && slot.zone.isActive,
+      }));
   }
 
   async yardStats(yardId: string, scope: EffectiveScope) {
-    await this.findOne(yardId, scope);
-    const [total, occupied] = await Promise.all([
-      this.slotsRepository.count({ where: { yardId } }),
-      this.slotsRepository.count({
-        where: { yardId, status: YardSlotStatus.OCCUPIED },
-      }),
-    ]);
-    return { total, occupied, vacant: total - occupied };
-  }
-
-  async assignSlot(
-    slotId: string,
-    vin: string,
-    scope: EffectiveScope,
-  ): Promise<SlotView> {
-    const scopedSlot = await this.slotsRepository.findOne({ where: { id: slotId } });
-    if (!scopedSlot) throw new NotFoundException('库位不存在');
-    await this.findOne(scopedSlot.yardId, scope);
-    return this.dataSource.transaction(async (mgr) => {
-      const slotRepo = mgr.getRepository(YardSlot);
-      const slot = await slotRepo
-        .createQueryBuilder('slot')
-        .innerJoinAndSelect('slot.zone', 'zone')
-        .where('slot.id = :slotId', { slotId })
-        .setLock('pessimistic_write', undefined, ['slot'])
-        .getOne();
-      if (!slot) throw new NotFoundException('库位不存在');
-      if (!slot.zone.isActive) {
-        throw new BadRequestException('该区已停用，不能新增占用');
-      }
-      if (slot.status === YardSlotStatus.OCCUPIED) {
-        throw new BadRequestException('该库位已被占用');
-      }
-      if (slot.isLocked) {
-        throw new BadRequestException('该库位已锁定，无法占用');
-      }
-      const existing = await slotRepo.findOne({
-        where: { currentVin: vin, status: YardSlotStatus.OCCUPIED },
+    const yard = await this.findOne(yardId, scope);
+    const [slots, zones, stock, policies] = await Promise.all([
+      this.slotsRepository.find({
+        where: { yardId },
         relations: { zone: true },
-      });
-      if (existing && existing.id !== slotId) {
-        throw new ConflictException(
-          `VIN ${vin} 已占用其他库位 (${formatSlotCode(existing.zone.code, existing.line, existing.row)})，请先释放`,
-        );
-      }
-      slot.status = YardSlotStatus.OCCUPIED;
-      slot.currentVin = vin;
-      slot.assignedAt = new Date();
-      return slotToView(await slotRepo.save(slot));
-    });
+      }),
+      this.zonesRepository.findBy({ yardId }),
+      this.dataSource
+        .getRepository(YardInventory)
+        .findBy({ yardId, closedAt: IsNull() }),
+      this.dataSource.query(
+        'SELECT p.long_stay_days FROM organization_operating_policies p JOIN yards y ON y.organization_id=p.organization_id WHERE y.id=$1',
+        [yardId],
+      ),
+    ]);
+    const capacity = yardCapacity(slots, zones, yard.isActive);
+    return {
+      total: slots.length,
+      occupied: slots.filter((s) => s.status === YardSlotStatus.OCCUPIED)
+        .length,
+      vacant: capacity.availableCapacity,
+      ...capacity,
+      longStayDays: policies[0]?.long_stay_days ?? null,
+      onSite: stock.length,
+      parking: stock.filter((s) => s.position === 'PARKING').length,
+      staging: stock.filter((s) => s.position === 'STAGING').length,
+      loaded: stock.filter((s) => s.position === 'LOADED').length,
+    };
   }
 
-  // 释放库位 = 撤销入库/纠错场景（详见旧注释）
-  async releaseSlot(
-    slotId: string,
+  async undoInbound(
+    vin: string,
+    reason: string,
     scope: EffectiveScope,
-    operatorUserId?: string,
-  ): Promise<SlotView> {
-    const scopedSlot = await this.slotsRepository.findOne({ where: { id: slotId } });
-    if (!scopedSlot) throw new NotFoundException('库位不存在');
-    await this.findOne(scopedSlot.yardId, scope);
-    const result = await this.dataSource.transaction(async (mgr) => {
-      const slotRepo = mgr.getRepository(YardSlot);
-      const orderVinRepo = mgr.getRepository(OrderVin);
-      const slot = await slotRepo
-        .createQueryBuilder('slot')
-        .innerJoinAndSelect('slot.zone', 'zone')
-        .where('slot.id = :slotId', { slotId })
-        .setLock('pessimistic_write', undefined, ['slot'])
-        .getOne();
-      if (!slot) throw new NotFoundException('库位不存在');
-
-      const releasedVin = slot.currentVin;
-      let affectedOrderId: string | null = null;
-
-      if (releasedVin) {
-        const orderVin = await orderVinRepo.findOne({
-          where: { vin: releasedVin },
-        });
-        if (orderVin && orderVin.slotId === slotId) {
-          affectedOrderId = orderVin.orderId;
-          orderVin.arrivalStatus = OrderVinArrivalStatus.EXPECTED;
-          orderVin.arrivedAt = null;
-          orderVin.arrivedByUserId = null;
-          orderVin.slotId = null;
-          orderVin.arrivalPhotoUrls = null;
-          orderVin.vehicleCheckInfo = null;
-          orderVin.arrivalRemark = null;
-          orderVin.inboundBatchId = null;
-          await orderVinRepo.save(orderVin);
-        }
-      }
-
-      slot.status = YardSlotStatus.VACANT;
-      slot.currentVin = null;
-      slot.assignedAt = null;
-      const saved = await slotRepo.save(slot);
-      saved.zone = slot.zone;
-      const view = slotToView(saved);
-      return { view, releasedVin, affectedOrderId };
-    });
-
-    if (result.releasedVin) {
-      await this.audit.log({
-        operationType: OperationType.INBOUND_UNDO,
-        orderId: result.affectedOrderId,
-        vin: result.releasedVin,
-        yardId: result.view.yardId,
-        slotId: result.view.id,
-        operatorUserId,
-        payload: {
-          slotCode: formatSlotCode(
-            result.view.zoneCode,
-            result.view.line,
-            result.view.row,
-          ),
-        },
+    userId: string,
+  ) {
+    return this.dataSource.transaction(async (mgr) => {
+      const stock = await this.inventory.active(mgr, vin);
+      const yard = await this.findOne(stock.yardId, scope);
+      this.scopeService.assertOrgWritable(scope, yard.organizationId);
+      await this.inventory.close(mgr, stock, 'UNDO_INBOUND', {
+        userId,
+        reason,
       });
-    }
-    return result.view;
+      return { ok: true };
+    });
   }
 
-  // 场内移位
+  async adjustInventory(
+    dto: InventoryAdjustmentDto,
+    scope: EffectiveScope,
+    userId: string,
+  ) {
+    const yard = await this.findOne(dto.yardId, scope);
+    this.scopeService.assertOrgWritable(scope, yard.organizationId);
+    if (!dto.reason.trim() || !dto.reference.trim())
+      throw new BadRequestException('盘点单号和调整原因必填');
+    return this.dataSource.transaction(async (mgr) => {
+      const context = { userId, reason: dto.reason, reference: dto.reference };
+      await this.inventory.lockVin(mgr, dto.vin);
+      if (dto.direction === 'OUT') {
+        const stock = await this.inventory.active(mgr, dto.vin);
+        if (stock.yardId !== yard.id)
+          throw new BadRequestException('车辆不在当前场地');
+        await this.inventory.close(mgr, stock, 'ADJUST_OUT', context);
+      } else {
+        if (!dto.slotId || !dto.enteredAt || !dto.photoUrls?.length)
+          throw new BadRequestException('盘盈需填写库位、实际到场时间及照片');
+        const enteredAt = new Date(dto.enteredAt);
+        if (enteredAt.getTime() > Date.now())
+          throw new BadRequestException('实际到场时间不能晚于现在');
+        const vin = await mgr
+          .getRepository(OrderVin)
+          .createQueryBuilder('v')
+          .innerJoinAndSelect('v.order', 'o')
+          .where(
+            'v.vin=:vin AND o.organizationId=:org AND o.destinationYardId=:yard',
+            { vin: dto.vin, org: yard.organizationId, yard: yard.id },
+          )
+          .setLock('pessimistic_write', undefined, ['v'])
+          .getOne();
+        if (
+          !vin ||
+          vin.arrivalStatus === OrderVinArrivalStatus.CANCELLED ||
+          vin.isAllocated ||
+          vin.outboundOrderId
+        )
+          throw new BadRequestException(
+            '需先维护本场地有效入库订单，且车辆不能关联出库业务',
+          );
+        const slot = await this.inventory.slot(mgr, dto.slotId, yard.id);
+        vin.slotId = slot.id;
+        vin.arrivalStatus = OrderVinArrivalStatus.ARRIVED;
+        vin.arrivedAt = enteredAt;
+        vin.arrivedByUserId = userId;
+        vin.arrivalPhotoUrls = dto.photoUrls;
+        vin.arrivalRemark = dto.reason;
+        slot.status = YardSlotStatus.OCCUPIED;
+        slot.currentVin = vin.vin;
+        slot.assignedAt = enteredAt;
+        await mgr.save(slot);
+        await mgr.save(vin);
+        await this.inventory.receive(mgr, vin, slot, context, 'ADJUST_IN');
+      }
+      return { ok: true };
+    });
+  }
+
   async moveSlot(
     fromSlotId: string,
     toSlotId: string,
     scope: EffectiveScope,
-    operatorUserId?: string,
-  ): Promise<{ from: SlotView; to: SlotView }> {
-    if (fromSlotId === toSlotId) {
-      throw new BadRequestException('源库位与目标库位相同');
-    }
-    const source = await this.slotsRepository.findOne({ where: { id: fromSlotId } });
-    if (!source) throw new NotFoundException('源库位不存在');
-    await this.findOne(source.yardId, scope);
-    const result = await this.dataSource.transaction(async (mgr) => {
-      const slotRepo = mgr.getRepository(YardSlot);
-      const locked = await slotRepo
-        .createQueryBuilder('slot')
-        .innerJoinAndSelect('slot.zone', 'zone')
-        .where('slot.id IN (:...ids)', { ids: [fromSlotId, toSlotId] })
-        .orderBy('slot.id', 'ASC')
-        .setLock('pessimistic_write', undefined, ['slot'])
-        .getMany();
-      const from = locked.find((slot) => slot.id === fromSlotId);
-      const to = locked.find((slot) => slot.id === toSlotId);
-      if (!from) throw new NotFoundException('源库位不存在');
-      if (!to) throw new NotFoundException('目标库位不存在');
-      if (from.yardId !== to.yardId) throw new BadRequestException('场内移位不能跨场地');
-      if (from.status !== YardSlotStatus.OCCUPIED || !from.currentVin) {
-        throw new BadRequestException('源库位当前无车');
-      }
-      if (to.status === YardSlotStatus.OCCUPIED) throw new BadRequestException('目标库位已占用');
-      if (to.isLocked) throw new BadRequestException('目标库位已锁定');
-      if (!to.zone.isActive) throw new BadRequestException('目标区已停用，不能移入');
-      const vin = from.currentVin;
-      to.status = YardSlotStatus.OCCUPIED;
-      to.currentVin = vin;
-      to.assignedAt = from.assignedAt;
-      from.status = YardSlotStatus.VACANT;
-      from.currentVin = null;
-      from.assignedAt = null;
-      await slotRepo.save([from, to]);
-      await mgr.getRepository(OrderVin).update(
-        { vin, slotId: fromSlotId },
-        { slotId: toSlotId },
-      );
-      return { vin, fromView: slotToView(from), toView: slotToView(to) };
+    operatorUserId: string,
+  ) {
+    const source = await this.slotsRepository.findOneBy({ id: fromSlotId });
+    if (!source?.currentVin) throw new BadRequestException('源库位当前无车');
+    const yard = await this.findOne(source.yardId, scope);
+    this.scopeService.assertOrgWritable(scope, yard.organizationId);
+    await this.dataSource.transaction(async (mgr) => {
+      const stock = await this.inventory.active(mgr, source.currentVin!);
+      if (stock.slotId !== fromSlotId)
+        throw new BadRequestException('车辆位置已变化，请刷新');
+      await this.inventory.move(mgr, stock, toSlotId, {
+        userId: operatorUserId,
+      });
     });
-    const { vin, fromView, toView } = result;
-    await this.audit.log({
-      operationType: OperationType.YARD_MOVE,
-      vin,
-      yardId: fromView.yardId,
-      slotId: toView.id,
-      operatorUserId,
-      payload: {
-        fromSlotId: fromView.id,
-        fromSlotCode: formatSlotCode(fromView.zoneCode, fromView.line, fromView.row),
-        toSlotId: toView.id,
-        toSlotCode: formatSlotCode(toView.zoneCode, toView.line, toView.row),
-      },
+    const slots = await this.slotsRepository.find({
+      where: [{ id: fromSlotId }, { id: toSlotId }],
+      relations: { zone: true },
     });
-    return { from: fromView, to: toView };
+    return {
+      from: slotToView(slots.find((s) => s.id === fromSlotId)!),
+      to: slotToView(slots.find((s) => s.id === toSlotId)!),
+    };
   }
 
   // VIN 库存查询（改用 zone + line + row 计算 slotCode）
@@ -376,166 +333,87 @@ export class YardsService {
     }
 
     const sortKey = filters.sortBy ?? 'assignedAt';
-    const rawOrder: 'ASC' | 'DESC' = filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
-    const { sortColumn, sortOrder } = ((): {
-      sortColumn: string;
-      sortOrder: 'ASC' | 'DESC';
-    } => {
-      if (sortKey === 'stayDays') {
-        return {
-          sortColumn: 'slot.assigned_at',
-          sortOrder: rawOrder === 'DESC' ? 'ASC' : 'DESC',
-        };
-      }
-      // slotCode 组合排序：zone.code, line, row
-      if (sortKey === 'slotCode')
-        return { sortColumn: 'zone.code', sortOrder: rawOrder };
-      if (sortKey === 'yardName')
-        return { sortColumn: 'yard.name', sortOrder: rawOrder };
-      return { sortColumn: 'slot.assigned_at', sortOrder: rawOrder };
-    })();
-
-    const applyFilters = (qb: SelectQueryBuilder<YardSlot>) => {
-      qb.where('slot.status = :status', { status: YardSlotStatus.OCCUPIED })
-        .andWhere('yard.organization_id IN (:...orgIds)', { orgIds });
-      if (filters.vin) {
-        qb.andWhere('slot.currentVin ILIKE :vin', { vin: `%${filters.vin}%` });
-      }
-      if (filters.yardId) {
-        qb.andWhere('yard.id = :yardId', { yardId: filters.yardId });
-      }
-      if (filters.slotCode) {
-        // slotCode 现在是拼接的：用户可能输入 "AB6-01" 或完整 "AB6-01-07"
-        // 简化实现：ILIKE 匹配 zone.code；完整解析交给前端优化
-        qb.andWhere(
-          `(${slotDisplayCodeSql('slot', 'zone')}) ILIKE :slotCode`,
-          { slotCode: `%${filters.slotCode}%` },
-        );
-      }
-      if (filters.orderCode) {
-        qb.andWhere('ord."orderCode" ILIKE :orderCode', {
-          orderCode: `%${filters.orderCode}%`,
-        });
-      }
-      if (filters.dateFrom) {
-        qb.andWhere('slot.assigned_at >= :dateFrom', {
-          dateFrom: filters.dateFrom,
-        });
-      }
-      if (filters.dateTo) {
-        qb.andWhere('slot.assigned_at <= :dateTo', {
-          dateTo: filters.dateTo,
-        });
-      }
-      if (filters.minStayDays && filters.minStayDays > 0) {
-        qb.andWhere(
-          `slot.assigned_at <= NOW() - INTERVAL '${Math.floor(filters.minStayDays)} day'`,
-        );
-      }
-      if (scope.role === Role.YARD_STAFF && scope.scopeYardId) {
-        qb.andWhere('yard.id = :yardStaffYardId', {
-          yardStaffYardId: scope.scopeYardId,
-        });
-      }
-    };
-
-    const countQb = this.slotsRepository
-      .createQueryBuilder('slot')
-      .innerJoin('slot.yard', 'yard')
-      .innerJoin('slot.zone', 'zone')
-      .leftJoin('order_vins', 'ov', 'ov.vin = slot.currentVin')
-      .leftJoin('orders', 'ord', 'ord.id = ov.order_id');
-    applyFilters(countQb);
-    const total = await countQb.getCount();
-    if (filters.all && total > EXPORT_MAX_ROWS) {
-      throw new ForbiddenException(
-        `导出结果 ${total} 条超过上限 ${EXPORT_MAX_ROWS}，请缩短时间范围或加过滤条件`,
+    const rawOrder: 'ASC' | 'DESC' =
+      filters.sortOrder === 'asc' ? 'ASC' : 'DESC';
+    const qb = this.dataSource
+      .getRepository(YardInventory)
+      .createQueryBuilder('stock')
+      .innerJoin(Yard, 'yard', 'yard.id=stock.yardId')
+      .innerJoin(OrderVin, 'ov', 'ov.id=stock.orderVinId')
+      .innerJoin(Order, 'ord', 'ord.id=ov.orderId')
+      .innerJoin(
+        'organization_operating_policies',
+        'policy',
+        'policy.organization_id=stock.organizationId',
+      )
+      .leftJoin(YardSlot, 'slot', 'slot.id=stock.slotId')
+      .leftJoin(YardZone, 'zone', 'zone.id=slot.zoneId')
+      .where(
+        'stock.closedAt IS NULL AND stock.organizationId IN (:...orgIds)',
+        { orgIds },
       );
-    }
-
-    const qb = this.slotsRepository
-      .createQueryBuilder('slot')
-      .innerJoin('slot.yard', 'yard')
-      .innerJoin('slot.zone', 'zone')
-      .leftJoin('order_vins', 'ov', 'ov.vin = slot.currentVin')
-      .leftJoin('orders', 'ord', 'ord.id = ov.order_id')
-      .select([
-        'slot.id AS "slotId"',
-        'zone.code AS "zoneCode"',
-        'slot."line" AS "line"',
-        'slot."row" AS "row"',
-        'slot.currentVin AS "vin"',
-        'slot.assigned_at AS "assignedAt"',
-        'yard.id AS "yardId"',
-        'yard.code AS "yardCode"',
-        'yard.name AS "yardName"',
-        'yard.organization_id AS "organizationId"',
-        'ov.model AS "model"',
-        'ov.color AS "color"',
-        'ov."vehicleType" AS "vehicleType"',
-        'ord."orderCode" AS "orderCode"',
-      ])
-      .orderBy(sortColumn, sortOrder, 'NULLS LAST');
-    if (sortKey === 'slotCode') {
-      qb.addOrderBy('slot."line"', sortOrder)
-        .addOrderBy('slot."row"', sortOrder);
-    }
-    qb.addOrderBy('slot.id', 'DESC');
-    applyFilters(qb);
-    if (!filters.all) {
-      qb.offset((page - 1) * pageSize).limit(pageSize);
-    }
-    const rows = await qb.getRawMany<{
-      slotId: string;
-      zoneCode: string;
-      line: number;
-      row: number;
-      vin: string;
-      assignedAt: Date | null;
-      yardId: string;
-      yardCode: string;
-      yardName: string;
-      organizationId: string;
-      model: string | null;
-      color: string | null;
-      vehicleType: string | null;
-      orderCode: string | null;
-    }>();
-
-    const now = Date.now();
-    const items = rows.map((r) => {
-      const stayDays = r.assignedAt
-        ? Math.floor((now - new Date(r.assignedAt).getTime()) / 86400000)
-        : 0;
-      const line = Number(r.line);
-      const row = Number(r.row);
-      return {
-        vin: r.vin,
-        yardId: r.yardId,
-        yardCode: r.yardCode,
-        yardName: r.yardName,
-        organizationId: r.organizationId,
-        slotId: r.slotId,
-        slotCode: formatSlotCode(r.zoneCode, line, row),
-        zoneCode: r.zoneCode,
-        line,
-        row,
-        assignedAt: r.assignedAt,
-        stayDays,
-        model: r.model,
-        color: r.color,
-        vehicleType: r.vehicleType,
-        orderCode: r.orderCode,
-      } satisfies VinInventoryRow;
-    });
-    return { items, total, page, pageSize };
+    if (scope.role === Role.YARD_STAFF)
+      qb.andWhere('stock.yardId=:scopeYard', { scopeYard: scope.scopeYardId });
+    if (filters.yardId)
+      qb.andWhere('stock.yardId=:yardId', { yardId: filters.yardId });
+    if (filters.vin)
+      qb.andWhere('stock.vin ILIKE :vin', { vin: `%${filters.vin}%` });
+    if (filters.orderCode)
+      qb.andWhere('ord.orderCode ILIKE :orderCode', {
+        orderCode: `%${filters.orderCode}%`,
+      });
+    if (filters.slotCode)
+      qb.andWhere(`(${slotDisplayCodeSql('slot', 'zone')}) ILIKE :slotCode`, {
+        slotCode: `%${filters.slotCode}%`,
+      });
+    if (filters.dateFrom)
+      qb.andWhere('stock.enteredAt >= :dateFrom', {
+        dateFrom: filters.dateFrom,
+      });
+    if (filters.dateTo)
+      qb.andWhere('stock.enteredAt <= :dateTo', { dateTo: filters.dateTo });
+    if (filters.minStayDays)
+      qb.andWhere("stock.enteredAt <= NOW() - (:days * interval '1 day')", {
+        days: filters.minStayDays,
+      });
+    const total = await qb.getCount();
+    if (filters.all && total > EXPORT_MAX_ROWS)
+      throw new BadRequestException('导出超过上限，请缩小查询范围');
+    qb.select([
+      'stock.vin AS vin',
+      'stock.position AS position',
+      'policy.long_stay_days AS "longStayDays"',
+      '(NOW()-stock.entered_at > policy.long_stay_days * interval \'1 day\') AS "isLongStay"',
+      'yard.id AS "yardId"',
+      'yard.code AS "yardCode"',
+      'yard.name AS "yardName"',
+      'stock.organizationId AS "organizationId"',
+      'slot.id AS "slotId"',
+      `${slotDisplayCodeSql('slot', 'zone')} AS "slotCode"`,
+      'zone.code AS "zoneCode"',
+      'slot.line AS line',
+      'slot.row AS row',
+      'stock.enteredAt AS "assignedAt"',
+      'ov.model AS model',
+      'ov.color AS color',
+      'ov.vehicleType AS "vehicleType"',
+      'ord.orderCode AS "orderCode"',
+      'GREATEST(0,FLOOR(EXTRACT(EPOCH FROM (NOW()-stock.entered_at))/86400))::int AS "stayDays"',
+    ]);
+    const columns = {
+      assignedAt: 'stock.enteredAt',
+      stayDays: 'stock.enteredAt',
+      slotCode: 'zone.code',
+      yardName: 'yard.name',
+    };
+    qb.orderBy(
+      columns[sortKey] ?? 'stock.enteredAt',
+      sortKey === 'stayDays' ? (rawOrder === 'ASC' ? 'DESC' : 'ASC') : rawOrder,
+    ).addOrderBy('stock.id', 'ASC');
+    if (!filters.all) qb.offset((page - 1) * pageSize).limit(pageSize);
+    return { items: await qb.getRawMany(), total, page, pageSize };
   }
 
-  findByIdUnscoped(id: string): Promise<Yard | null> {
-    return this.yardsRepository.findOne({ where: { id } });
-  }
-
-  // VIN 全生命周期
   async getVinLifecycle(vin: string, scope: EffectiveScope) {
     const orderVin = await this.orderVinsRepository.findOne({
       where: { vin },
@@ -550,10 +428,16 @@ export class YardsService {
     });
 
     if (orderVin?.order) {
-      if (scope.type === 'ORG' && !scope.orgIds.includes(orderVin.order.organizationId)) {
+      if (
+        scope.type === 'ORG' &&
+        !scope.orgIds.includes(orderVin.order.organizationId)
+      ) {
         throw new NotFoundException('VIN 不存在');
       }
-      if (scope.type === 'CUSTOMER' && orderVin.order.customerId !== scope.customerId) {
+      if (
+        scope.type === 'CUSTOMER' &&
+        orderVin.order.customerId !== scope.customerId
+      ) {
         throw new NotFoundException('VIN 不存在');
       }
     }
@@ -578,187 +462,88 @@ export class YardsService {
       take: 200,
     });
 
+    if (scope.type !== 'ORG')
+      throw new ForbiddenException('仅内部人员可查库存流水');
+    if (
+      !orderVin?.order ||
+      (scope.role === Role.YARD_STAFF &&
+        orderVin.order.destinationYardId !== scope.scopeYardId)
+    )
+      throw new NotFoundException('VIN 不存在');
+    const inventoryMovements = await this.dataSource.query(
+      `SELECT m.id,m.kind,m.delta,m.occurred_at AS "occurredAt",
+      m.reason,m.reference,m.before_state AS "beforeState",m.after_state AS "afterState",u."displayName" AS "operatorName"
+      FROM inventory_movements m LEFT JOIN users u ON u.id=m.operator_user_id
+      WHERE m.vin=$1 AND m.organization_id=ANY($2::uuid[]) AND ($3::uuid IS NULL OR m.yard_id=$3)
+      ORDER BY m.id DESC LIMIT 200`,
+      [
+        vin,
+        scope.orgIds,
+        scope.role === Role.YARD_STAFF ? scope.scopeYardId : null,
+      ],
+    );
     return {
       vin,
       orderVin,
+      inventoryMovements,
       waybills: waybillVins.map((wv) => wv.waybill).filter(Boolean),
       events,
     };
   }
 
-  // 批量库位分配（初始化 / 大规模移位）
+  // 批量移位（仅限本场地已在库车辆）
   // 每行 slotCode 是"AB6-01-07"字符串；先解析→查 zone→定位 slot
   async batchAssignSlots(
     yardId: string,
     items: Array<{ vin: string; slotCode: string }>,
     scope: EffectiveScope,
-    operatorUserId?: string,
-  ): Promise<{
-    total: number;
-    succeeded: number;
-    skipped: Array<{ vin: string; reason: string }>;
-    failed: Array<{ vin: string; slotCode: string; reason: string }>;
-  }> {
-    const yard = await this.yardsRepository.findOne({ where: { id: yardId } });
-    if (!yard) throw new NotFoundException('目标场地不存在');
+    operatorUserId: string,
+  ) {
+    const yard = await this.findOne(yardId, scope);
     this.scopeService.assertOrgWritable(scope, yard.organizationId);
-    if (
-      scope.type === 'ORG' &&
-      scope.role === Role.YARD_STAFF &&
-      scope.scopeYardId &&
-      scope.scopeYardId !== yardId
-    ) {
-      throw new ForbiddenException('仅本场地作业员可分配此场地库位');
-    }
-
     const seen = new Set<string>();
-    const uniqueItems: typeof items = [];
-    for (let i = items.length - 1; i >= 0; i -= 1) {
-      const key = items[i].vin.trim().toUpperCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      uniqueItems.unshift({ ...items[i], vin: key });
-    }
-
-    const skipped: Array<{ vin: string; reason: string }> = [];
     const failed: Array<{ vin: string; slotCode: string; reason: string }> = [];
+    const skipped: Array<{ vin: string; reason: string }> = [];
     let succeeded = 0;
-
-    for (const row of uniqueItems) {
+    for (const row of items) {
+      const vin = row.vin.trim().toUpperCase();
+      if (seen.has(vin)) {
+        failed.push({ ...row, reason: '文件中 VIN 重复，请去重后重试' });
+        continue;
+      }
+      seen.add(vin);
       try {
         const parsed = parseSlotCode(row.slotCode);
-        if (!parsed) {
-          failed.push({
-            vin: row.vin,
-            slotCode: row.slotCode,
-            reason: `库位码格式错误：期望 zoneCode-NN-NN`,
-          });
-          continue;
-        }
-
-        const moveResult = await this.dataSource.transaction(async (mgr) => {
-          const vinRepo = mgr.getRepository(OrderVin);
-          const slotRepo = mgr.getRepository(YardSlot);
-          const zoneRepo = mgr.getRepository(YardZone);
-
-          const orderVin = await vinRepo.findOne({ where: { vin: row.vin } });
-          if (!orderVin) return { skip: 'VIN 未在系统中' };
-          if (orderVin.arrivalStatus === OrderVinArrivalStatus.CANCELLED) {
-            return { skip: 'VIN 已取消' };
-          }
-
-          const zone = await zoneRepo.findOne({
-            where: { yardId, code: parsed.zoneCode },
-          });
-          if (!zone) {
-            return { fail: `此场地不存在区 ${parsed.zoneCode}` };
-          }
-          if (!zone.isActive) {
-            return { fail: `区 ${parsed.zoneCode} 已停用，不能分配库位` };
-          }
-          const targetSlot = await slotRepo.findOne({
-            where: {
-              yardId,
-              zoneId: zone.id,
-              line: parsed.line,
-              row: parsed.row,
-            },
-          });
-          if (!targetSlot) {
-            return { fail: `目标库位 ${row.slotCode} 未生成，请先在库位配置生成` };
-          }
-          if (targetSlot.isLocked) {
-            return { fail: `目标库位 ${row.slotCode} 已锁定` };
-          }
+        if (!parsed) throw new BadRequestException('库位码格式错误');
+        const result = await this.dataSource.transaction(async (mgr) => {
+          const stock = await this.inventory.active(mgr, vin);
           if (
-            targetSlot.status === YardSlotStatus.OCCUPIED &&
-            targetSlot.currentVin !== row.vin
-          ) {
-            return {
-              fail: `目标库位 ${row.slotCode} 已被 ${targetSlot.currentVin} 占用`,
-            };
-          }
-
-          if (orderVin.slotId === targetSlot.id) {
-            return { skip: '已在目标库位' };
-          }
-
-          if (orderVin.slotId) {
-            const oldSlot = await slotRepo.findOne({
-              where: { id: orderVin.slotId },
-            });
-            if (oldSlot && oldSlot.currentVin === row.vin) {
-              oldSlot.status = YardSlotStatus.VACANT;
-              oldSlot.currentVin = null;
-              oldSlot.assignedAt = null;
-              await slotRepo.save(oldSlot);
-            }
-          }
-
-          targetSlot.status = YardSlotStatus.OCCUPIED;
-          targetSlot.currentVin = row.vin;
-          targetSlot.assignedAt = new Date();
-          await slotRepo.save(targetSlot);
-
-          const wasExpected =
-            orderVin.arrivalStatus === OrderVinArrivalStatus.EXPECTED;
-          orderVin.slotId = targetSlot.id;
-          if (wasExpected) {
-            orderVin.arrivalStatus = OrderVinArrivalStatus.ARRIVED;
-            orderVin.arrivedAt = new Date();
-            orderVin.arrivedByUserId = operatorUserId ?? null;
-          }
-          await vinRepo.save(orderVin);
-
-          return {
-            success: {
-              orderId: orderVin.orderId,
-              slotId: targetSlot.id,
-              slotCode: row.slotCode,
-              wasExpected,
-            },
-          };
-        });
-
-        if (moveResult.skip) {
-          skipped.push({ vin: row.vin, reason: moveResult.skip });
-        } else if (moveResult.fail) {
-          failed.push({
-            vin: row.vin,
-            slotCode: row.slotCode,
-            reason: moveResult.fail,
+            stock.yardId !== yardId ||
+            stock.organizationId !== yard.organizationId
+          )
+            throw new BadRequestException('只允许当前场地在库车辆移位');
+          const target = await mgr
+            .getRepository(YardSlot)
+            .createQueryBuilder('s')
+            .innerJoin('s.zone', 'z')
+            .where(
+              's.yardId=:yardId AND z.code=:code AND s.line=:line AND s.row=:row',
+              { yardId, ...parsed, code: parsed.zoneCode },
+            )
+            .getOne();
+          if (!target) throw new BadRequestException('目标库位不存在');
+          if (stock.slotId === target.id) return false;
+          await this.inventory.move(mgr, stock, target.id, {
+            userId: operatorUserId,
           });
-        } else if (moveResult.success) {
-          succeeded += 1;
-          await this.audit.log({
-            operationType: moveResult.success.wasExpected
-              ? OperationType.INBOUND_SCAN
-              : OperationType.YARD_MOVE,
-            orderId: moveResult.success.orderId,
-            vin: row.vin,
-            yardId,
-            slotId: moveResult.success.slotId,
-            operatorUserId,
-            payload: {
-              slotCode: moveResult.success.slotCode,
-              bulk: true,
-            },
-          });
-        }
-      } catch (err) {
-        failed.push({
-          vin: row.vin,
-          slotCode: row.slotCode,
-          reason: (err as Error).message ?? '未知错误',
+          return true;
         });
+        if (result) succeeded++;
+        else skipped.push({ vin, reason: '已在目标库位' });
+      } catch (error) {
+        failed.push({ ...row, reason: (error as Error).message });
       }
     }
-
-    return {
-      total: uniqueItems.length,
-      succeeded,
-      skipped,
-      failed,
-    };
+    return { total: items.length, succeeded, skipped, failed };
   }
 }

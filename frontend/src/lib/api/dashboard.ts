@@ -1,4 +1,4 @@
-import { apiClient, unwrap } from "./client";
+import { apiClient, unwrap } from './client';
 
 export interface DashboardMetric {
   value: number;
@@ -14,7 +14,7 @@ export interface DashboardSlot {
   zoneName: string | null;
   line: number;
   row: number;
-  status: "VACANT" | "OCCUPIED" | "LONG_STAY" | "LOCKED";
+  status: 'VACANT' | 'OCCUPIED' | 'LONG_STAY' | 'LOCKED';
   currentVin: string | null;
   assignedAt: string | null;
   stayDays: number;
@@ -25,13 +25,13 @@ export interface DashboardSlot {
 export interface DashboardAlert {
   id: string;
   type:
-    | "UTILIZATION"
-    | "LOCK_TIMEOUT"
-    | "OVERSTAY"
-    | "EXPECTED_ARRIVAL"
-    | "DATA_QUALITY_DUPLICATE_VIN"
-    | "DATA_QUALITY_INVENTORY_LINK";
-  severity: "critical" | "warning" | "info";
+    | 'UTILIZATION'
+    | 'LOCK_TIMEOUT'
+    | 'OVERSTAY'
+    | 'EXPECTED_ARRIVAL'
+    | 'DATA_QUALITY_DUPLICATE_VIN'
+    | 'DATA_QUALITY_INVENTORY_LINK';
+  severity: 'critical' | 'warning' | 'info';
   yardId: string;
   yardName: string;
   slotCode?: string;
@@ -40,9 +40,9 @@ export interface DashboardAlert {
   occurredAt: string;
   diagnostics?: {
     issueCode:
-      | "DUPLICATE_OCCUPIED_VIN"
-      | "INVENTORY_SLOT_LINK_MISMATCH"
-      | "MISSING_ORDER_VIN_LINK";
+      | 'DUPLICATE_OCCUPIED_VIN'
+      | 'INVENTORY_SLOT_LINK_MISMATCH'
+      | 'MISSING_ORDER_VIN_LINK';
     vin: string;
     organization?: {
       id: string;
@@ -91,6 +91,26 @@ export interface DashboardAlert {
 }
 
 export interface DashboardData {
+  stockBalance?: {
+    opening: number;
+    initialization: number;
+    inbound: number;
+    outbound: number;
+    adjustments: number;
+    undone: number;
+    closing: number;
+    actual: number;
+    difference: number;
+  };
+  capacity?: {
+    designCapacity: number;
+    enabledCapacity: number;
+    availableCapacity: number;
+    frozenCapacity: number;
+    disabledCapacity: number;
+    ungeneratedCapacity: number;
+  };
+  inventoryPositions?: { parking: number; staging: number; loaded: number };
   generatedAt: string;
   timezone: string;
   thresholds: {
@@ -109,7 +129,7 @@ export interface DashboardData {
   };
   comparison: {
     monthBaselineDate: string | null;
-    dailyBaseline: "yesterday";
+    dailyBaseline: 'yesterday';
   };
   organizations: Array<{ id: string; code: string; name: string }>;
   yards: Array<{
@@ -130,5 +150,5 @@ export const dashboardApi = {
     organizationId?: string;
     yardId?: string;
     timezone?: string;
-  }) => unwrap<DashboardData>(apiClient.get("/dashboard", { params })),
+  }) => unwrap<DashboardData>(apiClient.get('/dashboard', { params })),
 };

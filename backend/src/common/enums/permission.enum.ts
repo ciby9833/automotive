@@ -1,6 +1,7 @@
 // 功能权限枚举：细化到"能做哪个动作"，比 Role 粒度更细
 // 角色→权限 映射在 role-permissions.ts；接口用 @Permissions(X) 声明所需权限
 export enum Permission {
+  YARD_ADJUST_INVENTORY = 'yard:adjust-inventory',
   SETUP_ROLE_VIEW = 'setup:role-view',
   SETUP_ROLE_MANAGE = 'setup:role-manage',
   SETUP_USER_VIEW = 'setup:user-view',

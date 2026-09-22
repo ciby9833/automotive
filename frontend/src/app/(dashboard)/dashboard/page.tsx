@@ -1,4 +1,5 @@
 "use client";
+import { Alert, Space, Tag } from "antd";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -222,6 +223,37 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {data?.stockBalance && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type={data.stockBalance.difference ? "error" : "info"}
+          title={t("yardOps.balance")}
+          description={t("yardOps.balanceFormula", data.stockBalance)}
+        />
+      )}
+      {data?.capacity && (
+        <Space wrap style={{ marginBottom: 16 }}>
+          {(
+            [
+              ["design", "designCapacity"],
+              ["enabled", "enabledCapacity"],
+              ["available", "availableCapacity"],
+              ["frozen", "frozenCapacity"],
+              ["disabled", "disabledCapacity"],
+            ] as const
+          ).map(([label, key]) => (
+            <Tag key={key}>
+              {t(`yardOps.${label}`)}: {data.capacity![key]}
+            </Tag>
+          ))}
+          {data.inventoryPositions &&
+            (["parking", "staging", "loaded"] as const).map((key) => (
+              <Tag key={key}>
+                {t(`yardOps.${key}`)}: {data.inventoryPositions![key]}
+              </Tag>
+            ))}
+        </Space>
+      )}
       <div className={styles.metrics}>
         <MetricCard
           label={t("dashboard.metricYards")}
@@ -332,7 +364,9 @@ export default function DashboardPage() {
                           className={`${styles.slot} ${STATUS_CLASS[slot.status]}`}
                           onClick={() => setSelectedSlot(slot)}
                         >
-                          <span className={styles.slotCode}>{formatSlotCode(slot)}</span>
+                          <span className={styles.slotCode}>
+                            {formatSlotCode(slot)}
+                          </span>
                           <span className={styles.slotVin}>
                             {slot.currentVin ?? t("dashboard.available")}
                           </span>
@@ -418,7 +452,9 @@ export default function DashboardPage() {
               <div className={styles.detailLabel}>
                 {t("dashboard.slotCode")}
               </div>
-              <div className={styles.detailValue}>{formatSlotCode(selectedSlot)}</div>
+              <div className={styles.detailValue}>
+                {formatSlotCode(selectedSlot)}
+              </div>
             </div>
             <div>
               <div className={styles.detailLabel}>

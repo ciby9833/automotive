@@ -2,15 +2,7 @@
 
 import { useState } from 'react';
 import { Permission, usePermission } from '@/lib/auth/permissions';
-import {
-  Alert,
-  Button,
-  Card,
-  Descriptions,
-  Space,
-  Tag,
-  message,
-} from 'antd';
+import { Alert, Button, Card, Descriptions, Space, Tag, message } from 'antd';
 import { CheckCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { VinScanner } from '@/components/scan/VinScanner';
@@ -46,6 +38,10 @@ export default function DeliverySignPage() {
   const onVinScanned = async (v: string) => {
     try {
       const res = await waybillsApi.lookup(v);
+      if (!res.isSigned && res.waybill.status !== 'IN_TRANSIT') {
+        message.warning(t('yardOps.signBlocked'));
+        return;
+      }
       setVin(v);
       setWaybill(res.waybill);
       setIsSigned(res.isSigned);
@@ -196,9 +192,7 @@ export default function DeliverySignPage() {
       {stage === 'done' && waybill && (
         <Card>
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
-            <CheckCircleOutlined
-              style={{ fontSize: 48, color: '#16a34a' }}
-            />
+            <CheckCircleOutlined style={{ fontSize: 48, color: '#16a34a' }} />
             <h3 style={{ marginTop: 12 }}>{t('delivery.sign.doneTitle')}</h3>
             <div style={{ color: '#64748b' }}>{vin}</div>
             {allSignedNow && (

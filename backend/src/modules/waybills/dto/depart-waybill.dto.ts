@@ -7,9 +7,13 @@ import {
   MaxLength,
 } from 'class-validator';
 
-// 整单启运出闸：校验所有 VIN 已 loaded → 释放 slot → 状态翻 IN_TRANSIT
+// 整单启运出闸：校验所有 VIN 已装车 → 关闭在场库存 → 状态翻 IN_TRANSIT
 export class DepartWaybillDto {
-  @ApiProperty({ required: false, description: '整车合影 (拖车+全部车辆)', type: [String] })
+  @ApiProperty({
+    required: false,
+    description: '整车合影 (拖车+全部车辆)',
+    type: [String],
+  })
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(6)

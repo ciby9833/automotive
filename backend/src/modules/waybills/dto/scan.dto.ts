@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
-  IsEnum,
+  IsIn,
   IsNotEmpty,
   IsObject,
   IsOptional,
@@ -15,8 +15,8 @@ export class ScanDto {
   @IsNotEmpty()
   vin: string;
 
-  @ApiProperty({ enum: ScanAction })
-  @IsEnum(ScanAction)
+  @ApiProperty({ enum: [ScanAction.SIGNED] })
+  @IsIn([ScanAction.SIGNED])
   action: ScanAction;
 
   @ApiProperty({

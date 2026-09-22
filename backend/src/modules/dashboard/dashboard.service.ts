@@ -1,5 +1,8 @@
+import { yardCapacity } from '../yards/yard-capacity';
+import { YardZone } from '../yards/entities/yard-zone.entity';
+import { YardInventory } from '../inventory/entities/yard-inventory.entity';
 import { Injectable } from '@nestjs/common';
-import { DataSource, In } from 'typeorm';
+import { DataSource, In, IsNull } from 'typeorm';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { OrderStatus } from '../../common/enums/order-status.enum';
@@ -140,14 +143,14 @@ export class DashboardService {
     const usedSlots = allSlots.filter(
       (slot) => slot.status === YardSlotStatus.OCCUPIED,
     ).length;
-    const vehiclesOnSite = new Set(
-      allSlots
-        .filter(
-          (slot) =>
-            slot.status === YardSlotStatus.OCCUPIED && Boolean(slot.currentVin),
-        )
-        .map((slot) => slot.currentVin),
-    ).size;
+    const stock = await this.dataSource
+      .getRepository(YardInventory)
+      .findBy({ yardId: In(yardIds), closedAt: IsNull() });
+    const vehiclesOnSite = stock.length;
+    const zones = await this.dataSource
+      .getRepository(YardZone)
+      .findBy({ yardId: In(yardIds) });
+    const capacity = yardCapacity(allSlots, zones);
 
     const previous = await this.getPreviousMonthSnapshot(
       query.yardId || (scope.role === Role.YARD_STAFF && scope.scopeYardId)
@@ -184,12 +187,21 @@ export class DashboardService {
         lockTimeoutHours: selectedPolicy?.lock_timeout_hours ?? null,
         longStayDays: selectedPolicy?.long_stay_days ?? null,
       },
+      capacity,
+      inventoryPositions: {
+        parking: stock.filter((s) => s.position === 'PARKING').length,
+        staging: stock.filter((s) => s.position === 'STAGING').length,
+        loaded: stock.filter((s) => s.position === 'LOADED').length,
+      },
+      stockBalance: activity.balance,
       metrics: {
         yards: this.metric(yards.length, previous?.yards ?? null),
         totalSlots: this.metric(totalSlots, previous?.totalSlots ?? null),
         usedSlots: this.metric(usedSlots, previous?.usedSlots ?? null),
         utilization: this.metric(
-          totalSlots === 0 ? 0 : (usedSlots / totalSlots) * 100,
+          capacity.usableCapacity === 0
+            ? 0
+            : (capacity.occupiedUsable / capacity.usableCapacity) * 100,
           previous?.utilization ?? null,
         ),
         vehiclesOnSite: this.metric(
@@ -300,6 +312,8 @@ export class DashboardService {
       total_slots: string;
       used_slots: string;
       vehicles_on_site: string;
+      usable_capacity: string | null;
+      occupied_usable: string | null;
     }> = await this.dataSource.query(
       `
       WITH eligible AS (
@@ -329,6 +343,8 @@ export class DashboardService {
         COUNT(*) FILTER (WHERE s.is_active)::text AS yards,
         COALESCE(SUM(s.total_slots), 0)::text AS total_slots,
         COALESCE(SUM(s.used_slots), 0)::text AS used_slots,
+        CASE WHEN count(*)=count(s.usable_capacity) THEN sum(s.usable_capacity)::text ELSE NULL END AS usable_capacity,
+        CASE WHEN count(*)=count(s.occupied_usable) THEN sum(s.occupied_usable)::text ELSE NULL END AS occupied_usable,
         (
           SELECT COUNT(DISTINCT inventory.vin)::text
           FROM inventory_daily_snapshots inventory
@@ -372,99 +388,56 @@ export class DashboardService {
       totalSlots,
       usedSlots,
       vehiclesOnSite: Number(rows[0].vehicles_on_site),
-      utilization: totalSlots === 0 ? 0 : (usedSlots / totalSlots) * 100,
+      utilization:
+        rows[0].usable_capacity === null
+          ? null
+          : Number(rows[0].usable_capacity) === 0
+            ? 0
+            : (Number(rows[0].occupied_usable) /
+                Number(rows[0].usable_capacity)) *
+              100,
     };
   }
 
   private async getDailyActivity(yardIds: string[]) {
-    const inboundResult: Array<{ today: string; yesterday: string }> =
-      await this.dataSource.query(
-        `
-        WITH boundaries AS (
-          SELECT
-            p.organization_id,
-            (
-              (
-                CASE
-                  WHEN (CURRENT_TIMESTAMP AT TIME ZONE p.timezone)::time
-                    >= p.business_day_cutoff
-                  THEN (CURRENT_TIMESTAMP AT TIME ZONE p.timezone)::date
-                  ELSE (CURRENT_TIMESTAMP AT TIME ZONE p.timezone)::date - 1
-                END
-                + p.business_day_cutoff
-              ) AT TIME ZONE p.timezone
-            ) AS today_start
-          FROM organization_operating_policies p
-        ),
-        scoped AS (
-          SELECT COALESCE(log.event_at, log.created_at) occurred_at,
-            COALESCE(log.yard_id, slot.yard_id, orders.destination_yard_id) yard_id,
-            COALESCE(yard.organization_id, orders.organization_id) organization_id
-          FROM operation_logs log
-          LEFT JOIN yard_slots slot ON slot.id = log.slot_id
-          LEFT JOIN orders ON orders.id = log.order_id
-          LEFT JOIN yards yard ON yard.id =
-            COALESCE(log.yard_id, slot.yard_id, orders.destination_yard_id)
-          WHERE log.operation_type IN ('INBOUND_SCAN', 'INBOUND_UNEXPECTED')
-        )
-        SELECT
-          COUNT(*) FILTER (
-            WHERE scoped.occurred_at >= boundaries.today_start
-          )::text AS today,
-          COUNT(*) FILTER (
-            WHERE scoped.occurred_at >= boundaries.today_start - interval '1 day'
-              AND scoped.occurred_at < boundaries.today_start
-          )::text AS yesterday
-        FROM scoped
-        JOIN boundaries USING (organization_id)
-        WHERE scoped.yard_id = ANY($1::uuid[])
-        `,
-        [yardIds],
-      );
-
-    const outboundResult: Array<{ today: string; yesterday: string }> =
-      await this.dataSource.query(
-        `
-        WITH boundaries AS (
-          SELECT
-            p.organization_id,
-            (
-              (
-                CASE
-                  WHEN (CURRENT_TIMESTAMP AT TIME ZONE p.timezone)::time
-                    >= p.business_day_cutoff
-                  THEN (CURRENT_TIMESTAMP AT TIME ZONE p.timezone)::date
-                  ELSE (CURRENT_TIMESTAMP AT TIME ZONE p.timezone)::date - 1
-                END
-                + p.business_day_cutoff
-              ) AT TIME ZONE p.timezone
-            ) AS today_start
-          FROM organization_operating_policies p
-        )
-        SELECT
-          COUNT(*) FILTER (
-            WHERE log.created_at >= boundaries.today_start
-          )::text AS today,
-          COUNT(*) FILTER (
-            WHERE log.created_at >= boundaries.today_start - interval '1 day'
-              AND log.created_at < boundaries.today_start
-          )::text AS yesterday
-        FROM waybill_status_logs log
-        JOIN waybills waybill ON waybill.id = log.waybill_id
-        JOIN boundaries ON boundaries.organization_id = waybill.organization_id
-        WHERE log.action = 'DELIVERY_DEPARTURE'
-          AND COALESCE(log.yard_id, waybill.origin_yard_id) = ANY($1::uuid[])
-        `,
-        [yardIds],
-      );
-    const inboundRows = inboundResult[0];
-    const outboundRows = outboundResult[0];
-
+    const [row] = await this.dataSource.query(
+      `
+      WITH boundaries AS (
+        SELECT organization_id, ((CASE WHEN (CURRENT_TIMESTAMP AT TIME ZONE timezone)::time >= business_day_cutoff
+          THEN (CURRENT_TIMESTAMP AT TIME ZONE timezone)::date ELSE (CURRENT_TIMESTAMP AT TIME ZONE timezone)::date-1 END
+          + business_day_cutoff) AT TIME ZONE timezone) AS start_at
+        FROM organization_operating_policies
+      )
+      SELECT
+        count(*) FILTER(WHERE m.kind='INBOUND' AND m.occurred_at>=b.start_at)::int AS inbound_today,
+        count(*) FILTER(WHERE m.kind='DEPARTURE' AND m.occurred_at>=b.start_at)::int AS outbound_today,
+        count(*) FILTER(WHERE m.kind='INBOUND' AND m.occurred_at>=b.start_at-interval '1 day' AND m.occurred_at<b.start_at)::int AS inbound_yesterday,
+        count(*) FILTER(WHERE m.kind='DEPARTURE' AND m.occurred_at>=b.start_at-interval '1 day' AND m.occurred_at<b.start_at)::int AS outbound_yesterday,
+        COALESCE(sum(delta) FILTER(WHERE m.occurred_at<b.start_at),0)::int AS opening,
+        COALESCE(sum(delta) FILTER(WHERE m.occurred_at>=b.start_at AND m.kind='OPENING'),0)::int AS initialization,
+        COALESCE(sum(delta) FILTER(WHERE m.occurred_at>=b.start_at AND m.kind IN ('ADJUST_IN','ADJUST_OUT')),0)::int AS adjustments,
+        count(*) FILTER(WHERE m.occurred_at>=b.start_at AND m.kind='UNDO_INBOUND')::int AS undone,
+        COALESCE(sum(delta),0)::int AS closing,
+        (SELECT count(*)::int FROM yard_inventory WHERE closed_at IS NULL AND yard_id=ANY($1::uuid[])) AS actual
+      FROM inventory_movements m JOIN boundaries b USING(organization_id) WHERE m.yard_id=ANY($1::uuid[])`,
+      [yardIds],
+    );
     return {
-      inboundToday: Number(inboundRows?.today ?? 0),
-      inboundYesterday: Number(inboundRows?.yesterday ?? 0),
-      outboundToday: Number(outboundRows?.today ?? 0),
-      outboundYesterday: Number(outboundRows?.yesterday ?? 0),
+      inboundToday: row.inbound_today,
+      outboundToday: row.outbound_today,
+      inboundYesterday: row.inbound_yesterday,
+      outboundYesterday: row.outbound_yesterday,
+      balance: {
+        opening: row.opening,
+        initialization: row.initialization,
+        inbound: row.inbound_today,
+        outbound: row.outbound_today,
+        adjustments: row.adjustments,
+        undone: row.undone,
+        closing: row.closing,
+        actual: row.actual,
+        difference: row.actual - row.closing,
+      },
     };
   }
 
@@ -490,7 +463,9 @@ export class DashboardService {
     for (const yard of yards) {
       const policy = policyByOrg.get(yard.organizationId);
       if (!policy) continue;
-      const yardSlots = slotsByYard.get(yard.id) ?? [];
+      const yardSlots = (slotsByYard.get(yard.id) ?? []).filter(
+        (s) => s.zone.isActive && !s.isLocked,
+      );
       const used = yardSlots.filter(
         (slot) => slot.status === YardSlotStatus.OCCUPIED,
       ).length;
@@ -538,27 +513,20 @@ export class DashboardService {
     }
 
     const longStayByYard = new Map<string, { count: number; oldest: number }>();
-    for (const slot of slots) {
-      if (
-        slot.status !== YardSlotStatus.OCCUPIED ||
-        !slot.currentVin ||
-        !slot.assignedAt
-      ) {
-        continue;
-      }
-      const days = Math.floor(
-        (Date.now() - slot.assignedAt.getTime()) / (24 * 3600 * 1000),
-      );
-      const yard = yardById.get(slot.yardId);
-      const policy = yard ? policyByOrg.get(yard.organizationId) : undefined;
-      if (!policy || days <= policy.long_stay_days) continue;
-      const current = longStayByYard.get(slot.yardId) ?? {
+    const inventory = await this.dataSource
+      .getRepository(YardInventory)
+      .findBy({ yardId: In(yards.map((y) => y.id)), closedAt: IsNull() });
+    for (const item of inventory) {
+      const age = (Date.now() - item.enteredAt.getTime()) / 86400000;
+      const policy = policyByOrg.get(item.organizationId);
+      if (!policy || age <= policy.long_stay_days) continue;
+      const current = longStayByYard.get(item.yardId) ?? {
         count: 0,
         oldest: 0,
       };
-      longStayByYard.set(slot.yardId, {
+      longStayByYard.set(item.yardId, {
         count: current.count + 1,
-        oldest: Math.max(current.oldest, days),
+        oldest: Math.max(current.oldest, Math.floor(age)),
       });
     }
     for (const [yardId, value] of longStayByYard) {

@@ -57,7 +57,9 @@ export default function SlotSetupPage() {
   const zoneTargetOrganizationId = Form.useWatch('organizationId', zoneForm);
 
   const [generateOpen, setGenerateOpen] = useState(false);
-  const [generateZone, setGenerateZone] = useState<YardZoneSummary | null>(null);
+  const [generateZone, setGenerateZone] = useState<YardZoneSummary | null>(
+    null,
+  );
   const [generateForm] = Form.useForm();
 
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
@@ -69,7 +71,7 @@ export default function SlotSetupPage() {
   const isHqAdmin = currentRole === Role.HQ_ADMIN;
   const selectedOrganizationId = isHqAdmin
     ? orgFilter
-    : activeOrgId ?? undefined;
+    : (activeOrgId ?? undefined);
 
   const selectedYard = yards.find((y) => y.id === selectedYardId) ?? null;
   const selectedZone = zones.find((z) => z.id === selectedZoneId) ?? null;
@@ -177,11 +179,12 @@ export default function SlotSetupPage() {
         lineCount: zone.lineCount,
         rowCount: zone.rowCount,
         isActive: zone.isActive,
+        purpose: zone.purpose,
       });
     } else {
       const initialOrganizationId = isHqAdmin
-        ? selectedYard?.organizationId ?? orgFilter
-        : activeOrgId ?? undefined;
+        ? (selectedYard?.organizationId ?? orgFilter)
+        : (activeOrgId ?? undefined);
       zoneForm.setFieldsValue({
         organizationId: initialOrganizationId,
         yardId:
@@ -193,6 +196,7 @@ export default function SlotSetupPage() {
         lineCount: 1,
         rowCount: 20,
         isActive: true,
+        purpose: 'PARKING',
       });
       void loadZoneTargetYards(initialOrganizationId);
     }
@@ -209,6 +213,7 @@ export default function SlotSetupPage() {
           code: values.code,
           name: values.name || null,
           isActive: values.isActive,
+          purpose: values.purpose,
           lineCount: values.lineCount,
           rowCount: values.rowCount,
         });
@@ -221,6 +226,7 @@ export default function SlotSetupPage() {
           lineCount: values.lineCount,
           rowCount: values.rowCount,
           isActive: values.isActive,
+          purpose: values.purpose,
         });
         message.success(t('setupZones.created'));
         if (isHqAdmin) setOrgFilter(values.organizationId);
@@ -231,7 +237,8 @@ export default function SlotSetupPage() {
       setZoneEditOpen(false);
       if (editingZone) loadZones();
     } catch (err) {
-      const detail = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
       message.error(detail || t('setupZones.saveFailed'));
     }
   };
@@ -244,7 +251,8 @@ export default function SlotSetupPage() {
       if (selectedZoneId === zone.id) setSelectedZoneId(null);
       loadZones();
     } catch (err) {
-      const detail = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
       message.error(detail || t('setupZones.removeFailed'));
     }
   };
@@ -265,26 +273,40 @@ export default function SlotSetupPage() {
     if (!selectedYardId || !generateZone) return;
     const values = await generateForm.validateFields();
     try {
-      const res = await yardsApi.generateSlotsForZone(selectedYardId, generateZone.id, {
-        fromLine: values.fromLine,
-        toLine: values.toLine,
-        toRow: values.toRow,
-      });
+      const res = await yardsApi.generateSlotsForZone(
+        selectedYardId,
+        generateZone.id,
+        {
+          fromLine: values.fromLine,
+          toLine: values.toLine,
+          toRow: values.toRow,
+        },
+      );
       message.success(
-        t('setupZones.generateResult', { created: res.created, skipped: res.skipped }),
+        t('setupZones.generateResult', {
+          created: res.created,
+          skipped: res.skipped,
+        }),
       );
       setGenerateOpen(false);
       loadZones();
       loadSlots();
     } catch (err) {
-      const detail = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      const detail = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
       message.error(detail || t('setupZones.generateFailed'));
     }
   };
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+        }}
+      >
         <Space>
           <h2 style={{ margin: 0 }}>{t('setupSlots.title')}</h2>
           {isHqAdmin && (
@@ -367,7 +389,9 @@ export default function SlotSetupPage() {
             />
           </Card>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: 16 }}>
+          <div
+            style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: 16 }}
+          >
             <Card
               title={t('setupZones.listTitle')}
               size="small"
@@ -393,6 +417,7 @@ export default function SlotSetupPage() {
                     render: (v: string, r) => (
                       <Space>
                         <b>{v}</b>
+                        <Tag>{t(`yardOps.${r.purpose}`)}</Tag>
                         {!r.isActive && <Tag>{t('setupZones.inactive')}</Tag>}
                       </Space>
                     ),
@@ -406,7 +431,8 @@ export default function SlotSetupPage() {
                     title: t('setupZones.colFill'),
                     render: (_: unknown, r) => {
                       const cap = r.capacity;
-                      const percent = cap === 0 ? 0 : Math.round((r.slotCount / cap) * 100);
+                      const percent =
+                        cap === 0 ? 0 : Math.round((r.slotCount / cap) * 100);
                       return (
                         <div style={{ minWidth: 100 }}>
                           <Progress
@@ -420,7 +446,8 @@ export default function SlotSetupPage() {
                   },
                   {
                     title: t('setupZones.colOccupied'),
-                    render: (_: unknown, r) => `${r.occupiedCount}/${r.slotCount}`,
+                    render: (_: unknown, r) =>
+                      `${r.occupiedCount}/${r.slotCount}`,
                   },
                   {
                     title: t('setupZones.colOps'),
@@ -446,7 +473,9 @@ export default function SlotSetupPage() {
                             }}
                           />
                           <Popconfirm
-                            title={t('setupZones.removeConfirm', { code: r.code })}
+                            title={t('setupZones.removeConfirm', {
+                              code: r.code,
+                            })}
                             onConfirm={(e) => {
                               e?.stopPropagation();
                               removeZone(r);
@@ -476,7 +505,11 @@ export default function SlotSetupPage() {
             </Card>
 
             <Card
-              title={selectedZone ? `${selectedZone.code} · ${t('setupZones.slotsTitle')}` : t('setupZones.slotsTitle')}
+              title={
+                selectedZone
+                  ? `${selectedZone.code} · ${t('setupZones.slotsTitle')}`
+                  : t('setupZones.slotsTitle')
+              }
               size="small"
               extra={
                 selectedZone && (
@@ -498,7 +531,8 @@ export default function SlotSetupPage() {
                   pagination={{
                     pageSize: 10,
                     showSizeChanger: false,
-                    showTotal: (total, range) => `${range[0]}-${range[1]} / ${total}`,
+                    showTotal: (total, range) =>
+                      `${range[0]}-${range[1]} / ${total}`,
                   }}
                   columns={[
                     {
@@ -506,8 +540,16 @@ export default function SlotSetupPage() {
                       width: 140,
                       render: (_: unknown, slot) => formatSlotCode(slot),
                     },
-                    { title: t('setupZones.colLine'), dataIndex: 'line', width: 80 },
-                    { title: t('setupZones.colRow'), dataIndex: 'row', width: 80 },
+                    {
+                      title: t('setupZones.colLine'),
+                      dataIndex: 'line',
+                      width: 80,
+                    },
+                    {
+                      title: t('setupZones.colRow'),
+                      dataIndex: 'row',
+                      width: 80,
+                    },
                     {
                       title: t('yards.status'),
                       dataIndex: 'status',
@@ -535,7 +577,9 @@ export default function SlotSetupPage() {
       )}
 
       <Modal
-        title={editingZone ? t('setupZones.editTitle') : t('setupZones.createTitle')}
+        title={
+          editingZone ? t('setupZones.editTitle') : t('setupZones.createTitle')
+        }
         open={zoneEditOpen}
         onCancel={() => setZoneEditOpen(false)}
         onOk={submitZoneEdit}
@@ -646,26 +690,38 @@ export default function SlotSetupPage() {
           >
             <Input placeholder="AB6" />
           </Form.Item>
+          <Form.Item
+            label={t('yardOps.purpose')}
+            name="purpose"
+            rules={[{ required: true }]}
+          >
+            <Select
+              options={['PARKING', 'STAGING'].map((value) => ({
+                value,
+                label: t(`yardOps.${value}`),
+              }))}
+            />
+          </Form.Item>
           <Form.Item label={t('setupZones.fieldName')} name="name">
             <Input placeholder={t('setupZones.namePlaceholder')} />
           </Form.Item>
           <>
-              <Form.Item
-                label={t('setupZones.fieldLineCount')}
-                name="lineCount"
-                rules={[{ required: true }]}
-                tooltip={t('setupZones.lineCountHint')}
-              >
-                <InputNumber min={1} max={999} style={{ width: 120 }} />
-              </Form.Item>
-              <Form.Item
-                label={t('setupZones.fieldRowCount')}
-                name="rowCount"
-                rules={[{ required: true }]}
-                tooltip={t('setupZones.rowCountHint')}
-              >
-                <InputNumber min={1} max={999} style={{ width: 120 }} />
-              </Form.Item>
+            <Form.Item
+              label={t('setupZones.fieldLineCount')}
+              name="lineCount"
+              rules={[{ required: true }]}
+              tooltip={t('setupZones.lineCountHint')}
+            >
+              <InputNumber min={1} max={999} style={{ width: 120 }} />
+            </Form.Item>
+            <Form.Item
+              label={t('setupZones.fieldRowCount')}
+              name="rowCount"
+              rules={[{ required: true }]}
+              tooltip={t('setupZones.rowCountHint')}
+            >
+              <InputNumber min={1} max={999} style={{ width: 120 }} />
+            </Form.Item>
           </>
           <Form.Item
             label={t('setupZones.fieldActive')}

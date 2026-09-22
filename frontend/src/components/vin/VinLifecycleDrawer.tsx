@@ -1,5 +1,6 @@
 'use client';
 
+import { InventoryMovementHistory } from './InventoryMovementHistory';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -30,10 +31,22 @@ interface Props {
 
 // 扫码事件按 backend 的 ScanAction 枚举给出可读标签 + 颜色
 const ACTION_META: Record<string, { color: string; labelKey: string }> = {
-  INBOUND_ARRIVAL: { color: 'green', labelKey: 'vinLifecycle.action.INBOUND_ARRIVAL' },
-  REALLOCATION_DEPARTURE: { color: 'orange', labelKey: 'vinLifecycle.action.REALLOCATION_DEPARTURE' },
-  REALLOCATION_ARRIVAL: { color: 'blue', labelKey: 'vinLifecycle.action.REALLOCATION_ARRIVAL' },
-  DELIVERY_DEPARTURE: { color: 'purple', labelKey: 'vinLifecycle.action.DELIVERY_DEPARTURE' },
+  INBOUND_ARRIVAL: {
+    color: 'green',
+    labelKey: 'vinLifecycle.action.INBOUND_ARRIVAL',
+  },
+  REALLOCATION_DEPARTURE: {
+    color: 'orange',
+    labelKey: 'vinLifecycle.action.REALLOCATION_DEPARTURE',
+  },
+  REALLOCATION_ARRIVAL: {
+    color: 'blue',
+    labelKey: 'vinLifecycle.action.REALLOCATION_ARRIVAL',
+  },
+  DELIVERY_DEPARTURE: {
+    color: 'purple',
+    labelKey: 'vinLifecycle.action.DELIVERY_DEPARTURE',
+  },
   SIGNED: { color: 'cyan', labelKey: 'vinLifecycle.action.SIGNED' },
 };
 
@@ -78,7 +91,8 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
             {
               label: t('vinLifecycle.carrier'),
               value: orderVin.pickupCarrier
-                ? orderVin.pickupCarrier.shortName ?? orderVin.pickupCarrier.name
+                ? (orderVin.pickupCarrier.shortName ??
+                  orderVin.pickupCarrier.name)
                 : null,
             },
             {
@@ -121,7 +135,9 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
 
   return (
     <Drawer
-      title={vin ? `${t('vinLifecycle.title')} · ${vin}` : t('vinLifecycle.title')}
+      title={
+        vin ? `${t('vinLifecycle.title')} · ${vin}` : t('vinLifecycle.title')
+      }
       open={!!vin}
       onClose={onClose}
       width={780}
@@ -138,6 +154,7 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
       )}
       {data && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          <InventoryMovementHistory movements={data.inventoryMovements ?? []} />
           {/* 基本信息 */}
           {orderVin && (
             <section
@@ -178,11 +195,15 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
                   )}
                 </Descriptions.Item>
                 <Descriptions.Item label={t('vinLifecycle.status')} span={2}>
-                  <Tag color={
-                    orderVin.arrivalStatus === 'ARRIVED' ? 'green' :
-                    orderVin.arrivalStatus === 'CANCELLED' ? 'red' :
-                    'default'
-                  }>
+                  <Tag
+                    color={
+                      orderVin.arrivalStatus === 'ARRIVED'
+                        ? 'green'
+                        : orderVin.arrivalStatus === 'CANCELLED'
+                          ? 'red'
+                          : 'default'
+                    }
+                  >
                     {t(`vinLifecycle.arrivalStatus.${orderVin.arrivalStatus}`)}
                   </Tag>
                   {orderVin.isAllocated && (
@@ -223,16 +244,22 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
                       <div style={{ fontSize: 13, fontWeight: 500 }}>
                         {wb.waybillCode}
                       </div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                      <div
+                        style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}
+                      >
                         {wb.destinationDealer?.dealerName ?? '-'} ·{' '}
                         {wb.carrier?.name ?? '-'}
                       </div>
                     </div>
-                    <Tag color={
-                      wb.status === 'ARRIVED' ? 'green' :
-                      wb.status === 'IN_TRANSIT' ? 'blue' :
-                      'default'
-                    }>
+                    <Tag
+                      color={
+                        wb.status === 'ARRIVED'
+                          ? 'green'
+                          : wb.status === 'IN_TRANSIT'
+                            ? 'blue'
+                            : 'default'
+                      }
+                    >
                       {t(`vinLifecycle.waybillStatus.${wb.status}`)}
                     </Tag>
                   </div>
@@ -256,31 +283,60 @@ export function VinLifecycleDrawer({ vin, onClose }: Props) {
               </div>
               <Timeline
                 items={data.events.map((e) => {
-                  const meta = ACTION_META[e.action] ?? { color: 'gray', labelKey: e.action };
+                  const meta = ACTION_META[e.action] ?? {
+                    color: 'gray',
+                    labelKey: e.action,
+                  };
                   return {
                     dot: <ClockCircleOutlined style={{ fontSize: 14 }} />,
                     color: meta.color,
                     children: (
                       <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Tag color={meta.color}>
-                            {t(meta.labelKey)}
-                          </Tag>
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <Tag color={meta.color}>{t(meta.labelKey)}</Tag>
                           <span style={{ fontSize: 12, color: '#64748b' }}>
                             {new Date(e.createdAt).toLocaleString()}
                           </span>
                         </div>
-                        <div style={{ marginTop: 4, fontSize: 12, color: '#64748b' }}>
+                        <div
+                          style={{
+                            marginTop: 4,
+                            fontSize: 12,
+                            color: '#64748b',
+                          }}
+                        >
                           {e.operator && (
                             <Tooltip title={t('vinLifecycle.operator')}>
-                              <span><UserOutlined /> {e.operator.displayName}</span>
+                              <span>
+                                <UserOutlined /> {e.operator.displayName}
+                              </span>
                             </Tooltip>
                           )}
-                          {e.yard && <span style={{ marginLeft: 8 }}>@ {e.yard.name}</span>}
-                          {e.waybill && <span style={{ marginLeft: 8 }}>· {e.waybill.waybillCode}</span>}
+                          {e.yard && (
+                            <span style={{ marginLeft: 8 }}>
+                              @ {e.yard.name}
+                            </span>
+                          )}
+                          {e.waybill && (
+                            <span style={{ marginLeft: 8 }}>
+                              · {e.waybill.waybillCode}
+                            </span>
+                          )}
                         </div>
                         {e.remark && (
-                          <div style={{ marginTop: 4, fontSize: 12, color: '#475569' }}>
+                          <div
+                            style={{
+                              marginTop: 4,
+                              fontSize: 12,
+                              color: '#475569',
+                            }}
+                          >
                             {e.remark}
                           </div>
                         )}

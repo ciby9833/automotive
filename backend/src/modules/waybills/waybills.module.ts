@@ -1,3 +1,4 @@
+import { InventoryModule } from '../inventory/inventory.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Waybill } from './entities/waybill.entity';
@@ -17,6 +18,7 @@ import { EmailModule } from '../email/email.module';
 // (车物理离开了始发仓，slot 变 VACANT 才能被下一台车用；WaybillsService 通过 mgr.getRepository 拿)
 @Module({
   imports: [
+    InventoryModule,
     TypeOrmModule.forFeature([
       Waybill,
       WaybillVin,

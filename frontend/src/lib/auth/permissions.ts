@@ -4,6 +4,7 @@ import { useAuthStore } from './store';
 
 // 与后端 src/common/enums/permission.enum.ts 保持一致
 export enum Permission {
+  YARD_ADJUST_INVENTORY = 'yard:adjust-inventory',
   SETUP_ROLE_VIEW = 'setup:role-view',
   SETUP_ROLE_MANAGE = 'setup:role-manage',
   SETUP_USER_VIEW = 'setup:user-view',

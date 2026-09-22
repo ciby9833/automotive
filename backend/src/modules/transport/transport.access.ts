@@ -263,7 +263,7 @@ export class TransportAccess {
   /** 场地在库车辆必须走出库流程，不能被纯运输直接提走。 */
   async assertNotInYard(m: EntityManager, vin: string): Promise<void> {
     const [stock] = await m.query<{ id: string }[]>(
-      `SELECT id FROM yard_slots WHERE upper(trim(current_vin)) = $1 AND status = 'OCCUPIED' LIMIT 1`,
+      `SELECT id FROM yard_inventory WHERE upper(trim(vin)) = $1 AND closed_at IS NULL LIMIT 1`,
       [vin],
     );
     if (stock)

@@ -1,3 +1,9 @@
+import { InboundService } from '../inbound/inbound.service';
+import { InboundScanDto } from '../inbound/dto/inbound-scan.dto';
+import {
+  InventoryReasonDto,
+  InventoryAdjustmentDto,
+} from './dto/inventory-adjustment.dto';
 import {
   Body,
   Controller,
@@ -26,7 +32,6 @@ import {
   UpdateYardZoneDto,
   GenerateSlotsByZoneDto,
 } from './dto/create-yard-zone.dto';
-import { AssignSlotDto } from './dto/assign-slot.dto';
 import { MoveSlotDto } from './dto/move-slot.dto';
 import { BatchAssignSlotDto } from './dto/batch-assign-slot.dto';
 import { Permissions } from '../../common/decorators/permissions.decorator';
@@ -38,6 +43,7 @@ import { Permission } from '../../common/enums/permission.enum';
 @Controller('yards')
 export class YardsController {
   constructor(
+    private readonly inboundService: InboundService,
     private readonly yardsService: YardsService,
     private readonly zonesService: ZonesService,
     private readonly scopeService: ScopeService,
@@ -174,22 +180,43 @@ export class YardsController {
   @Patch('slots/:slotId/assign')
   async assignSlot(
     @Param('slotId', ParseUUIDPipe) slotId: string,
-    @Body() dto: AssignSlotDto,
+    @Body() dto: InboundScanDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const scope = await this.scopeService.resolve(user);
-    return this.yardsService.assignSlot(slotId, dto.vin, scope);
+    return this.inboundService.inboundScan(
+      { ...dto, slotId, zoneId: undefined },
+      user,
+    );
   }
 
-  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Roles(Role.ORG_ADMIN, Role.YARD_STAFF)
   @Permissions(Permission.YARD_RELEASE_SLOT)
-  @Patch('slots/:slotId/release')
-  async releaseSlot(
-    @Param('slotId', ParseUUIDPipe) slotId: string,
+  @Post('inventory/:vin/undo-inbound')
+  async undoInbound(
+    @Param('vin') vin: string,
+    @Body() dto: InventoryReasonDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    const scope = await this.scopeService.resolve(user);
-    return this.yardsService.releaseSlot(slotId, scope, user.userId);
+    return this.yardsService.undoInbound(
+      vin,
+      dto.reason,
+      await this.scopeService.resolve(user),
+      user.userId,
+    );
+  }
+
+  @Roles(Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_ADJUST_INVENTORY)
+  @Post('inventory/adjustments')
+  async adjustInventory(
+    @Body() dto: InventoryAdjustmentDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.yardsService.adjustInventory(
+      dto,
+      await this.scopeService.resolve(user),
+      user.userId,
+    );
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
@@ -267,9 +294,12 @@ export class YardsController {
       dateFrom,
       dateTo,
       page: page ? Math.max(1, Number(page)) : undefined,
-      pageSize: pageSize ? Math.max(1, Math.min(500, Number(pageSize))) : undefined,
+      pageSize: pageSize
+        ? Math.max(1, Math.min(500, Number(pageSize)))
+        : undefined,
       sortBy,
-      sortOrder: sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
+      sortOrder:
+        sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
       all: all === 'true' || all === '1',
     });
   }

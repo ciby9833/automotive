@@ -8,6 +8,7 @@ import {
   Card,
   Descriptions,
   Drawer,
+  Modal,
   Empty,
   Input,
   Popconfirm,
@@ -27,21 +28,23 @@ import {
 } from '@ant-design/icons';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { VinScanner } from '@/components/scan/VinScanner';
+import { SlotPicker } from '@/components/scan/SlotPicker';
 import { PhotoUpload } from '@/components/scan/PhotoUpload';
 import { waybillsApi, Waybill, WaybillStatus } from '@/lib/api/waybills';
 import { useTranslation } from '@/i18n/useTranslation';
 
 // 出库启运 (真实 FVL 两阶段)
-// 阶段 1 装车：作业员对拖车上的每台车逐一扫 VIN + 拍装车照 (只写 WaybillVin.loadedAt)
-// 阶段 2 出闸：全部装完后一次性"确认启运" → 释放 slot + waybill.status=IN_TRANSIT
+// 阶段 1 装车：作业员对拖车上的每台车逐一扫 VIN + 拍装车照 （释放停车库位，车辆仍在场）
+// 阶段 2 出闸：全部装完后一次性"确认启运" → 登记离场 + waybill.status=IN_TRANSIT
 export default function OutboundDeparturePage() {
+  const [unloadVin, setUnloadVin] = useState<string | null>(null);
   const canScan = usePermission(Permission.WAYBILL_SCAN);
   const { t } = useTranslation();
 
   // 列表状态
-  const [statusFilter, setStatusFilter] = useState<'NOT_ARRIVED' | 'IN_TRANSIT' | 'ARRIVED'>(
-    'NOT_ARRIVED',
-  );
+  const [statusFilter, setStatusFilter] = useState<
+    'NOT_ARRIVED' | 'IN_TRANSIT' | 'ARRIVED'
+  >('NOT_ARRIVED');
   const [keyword, setKeyword] = useState('');
   const [rows, setRows] = useState<Waybill[]>([]);
   const [total, setTotal] = useState(0);
@@ -101,7 +104,8 @@ export default function OutboundDeparturePage() {
       if (w.waybillCode.toUpperCase().includes(k)) return true;
       if (w.customerWaybillCode?.toUpperCase().includes(k)) return true;
       if (w.vins.some((v) => v.vin.toUpperCase().includes(k))) return true;
-      if (w.destinationDealer?.dealerName.toUpperCase().includes(k)) return true;
+      if (w.destinationDealer?.dealerName.toUpperCase().includes(k))
+        return true;
       if (w.carrier?.name.toUpperCase().includes(k)) return true;
       return false;
     });
@@ -159,10 +163,11 @@ export default function OutboundDeparturePage() {
     }
   };
 
-  const undoLoad = async (vin: string) => {
+  const undoLoad = async (vin: string, slotId: string) => {
     if (!drawerWaybill) return;
     try {
-      await waybillsApi.unloadVin(drawerWaybill.id, vin);
+      await waybillsApi.unloadVin(drawerWaybill.id, vin, slotId);
+      setUnloadVin(null);
       message.success(t('outbound.departure.undoLoadOk'));
     } catch (err) {
       const detail = (err as { response?: { data?: { message?: string } } })
@@ -199,11 +204,29 @@ export default function OutboundDeparturePage() {
     ARRIVED: 'green',
   };
 
-  const loadedCount = (w: Waybill) =>
-    w.vins.filter((v) => v.loadedAt).length;
+  const loadedCount = (w: Waybill) => w.vins.filter((v) => v.loadedAt).length;
 
   return (
     <div>
+      <Modal
+        open={!!unloadVin}
+        title={t('yardOps.unloadSlot')}
+        footer={null}
+        onCancel={() => setUnloadVin(null)}
+        destroyOnHidden
+      >
+        <Alert
+          type="info"
+          title={t('yardOps.unloadHint')}
+          style={{ marginBottom: 12 }}
+        />
+        {unloadVin && (
+          <SlotPicker
+            yardId={drawerWaybill?.originYardId ?? null}
+            onChange={(slot) => void undoLoad(unloadVin, slot.id)}
+          />
+        )}
+      </Modal>
       <PageHeader
         title={t('outbound.departure.title')}
         subtitle={t('outbound.departure.subtitle')}
@@ -212,14 +235,24 @@ export default function OutboundDeparturePage() {
       <Card>
         <Space
           size="middle"
-          style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }}
+          style={{
+            marginBottom: 12,
+            width: '100%',
+            justifyContent: 'space-between',
+          }}
         >
           <Segmented
             value={statusFilter}
             onChange={(v) => setStatusFilter(v as typeof statusFilter)}
             options={[
-              { label: t('outbound.departure.tabPending'), value: 'NOT_ARRIVED' },
-              { label: t('outbound.departure.tabInTransit'), value: 'IN_TRANSIT' },
+              {
+                label: t('outbound.departure.tabPending'),
+                value: 'NOT_ARRIVED',
+              },
+              {
+                label: t('outbound.departure.tabInTransit'),
+                value: 'IN_TRANSIT',
+              },
               { label: t('outbound.departure.tabArrived'), value: 'ARRIVED' },
             ]}
           />
@@ -259,7 +292,11 @@ export default function OutboundDeparturePage() {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
             setSortBy(s && s.order ? (s.columnKey as string) : undefined);
             setSortOrder(
-              s?.order === 'ascend' ? 'asc' : s?.order === 'descend' ? 'desc' : undefined,
+              s?.order === 'ascend'
+                ? 'asc'
+                : s?.order === 'descend'
+                  ? 'desc'
+                  : undefined,
             );
           }}
           columns={[
@@ -292,7 +329,9 @@ export default function OutboundDeparturePage() {
                       percent={pct}
                       size="small"
                       style={{ width: 100 }}
-                      status={done === total && total > 0 ? 'success' : 'active'}
+                      status={
+                        done === total && total > 0 ? 'success' : 'active'
+                      }
                     />
                     <span style={{ fontSize: 12, color: '#64748b' }}>
                       {done}/{total}
@@ -308,8 +347,7 @@ export default function OutboundDeparturePage() {
             },
             {
               title: t('outbound.departure.dealer'),
-              render: (_, w: Waybill) =>
-                w.destinationDealer?.dealerName ?? '-',
+              render: (_, w: Waybill) => w.destinationDealer?.dealerName ?? '-',
             },
             {
               title: t('outbound.departure.carrier'),
@@ -362,7 +400,10 @@ export default function OutboundDeparturePage() {
               items={[
                 {
                   label: t('outbound.departure.originYard'),
-                  children: drawerWaybill.originYard?.name ?? drawerWaybill.originText ?? '-',
+                  children:
+                    drawerWaybill.originYard?.name ??
+                    drawerWaybill.originText ??
+                    '-',
                 },
                 {
                   label: t('outbound.departure.dealer'),
@@ -479,17 +520,18 @@ export default function OutboundDeparturePage() {
                   title: '',
                   width: 140,
                   render: (_, r) => {
-                    if (!canScan || drawerWaybill.status !== 'NOT_ARRIVED') return null;
+                    if (!canScan || drawerWaybill.status !== 'NOT_ARRIVED')
+                      return null;
                     if (r.loadedAt) {
                       return (
-                        <Popconfirm
-                          title={t('outbound.departure.undoLoadTitle')}
-                          onConfirm={() => undoLoad(r.vin)}
+                        <Button
+                          size="small"
+                          danger
+                          icon={<UndoOutlined />}
+                          onClick={() => setUnloadVin(r.vin)}
                         >
-                          <Button size="small" danger icon={<UndoOutlined />}>
-                            {t('outbound.departure.undoLoad')}
-                          </Button>
-                        </Popconfirm>
+                          {t('outbound.departure.undoLoad')}
+                        </Button>
                       );
                     }
                     return (
@@ -541,7 +583,8 @@ export default function OutboundDeparturePage() {
                   okText={t('outbound.departure.departOk')}
                   okButtonProps={{ danger: false }}
                   disabled={
-                    !canScan || loadedCount(drawerWaybill) !== drawerWaybill.vins.length
+                    !canScan ||
+                    loadedCount(drawerWaybill) !== drawerWaybill.vins.length
                   }
                 >
                   <Button
@@ -551,7 +594,8 @@ export default function OutboundDeparturePage() {
                     block
                     loading={departBusy}
                     disabled={
-                      !canScan || loadedCount(drawerWaybill) !== drawerWaybill.vins.length
+                      !canScan ||
+                      loadedCount(drawerWaybill) !== drawerWaybill.vins.length
                     }
                     style={{ marginTop: 12 }}
                   >

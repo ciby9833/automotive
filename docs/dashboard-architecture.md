@@ -2,7 +2,7 @@
 
 ## 1. 设计原则
 
-- **单一事实源**：库位现状来自 `yard_slots`，车辆入库来自 `operation_logs`，车辆出库来自 `waybill_status_logs`，预计到货来自 `orders + order_vins`。
+- **单一事实源**：库位现状来自 `yard_slots`，在场库存来自 `yard_inventory`，车辆入库、发运、撤销及调整来自 `inventory_movements`，预计到货来自 `orders + order_vins`。
 - **后端统一口径**：页面不自行拼接多个业务接口，也不在浏览器计算权限范围；`DashboardService` 负责指标、对比、预警和场地级数据裁剪。
 - **历史不可伪造**：总量类月度对比来自不可变的 `yard_daily_snapshots`。没有完整业务日快照时返回 `null`，前端显示“暂无历史基线”。
 - **按风险而非装饰排序**：预警按 critical / warning / info 排序，采用汽车制造现场常用的 Andon 式红、黄、蓝层级。
@@ -15,10 +15,10 @@
 | 场地       | 权限范围内启用场地数量                                    | 上月最后一个完整业务日快照    |
 | 总库位     | 权限范围内全部库位                                        | 上月最后一个有效日快照        |
 | 已用库位   | `yard_slots.status = OCCUPIED`                            | 上月最后一个有效日快照        |
-| 库位利用率 | 已用库位 / 总库位                                         | 上月最后一个有效日快照        |
-| 在场车辆   | 占用库位中的唯一 `currentVin` 数量                        | 上月快照库存中的唯一 VIN 数量 |
-| 今日入库   | 当前机构业务日 `INBOUND_SCAN / INBOUND_UNEXPECTED` 事件数 | 上一业务日                    |
-| 今日出库   | 当前机构业务日 `DELIVERY_DEPARTURE` 事件数                | 上一业务日                    |
+| 库位利用率 | 启用且未冻结的已用库位 / 启用且未冻结的库位                                         | 上月最后一个有效日快照        |
+| 在场车辆   | `yard_inventory` 未关闭的记录数（包含已装待出场）                        | 上月快照库存中的唯一 VIN 数量 |
+| 今日入库   | 当前机构业务日 `inventory_movements.INBOUND` 流水数 | 上一业务日                    |
+| 今日出库   | 当前机构业务日 `inventory_movements.DEPARTURE` 流水数                | 上一业务日                    |
 
 “今日/昨日”和快照日切均读取 `organization_operating_policies` 的 IANA
 时区与业务日切时间，不依赖浏览器或总部时区。
@@ -28,7 +28,7 @@
 一个库位只展示一个主状态，优先级固定为：
 
 1. `LOCKED`：业务锁定；
-2. `LONG_STAY`：占用超过 7 天；
+2. `LONG_STAY`：本次在场时间超过机构配置的 `long_stay_days`；
 3. `OCCUPIED`：正常占用；
 4. `VACANT`：空置。
 
@@ -59,12 +59,12 @@ ID，便于业务人员定位并修正源数据。选择单一场地时，重复
 - 页面每 60 秒静默刷新，也支持人工刷新；
 - 实时值读取业务事实表；历史值读取不可变每日快照；
 - 调度器每分钟检查机构策略，到达机构本地日切后生成上一完整业务日；
-- 应用停机恢复后，利用状态事件按时间点补跑漏失业务日；
+- 应用停机恢复后，利用状态事件和库存流水按时间点补跑漏失业务日；
 - `daily_snapshot_runs` 记录时区、日切窗口、当时规则、数量与质量结果；
 - `yard_daily_snapshots` 保存场地及汇总；
 - `slot_daily_snapshots` 保存每个库位的历史状态；
-- `inventory_daily_snapshots` 保存每个占用库位的 VIN 库存；
-- `vehicle_movement_daily_snapshots` 保存入库、出库事实；
+- `inventory_daily_snapshots` 保存每个在场周期的 VIN 库存及位置，包括无库位的已装待出场车辆；
+- `vehicle_movement_daily_snapshots` 保存库存流水的数量变化（入库、发运、撤销、盘点及初始化）；
 - 已完成快照由数据库触发器禁止更新或删除。
 
 迁移前的汇总表保留为 `dashboard_daily_snapshots_legacy`，不再参与看板计算。
@@ -78,4 +78,6 @@ ID，便于业务人员定位并修正源数据。选择单一场地时，重复
 - 新预警：实现规则并返回统一 `DashboardAlert`，页面按类型扩展文案；
 - 场地图升级：现有行/区网格可替换为带坐标的 GIS/SVG 布局，库位状态契约不变；
 - 推送实时化：可在现有 tracking WebSocket 事件上增加看板失效通知，保留轮询作为兜底；
-- 多时区：在 `organizations` 增加 IANA 时区后，由服务端根据机构确定日切，不再依赖浏览器时区。
+- 时区：已由 `organization_operating_policies` 配置 IANA 时区和业务日切，扩展指标继续使用这一口径。
+
+库存核对公式、容量定义、基线衔接及事务审计范围见 [场地库存修复与上线说明](yard-inventory-ledger.md)。

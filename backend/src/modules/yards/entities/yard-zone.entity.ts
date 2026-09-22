@@ -1,4 +1,11 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+} from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Yard } from './yard.entity';
 import { YardSlot } from './yard-slot.entity';
@@ -29,6 +36,9 @@ export class YardZone extends BaseEntity {
   // 每排位数（一排能停几台车）
   @Column({ name: 'row_count', type: 'integer', default: 0 })
   rowCount: number;
+
+  @Column({ type: 'varchar', default: 'PARKING' })
+  purpose: 'PARKING' | 'STAGING';
 
   @Column({ name: 'is_active', default: true })
   isActive: boolean;

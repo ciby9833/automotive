@@ -49,7 +49,10 @@ export default function VinInventoryPage() {
   const { t } = useTranslation();
 
   useEffect(() => {
-    yardsApi.list().then(setYards).catch(() => undefined);
+    yardsApi
+      .list()
+      .then(setYards)
+      .catch(() => undefined);
   }, []);
 
   const currentFilters = () => ({
@@ -96,7 +99,10 @@ export default function VinInventoryPage() {
     sortBy,
     sortOrder,
   ]);
-  useEffect(() => setPage(1), [orgFilter, yardId, minStayDays, dateRange, vinFilter, slotCode, orderCode]);
+  useEffect(
+    () => setPage(1),
+    [orgFilter, yardId, minStayDays, dateRange, vinFilter, slotCode, orderCode],
+  );
 
   const locateOnBoard = (row: VinInventoryRow) => {
     router.push(
@@ -112,7 +118,10 @@ export default function VinInventoryPage() {
   const onExport = async () => {
     setExporting(true);
     try {
-      const res = await yardsApi.vinInventory({ ...currentFilters(), all: true });
+      const res = await yardsApi.vinInventory({
+        ...currentFilters(),
+        all: true,
+      });
       const fname = `vin-inventory-${dayjs().format('YYYYMMDD-HHmmss')}.xlsx`;
       exportRowsToXlsx<VinInventoryRow>(
         res.items,
@@ -121,7 +130,10 @@ export default function VinInventoryPage() {
           { header: t('vinInventory.model'), accessor: 'model' },
           { header: t('vinInventory.color'), accessor: 'color' },
           { header: t('vinInventory.vehicleType'), accessor: 'vehicleType' },
-          { header: t('vinInventory.yard'), accessor: (r) => `${r.yardName} (${r.yardCode})` },
+          {
+            header: t('vinInventory.yard'),
+            accessor: (r) => `${r.yardName} (${r.yardCode})`,
+          },
           { header: t('vinInventory.slot'), accessor: 'slotCode' },
           { header: t('vinInventory.stayDays'), accessor: 'stayDays' },
           { header: t('vinInventory.orderCode'), accessor: 'orderCode' },
@@ -134,7 +146,8 @@ export default function VinInventoryPage() {
         fname,
       );
     } catch (e) {
-      const msg = (e as { response?: { data?: { message?: string } } }).response?.data?.message;
+      const msg = (e as { response?: { data?: { message?: string } } }).response
+        ?.data?.message;
       message.error(msg || (e as Error).message);
     } finally {
       setExporting(false);
@@ -143,7 +156,15 @@ export default function VinInventoryPage() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
         <Space wrap>
           <h2 style={{ margin: 0 }}>{t('vinInventory.title')}</h2>
           <OrgFilter value={orgFilter} onChange={setOrgFilter} />
@@ -194,7 +215,9 @@ export default function VinInventoryPage() {
           onChange={(e) => setOrderCode(e.target.value)}
           onSearch={load}
         />
-        <span style={{ color: '#64748b' }}>{t('vinInventory.minStayDays')}</span>
+        <span style={{ color: '#64748b' }}>
+          {t('vinInventory.minStayDays')}
+        </span>
         <InputNumber
           min={0}
           max={365}
@@ -213,7 +236,7 @@ export default function VinInventoryPage() {
       </Space>
 
       <Table
-        rowKey="slotId"
+        rowKey="vin"
         loading={loading}
         dataSource={rows}
         pagination={{
@@ -233,27 +256,50 @@ export default function VinInventoryPage() {
           const s = Array.isArray(sorter) ? sorter[0] : sorter;
           setSortBy(s && s.order ? (s.columnKey as string) : undefined);
           setSortOrder(
-            s?.order === 'ascend' ? 'asc' : s?.order === 'descend' ? 'desc' : undefined,
+            s?.order === 'ascend'
+              ? 'asc'
+              : s?.order === 'descend'
+                ? 'desc'
+                : undefined,
           );
         }}
         columns={[
+          {
+            title: t('yardOps.inventoryPosition'),
+            dataIndex: 'position',
+            render: (v: string) => t(`yardOps.${v}`),
+          },
           { title: 'VIN', dataIndex: 'vin', width: 200 },
-          { title: t('vinInventory.model'), dataIndex: 'model', render: (v) => v ?? '-' },
-          { title: t('vinInventory.color'), dataIndex: 'color', render: (v) => v ?? '-' },
-          { title: t('vinInventory.vehicleType'), dataIndex: 'vehicleType', render: (v) => v ?? '-' },
+          {
+            title: t('vinInventory.model'),
+            dataIndex: 'model',
+            render: (v) => v ?? '-',
+          },
+          {
+            title: t('vinInventory.color'),
+            dataIndex: 'color',
+            render: (v) => v ?? '-',
+          },
+          {
+            title: t('vinInventory.vehicleType'),
+            dataIndex: 'vehicleType',
+            render: (v) => v ?? '-',
+          },
           {
             title: t('vinInventory.yard'),
             dataIndex: 'yardName',
             key: 'yardName',
             sorter: true,
-            render: (_: unknown, r: VinInventoryRow) => `${r.yardName} (${r.yardCode})`,
+            render: (_: unknown, r: VinInventoryRow) =>
+              `${r.yardName} (${r.yardCode})`,
           },
           {
             title: t('vinInventory.slot'),
             dataIndex: 'slotCode',
             key: 'slotCode',
             sorter: true,
-            render: (v: string) => <Tag color="green">{v}</Tag>,
+            render: (v: string | null) =>
+              v ? <Tag color="green">{v}</Tag> : '—',
           },
           {
             title: t('vinInventory.stayDays'),
@@ -262,8 +308,16 @@ export default function VinInventoryPage() {
             width: 120,
             sorter: true,
             defaultSortOrder: 'descend' as const,
-            render: (n: number) => (
-              <Tag color={n >= 30 ? 'red' : n >= 14 ? 'orange' : 'default'}>
+            render: (n: number, r: VinInventoryRow) => (
+              <Tag
+                color={
+                  r.isLongStay
+                    ? n >= 2 * r.longStayDays
+                      ? 'red'
+                      : 'orange'
+                    : 'default'
+                }
+              >
                 {t('vinInventory.days', { n })}
               </Tag>
             ),
@@ -280,6 +334,7 @@ export default function VinInventoryPage() {
               <Button
                 size="small"
                 icon={<EnvironmentOutlined />}
+                disabled={!r.slotId}
                 onClick={() => locateOnBoard(r)}
               >
                 {t('vinInventory.locate')}

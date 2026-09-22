@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
 import { WaybillStatusLog } from './entities/waybill-status-log.entity';
 import { OperationLog } from './entities/operation-log.entity';
 import { DriverPosition } from './entities/driver-position.entity';
@@ -68,19 +68,33 @@ export class TrackingService {
 
     for (const p of dto.positions) {
       if (p.waybillId) {
-        const owned = await this.logsRepository.manager.findOneBy(Waybill, { id: p.waybillId, carrierId: user.carrierId });
-        if (!owned || (p.orderId && p.orderId !== owned.orderId)) throw new ForbiddenException('位置关联的运单不属于当前承运商');
+        const owned = await this.logsRepository.manager.findOneBy(Waybill, {
+          id: p.waybillId,
+          carrierId: user.carrierId,
+        });
+        if (!owned || (p.orderId && p.orderId !== owned.orderId))
+          throw new ForbiddenException('位置关联的运单不属于当前承运商');
       }
-      if (p.orderId && !p.waybillId && !await this.logsRepository.manager.findOneBy(Order, { id: p.orderId, pickupCarrierId: user.carrierId }))
+      if (
+        p.orderId &&
+        !p.waybillId &&
+        !(await this.logsRepository.manager.findOneBy(Order, {
+          id: p.orderId,
+          pickupCarrierId: user.carrierId,
+        }))
+      )
         throw new ForbiddenException('位置关联的提货订单不属于当前承运商');
       if (p.vin) {
-        const [owned] = await this.logsRepository.query(`SELECT 1 FROM order_vins v JOIN orders o ON o.id=v.order_id
+        const [owned] = await this.logsRepository.query(
+          `SELECT 1 FROM order_vins v JOIN orders o ON o.id=v.order_id
           WHERE v.vin=$1 AND o.pickup_carrier_id=$2 AND $4::uuid IS NULL AND ($3::uuid IS NULL OR o.id=$3)
           UNION ALL SELECT 1 FROM waybill_vins v JOIN waybills w ON w.id=v.waybill_id
           WHERE v.vin=$1 AND w.carrier_id=$2 AND ($4::uuid IS NULL OR w.id=$4)
             AND ($3::uuid IS NULL OR w.order_id=$3) LIMIT 1`,
-        [p.vin, user.carrierId, p.orderId ?? null, p.waybillId ?? null]);
-        if (!owned) throw new ForbiddenException('位置关联的 VIN 不属于当前运输任务');
+          [p.vin, user.carrierId, p.orderId ?? null, p.waybillId ?? null],
+        );
+        if (!owned)
+          throw new ForbiddenException('位置关联的 VIN 不属于当前运输任务');
       }
     }
 
@@ -106,24 +120,25 @@ export class TrackingService {
     return { accepted: rows.length };
   }
 
-  // 事务外调用，失败不阻塞业务：DB 层面的问题（enum 缺值 / 权限 / 网络抖动）
-  // 都不应该让"装车成功了但接口 500"的故事重演。返回 null 表明记录失败但业务已成。
   async appendLog(
     data: Partial<WaybillStatusLog>,
-  ): Promise<WaybillStatusLog | null> {
-    try {
-      const log = this.logsRepository.create(data);
-      return await this.logsRepository.save(log);
-    } catch (err) {
-      this.logger.error(
-        `tracking appendLog failed action=${data.action} vin=${data.vin}: ${(err as Error).message}`,
-      );
-      return null;
-    }
+    manager: EntityManager,
+  ): Promise<WaybillStatusLog> {
+    if (!manager.queryRunner?.isTransactionActive)
+      throw new Error('Tracking requires the business transaction');
+    return manager.save(
+      WaybillStatusLog,
+      manager.create(WaybillStatusLog, data),
+    );
   }
 
-  async findByVin(vin: string, scope: EffectiveScope): Promise<WaybillStatusLog[]> {
-    const logs = await this.statusQuery(scope).andWhere('l.vin = :vin', { vin }).getMany();
+  async findByVin(
+    vin: string,
+    scope: EffectiveScope,
+  ): Promise<WaybillStatusLog[]> {
+    const logs = await this.statusQuery(scope)
+      .andWhere('l.vin = :vin', { vin })
+      .getMany();
     if (logs.length === 0) {
       throw new NotFoundException('未找到该VIN的轨迹记录');
     }
@@ -131,7 +146,10 @@ export class TrackingService {
   }
 
   // VIN 全生命周期：operation_logs + waybill_status_logs 归一化按 occurredAt 排序
-  async timelineByVin(vin: string, scope: EffectiveScope): Promise<TimelineEntry[]> {
+  async timelineByVin(
+    vin: string,
+    scope: EffectiveScope,
+  ): Promise<TimelineEntry[]> {
     const [opLogs, scanLogs] = await Promise.all([
       this.operationQuery(scope).andWhere('l.vin = :vin', { vin }).getMany(),
       this.statusQuery(scope).andWhere('l.vin = :vin', { vin }).getMany(),
@@ -139,8 +157,13 @@ export class TrackingService {
     return this.mergeSorted(opLogs, scanLogs);
   }
 
-  async timelineByOrderId(orderId: string, scope: EffectiveScope): Promise<TimelineEntry[]> {
-    const opLogs = await this.operationQuery(scope).andWhere('l.orderId = :orderId', { orderId }).getMany();
+  async timelineByOrderId(
+    orderId: string,
+    scope: EffectiveScope,
+  ): Promise<TimelineEntry[]> {
+    const opLogs = await this.operationQuery(scope)
+      .andWhere('l.orderId = :orderId', { orderId })
+      .getMany();
     // waybill_status_logs 没直接挂 orderId；如果需要按订单聚合运单事件，取其 VIN 列表再回查
     const vins = Array.from(
       new Set(opLogs.map((l) => l.vin).filter((v): v is string => !!v)),
@@ -154,9 +177,12 @@ export class TrackingService {
   }
 
   private operationQuery(scope: EffectiveScope) {
-    const qb = this.opLogsRepository.createQueryBuilder('l')
-      .leftJoinAndSelect('l.operator', 'operator').leftJoinAndSelect('l.yard', 'yard')
-      .leftJoinAndSelect('l.slot', 'slot').leftJoinAndSelect('slot.zone', 'zone')
+    const qb = this.opLogsRepository
+      .createQueryBuilder('l')
+      .leftJoinAndSelect('l.operator', 'operator')
+      .leftJoinAndSelect('l.yard', 'yard')
+      .leftJoinAndSelect('l.slot', 'slot')
+      .leftJoinAndSelect('slot.zone', 'zone')
       .leftJoin(Waybill, 'w', 'w.id = l.waybillId')
       .leftJoin(Order, 'o', 'o.id = COALESCE(l.orderId, w.orderId)')
       .orderBy('l.eventAt', 'ASC');
@@ -165,22 +191,40 @@ export class TrackingService {
   }
 
   private statusQuery(scope: EffectiveScope) {
-    const qb = this.logsRepository.createQueryBuilder('l')
-      .leftJoinAndSelect('l.operator', 'operator').leftJoinAndSelect('l.yard', 'yard')
-      .innerJoin('l.waybill', 'w').leftJoin('w.order', 'o').orderBy('l.createdAt', 'ASC');
+    const qb = this.logsRepository
+      .createQueryBuilder('l')
+      .leftJoinAndSelect('l.operator', 'operator')
+      .leftJoinAndSelect('l.yard', 'yard')
+      .innerJoin('l.waybill', 'w')
+      .leftJoin('w.order', 'o')
+      .orderBy('l.createdAt', 'ASC');
     this.filterLogs(qb, scope);
     return qb;
   }
 
-  private filterLogs<T extends object>(qb: SelectQueryBuilder<T>, scope: EffectiveScope) {
+  private filterLogs<T extends object>(
+    qb: SelectQueryBuilder<T>,
+    scope: EffectiveScope,
+  ) {
     if (scope.type === 'ORG') {
-      qb.andWhere('COALESCE(w.organizationId, o.organizationId, yard.organizationId) IN (:...orgs)', { orgs: scope.orgIds });
-      if (scope.role === Role.YARD_STAFF) qb.andWhere(
-        '(yard.id = :yardId OR w.originYardId = :yardId OR w.destinationYardId = :yardId OR o.destinationYardId = :yardId)',
-        { yardId: scope.scopeYardId });
+      qb.andWhere(
+        'COALESCE(w.organizationId, o.organizationId, yard.organizationId) IN (:...orgs)',
+        { orgs: scope.orgIds },
+      );
+      if (scope.role === Role.YARD_STAFF)
+        qb.andWhere(
+          '(yard.id = :yardId OR w.originYardId = :yardId OR w.destinationYardId = :yardId OR o.destinationYardId = :yardId)',
+          { yardId: scope.scopeYardId },
+        );
     } else if (scope.type === 'CARRIER') {
-      qb.andWhere('(w.carrierId = :carrierId OR o.pickupCarrierId = :carrierId)', { carrierId: scope.carrierId });
-    } else qb.andWhere('o.customerId = :customerId', { customerId: scope.customerId });
+      qb.andWhere(
+        '(w.carrierId = :carrierId OR o.pickupCarrierId = :carrierId)',
+        { carrierId: scope.carrierId },
+      );
+    } else
+      qb.andWhere('o.customerId = :customerId', {
+        customerId: scope.customerId,
+      });
   }
 
   private mergeSorted(

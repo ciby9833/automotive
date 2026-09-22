@@ -3,12 +3,7 @@ import type { Paginated } from './pagination';
 
 export type TransportType = 'TRANSFER' | 'REALLOCATION' | 'DELIVERY';
 export type WaybillStatus = 'NOT_ARRIVED' | 'IN_TRANSIT' | 'ARRIVED';
-export type ScanAction =
-  | 'INBOUND_ARRIVAL'
-  | 'REALLOCATION_DEPARTURE'
-  | 'REALLOCATION_ARRIVAL'
-  | 'DELIVERY_DEPARTURE'
-  | 'SIGNED';
+export type ScanAction = 'SIGNED';
 
 export interface WaybillVin {
   id: string;
@@ -112,17 +107,22 @@ export const waybillsApi = {
     unwrap<{ loadedAt: string; loadedCount: number; totalCount: number }>(
       apiClient.post(`/waybills/${waybillId}/vins/${vin}/load`, payload),
     ),
-  unloadVin: (waybillId: string, vin: string) =>
+  unloadVin: (waybillId: string, vin: string, slotId?: string) =>
     unwrap<{ loadedCount: number; totalCount: number }>(
-      apiClient.delete(`/waybills/${waybillId}/vins/${vin}/load`),
+      apiClient.delete(`/waybills/${waybillId}/vins/${vin}/load`, {
+        data: { slotId },
+      }),
     ),
   depart: (
     waybillId: string,
     payload: { gatePhotoKeys?: string[]; remark?: string },
-  ) => unwrap<Waybill>(apiClient.post(`/waybills/${waybillId}/depart`, payload)),
+  ) =>
+    unwrap<Waybill>(apiClient.post(`/waybills/${waybillId}/depart`, payload)),
   assign: (
     waybillId: string,
     payload: { driverId?: string | null; vehicleId?: string | null },
   ) =>
-    unwrap<Waybill>(apiClient.patch(`/waybills/${waybillId}/assignment`, payload)),
+    unwrap<Waybill>(
+      apiClient.patch(`/waybills/${waybillId}/assignment`, payload),
+    ),
 };

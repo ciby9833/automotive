@@ -308,7 +308,7 @@ export class DailySnapshotService
         )
         INSERT INTO slot_daily_snapshots (
           id, snapshot_run_id, business_date, organization_id, yard_id,
-          slot_id, zone_id, zone_code, line, "row", slot_code,
+          slot_id, zone_id, zone_code, line, "row", slot_code, zone_is_active, zone_purpose,
           status, current_vin, assigned_at, is_locked, locked_at, captured_at
         )
         SELECT
@@ -322,6 +322,7 @@ export class DailySnapshotService
               || '-' || LPAD(NULLIF(l.state->>'row', '')::int::text, 2, '0')
             ELSE NULL
           END,
+          (l.state->>'zone_is_active')::boolean, l.state->>'zone_purpose',
           l.state->>'status', l.state->>'current_vin',
           NULLIF(l.state->>'assigned_at', '')::timestamptz,
           COALESCE((l.state->>'is_locked')::boolean, false),
@@ -335,41 +336,23 @@ export class DailySnapshotService
 
       await runner.query(
         `
-        INSERT INTO inventory_daily_snapshots (
-          id, snapshot_run_id, business_date, organization_id, yard_id,
-          slot_id, slot_code, vin, assigned_at, stay_days,
-          order_id, order_vin_slot_id, order_code, customer_id, brand, model, color,
-          vehicle_type, captured_at
+        WITH latest AS (
+          SELECT DISTINCT ON (inventory_id) inventory_id, after_state AS state
+          FROM inventory_movements WHERE organization_id=$3 AND occurred_at<$4
+          ORDER BY inventory_id, id DESC
         )
-        SELECT
-          uuid_generate_v4(), $1, $2, s.organization_id, s.yard_id,
-          s.slot_id, s.slot_code, s.current_vin, s.assigned_at,
-          GREATEST(
-            0,
-            FLOOR(EXTRACT(EPOCH FROM ($3::timestamptz - s.assigned_at)) / 86400)
-          )::int,
-          NULLIF(ov.state->>'order_id', '')::uuid,
-          NULLIF(ov.state->>'slot_id', '')::uuid,
-          o."orderCode", o.customer_id,
-          ov.state->>'brand', ov.state->>'model', ov.state->>'color',
-          ov.state->>'vehicleType', NOW()
-        FROM slot_daily_snapshots s
-        LEFT JOIN LATERAL (
-          SELECT event.state
-          FROM order_vin_state_events event
-          WHERE event.organization_id = s.organization_id
-            AND event.vin = s.current_vin
-            AND event.occurred_at < $4
-            AND event.event_type <> 'DELETED'
-          ORDER BY event.occurred_at DESC, event.id DESC
-          LIMIT 1
-        ) ov ON true
-        LEFT JOIN orders o ON o.id = NULLIF(ov.state->>'order_id', '')::uuid
-        WHERE s.snapshot_run_id = $1
-          AND s.status = 'OCCUPIED'
-          AND s.current_vin IS NOT NULL
-        `,
-        [runId, businessDate, windowEnd, windowEnd],
+        INSERT INTO inventory_daily_snapshots (
+          id,snapshot_run_id,business_date,organization_id,yard_id,inventory_id,position,
+          slot_id,slot_code,vin,assigned_at,stay_days,order_id,order_vin_slot_id,order_code,customer_id,brand,model,color,vehicle_type)
+        SELECT uuid_generate_v4(),$1,$2,$3,(l.state->>'yardId')::uuid,l.inventory_id,l.state->>'position',
+          (l.state->>'slotId')::uuid,s.slot_code,l.state->>'vin',(l.state->>'enteredAt')::timestamptz,
+          GREATEST(0,FLOOR(EXTRACT(EPOCH FROM ($4::timestamptz-(l.state->>'enteredAt')::timestamptz))/86400))::int,
+          (l.state->'vehicle'->>'orderId')::uuid,(l.state->'vehicle'->>'slotId')::uuid,o."orderCode",o.customer_id,
+          l.state->'vehicle'->>'brand',l.state->'vehicle'->>'model',l.state->'vehicle'->>'color',l.state->'vehicle'->>'vehicleType'
+        FROM latest l LEFT JOIN slot_daily_snapshots s ON s.snapshot_run_id=$1 AND s.slot_id=(l.state->>'slotId')::uuid
+        LEFT JOIN orders o ON o.id=(l.state->'vehicle'->>'orderId')::uuid
+        WHERE l.state->>'closedAt' IS NULL`,
+        [runId, businessDate, policy.organization_id, windowEnd],
       );
 
       await runner.query(
@@ -377,6 +360,8 @@ export class DailySnapshotService
         UPDATE yard_daily_snapshots y
         SET
           total_slots = stats.total_slots,
+          usable_capacity = stats.usable_capacity,
+          occupied_usable = stats.occupied_usable,
           used_slots = stats.used_slots,
           locked_slots = stats.locked_slots,
           long_stay_slots = stats.long_stay_slots,
@@ -385,6 +370,8 @@ export class DailySnapshotService
           SELECT
             yard_id,
             COUNT(*)::int AS total_slots,
+            COUNT(*) FILTER(WHERE zone_is_active AND NOT is_locked)::int AS usable_capacity,
+            COUNT(*) FILTER(WHERE zone_is_active AND NOT is_locked AND status='OCCUPIED')::int AS occupied_usable,
             COUNT(*) FILTER (WHERE status = 'OCCUPIED')::int AS used_slots,
             COUNT(*) FILTER (WHERE is_locked)::int AS locked_slots,
             COUNT(*) FILTER (
@@ -405,50 +392,19 @@ export class DailySnapshotService
       );
 
       await runner.query(
-        `
-        INSERT INTO vehicle_movement_daily_snapshots (
-          id, snapshot_run_id, business_date, organization_id,
-          movement_type, source_type, source_id, occurred_at, vin,
-          yard_id, slot_id, order_id, waybill_id, captured_at
-        )
-        SELECT
-          uuid_generate_v4(), $1, $2, $3, 'INBOUND', 'OPERATION_LOG',
-          log.id, COALESCE(log.event_at, log.created_at), log.vin,
-          COALESCE(log.yard_id, slot.yard_id, orders.destination_yard_id),
-          log.slot_id, log.order_id, log.waybill_id, NOW()
-        FROM operation_logs log
-        LEFT JOIN yard_slots slot ON slot.id = log.slot_id
-        LEFT JOIN orders ON orders.id = log.order_id
-        LEFT JOIN yards yard ON yard.id =
-          COALESCE(log.yard_id, slot.yard_id, orders.destination_yard_id)
-        WHERE log.operation_type IN ('INBOUND_SCAN', 'INBOUND_UNEXPECTED')
-          AND COALESCE(log.event_at, log.created_at) >= $4
-          AND COALESCE(log.event_at, log.created_at) < $5
-          AND COALESCE(yard.organization_id, orders.organization_id) = $3
-        ON CONFLICT (source_type, source_id) DO NOTHING
-        `,
-        [runId, businessDate, policy.organization_id, windowStart, windowEnd],
+        `UPDATE yard_daily_snapshots y SET vehicles_on_site=(SELECT count(*) FROM inventory_daily_snapshots i
+        WHERE i.snapshot_run_id=$1 AND i.yard_id=y.yard_id) WHERE y.snapshot_run_id=$1`,
+        [runId],
       );
-
       await runner.query(
-        `
-        INSERT INTO vehicle_movement_daily_snapshots (
-          id, snapshot_run_id, business_date, organization_id,
-          movement_type, source_type, source_id, occurred_at, vin,
-          yard_id, slot_id, order_id, waybill_id, captured_at
-        )
-        SELECT
-          uuid_generate_v4(), $1, $2, $3, 'OUTBOUND',
-          'WAYBILL_STATUS_LOG', log.id, log.created_at, log.vin,
-          COALESCE(log.yard_id, waybill.origin_yard_id),
-          NULL, waybill.order_id, log.waybill_id, NOW()
-        FROM waybill_status_logs log
-        JOIN waybills waybill ON waybill.id = log.waybill_id
-        WHERE log.action = 'DELIVERY_DEPARTURE'
-          AND log.created_at >= $4 AND log.created_at < $5
-          AND waybill.organization_id = $3
-        ON CONFLICT (source_type, source_id) DO NOTHING
-        `,
+        `INSERT INTO vehicle_movement_daily_snapshots(
+        id,snapshot_run_id,business_date,organization_id,movement_type,source_type,source_id,ledger_id,movement_kind,delta,
+        occurred_at,vin,yard_id,slot_id,order_id,waybill_id)
+        SELECT uuid_generate_v4(),$1,$2,$3,
+          CASE WHEN m.delta>0 THEN 'INBOUND'::daily_movement_type_enum ELSE 'OUTBOUND'::daily_movement_type_enum END,
+          'INVENTORY_LEDGER',NULL,m.id,m.kind,m.delta,m.occurred_at,m.vin,m.yard_id,
+          (m.after_state->>'slotId')::uuid,(m.after_state->'vehicle'->>'orderId')::uuid,m.waybill_id
+        FROM inventory_movements m WHERE m.organization_id=$3 AND m.occurred_at >= $4 AND m.occurred_at < $5 AND m.delta<>0`,
         [runId, businessDate, policy.organization_id, windowStart, windowEnd],
       );
 
@@ -496,9 +452,9 @@ export class DailySnapshotService
           inventory_count = (SELECT COUNT(*) FROM inventory_daily_snapshots
             WHERE snapshot_run_id = $1),
           inbound_count = (SELECT COUNT(*) FROM vehicle_movement_daily_snapshots
-            WHERE snapshot_run_id = $1 AND movement_type = 'INBOUND'),
+            WHERE snapshot_run_id = $1 AND movement_kind = 'INBOUND'),
           outbound_count = (SELECT COUNT(*) FROM vehicle_movement_daily_snapshots
-            WHERE snapshot_run_id = $1 AND movement_type = 'OUTBOUND'),
+            WHERE snapshot_run_id = $1 AND movement_kind = 'DEPARTURE'),
           is_consistent = $2,
           quality_issues = $3::jsonb
         WHERE id = $1

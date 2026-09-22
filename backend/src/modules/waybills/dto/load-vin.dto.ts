@@ -5,6 +5,7 @@ import {
   IsArray,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
 } from 'class-validator';
 
@@ -22,4 +23,8 @@ export class LoadVinDto {
   @IsString()
   @MaxLength(500)
   remark?: string;
+}
+
+export class UnloadVinDto {
+  @IsOptional() @IsUUID() slotId?: string;
 }

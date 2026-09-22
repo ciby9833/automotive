@@ -649,8 +649,8 @@ export class TransportOrdersService {
       for (const b of legacy)
         errors.push({ row: vinRows.get(b.vin)!, message: `VIN ${b.vin} 在场地运单中` });
       const stock = await m.query<{ vin: string }[]>(
-        `SELECT DISTINCT upper(trim(current_vin)) vin FROM yard_slots
-         WHERE upper(trim(current_vin)) = ANY($1::varchar[]) AND status = 'OCCUPIED'`,
+        `SELECT DISTINCT upper(trim(vin)) vin FROM yard_inventory
+         WHERE upper(trim(vin)) = ANY($1::varchar[]) AND closed_at IS NULL`,
         [vins],
       );
       for (const b of stock)

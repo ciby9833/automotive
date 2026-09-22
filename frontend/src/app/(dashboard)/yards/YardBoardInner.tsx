@@ -11,7 +11,6 @@ import {
   Form,
   Input,
   Modal,
-  Popconfirm,
   Row,
   Select,
   Space,
@@ -20,7 +19,12 @@ import {
   Tooltip,
   message,
 } from 'antd';
-import { CarOutlined, FileSearchOutlined, ReloadOutlined, SwapOutlined } from '@ant-design/icons';
+import {
+  CarOutlined,
+  FileSearchOutlined,
+  ReloadOutlined,
+  SwapOutlined,
+} from '@ant-design/icons';
 import { yardsApi, Yard, YardSlot, YardStats } from '@/lib/api/yards';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
@@ -31,21 +35,27 @@ import { Permission, usePermission } from '@/lib/auth/permissions';
 import { VinLifecycleDrawer } from '@/components/vin/VinLifecycleDrawer';
 import { formatSlotCode } from '@/lib/slots';
 import { Tabs } from 'antd';
+import { PhotoUpload } from '@/components/scan/PhotoUpload';
 
 // 场地看板(Operation) - 天天开的运营页面
-// 只做：可视化 / VIN 搜索 / 移位 / 占用 / 释放。绝不出现"新增库位/删除库位"入口。
+// 只做：可视化 / VIN 搜索 / 入库 / 移位 / 撤销误入库 / 盘点调整。绝不出现"新增库位/删除库位"入口。
 // 支持 URL 参数 ?yardId=X&highlightVin=Y 从 VIN 库存页跳转过来直接定位
 
 // 4 色状态：空 / 占用 / 长龄 / 锁定 (按行业惯例配色)
-// 长龄阈值 7 天：assignedAt 距今超 7 天的车通常需要关注（是否遗漏发运）
-const LONG_STAY_THRESHOLD_MS = 7 * 24 * 3600 * 1000;
-function slotCellColor(slot: YardSlot, nowMs: number): string {
+// 与总览共用机构长龄阈值；移位不改变本次入场时间。
+
+function slotCellColor(
+  slot: YardSlot,
+  nowMs: number,
+  longStayDays: number | null,
+): string {
   if (slot.isLocked) return '#dc2626'; // red-600 锁定
   if (slot.status === 'VACANT') return '#94a3b8'; // slate-400 空
   // OCCUPIED
   if (slot.assignedAt) {
     const stayMs = nowMs - new Date(slot.assignedAt).getTime();
-    if (stayMs > LONG_STAY_THRESHOLD_MS) return '#ea580c'; // orange-600 长龄
+    if (longStayDays !== null && stayMs > longStayDays * 86400000)
+      return '#ea580c'; // orange-600 长龄
   }
   return '#2563eb'; // blue-600 正常占用
 }
@@ -58,7 +68,9 @@ export default function YardBoardInner() {
 
   const [yards, setYards] = useState<Yard[]>([]);
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
-  const [selectedYardId, setSelectedYardId] = useState<string | null>(initialYardId);
+  const [selectedYardId, setSelectedYardId] = useState<string | null>(
+    initialYardId,
+  );
   const [slots, setSlots] = useState<YardSlot[]>([]);
   const [stats, setStats] = useState<YardStats | null>(null);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -75,6 +87,12 @@ export default function YardBoardInner() {
   // 当前区 tab 选中
   const [activeZone, setActiveZone] = useState<string>('');
 
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [correction, setCorrection] = useState<'UNDO' | 'IN' | 'OUT' | null>(
+    null,
+  );
+  const [correctionForm] = Form.useForm();
+  const [correcting, setCorrecting] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignForm] = Form.useForm();
 
@@ -83,6 +101,7 @@ export default function YardBoardInner() {
   const { t, locale } = useTranslation();
 
   const canAssign = usePermission(Permission.YARD_ASSIGN_SLOT);
+  const canAdjust = usePermission(Permission.YARD_ADJUST_INVENTORY);
   const canRelease = usePermission(Permission.YARD_RELEASE_SLOT);
   const canMove = usePermission(Permission.YARD_MOVE_VEHICLE);
 
@@ -154,7 +173,9 @@ export default function YardBoardInner() {
   useEffect(() => {
     if (!initialHighlightVin) return;
     const target = slots.find(
-      (s) => (s.currentVin ?? '').toUpperCase() === initialHighlightVin.toUpperCase(),
+      (s) =>
+        (s.currentVin ?? '').toUpperCase() ===
+        initialHighlightVin.toUpperCase(),
     );
     if (target) setSelectedSlotId(target.id);
   }, [slots, initialHighlightVin]);
@@ -162,25 +183,63 @@ export default function YardBoardInner() {
   const onAssignSlot = async (values: { vin: string }) => {
     if (!selectedSlotId) return;
     try {
-      await yardsApi.assignSlot(selectedSlotId, values.vin);
+      if (!photos.length) {
+        message.warning(t('yardOps.photo'));
+        return;
+      }
+      await yardsApi.assignSlot(
+        selectedSlotId,
+        values.vin.trim().toUpperCase(),
+        photos,
+      );
       message.success(t('yards.slotAssignSuccess'));
       setAssignOpen(false);
       assignForm.resetFields();
       if (selectedYardId) loadSlots(selectedYardId);
     } catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      const msg = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
       message.error(msg || t('yards.slotAssignFailed'));
     }
   };
 
-  const onReleaseSlot = async () => {
-    if (!selectedSlotId) return;
+  const submitCorrection = async (values: {
+    vin?: string;
+    reason: string;
+    reference?: string;
+    enteredAt?: string;
+  }) => {
+    if (!selectedYardId || !correction) return;
+    setCorrecting(true);
     try {
-      await yardsApi.releaseSlot(selectedSlotId);
-      message.success(t('yards.slotReleaseSuccess'));
-      if (selectedYardId) loadSlots(selectedYardId);
-    } catch {
-      message.error(t('yards.slotReleaseFailed'));
+      const vin = (selectedSlot?.currentVin ?? values.vin ?? '')
+        .trim()
+        .toUpperCase();
+      if (correction === 'UNDO') await yardsApi.undoInbound(vin, values.reason);
+      else
+        await yardsApi.adjustInventory({
+          yardId: selectedYardId,
+          vin,
+          direction: correction,
+          reason: values.reason,
+          reference: values.reference!,
+          slotId: correction === 'IN' ? selectedSlotId! : undefined,
+          enteredAt: values.enteredAt
+            ? new Date(values.enteredAt).toISOString()
+            : undefined,
+          photoUrls: correction === 'IN' ? photos : undefined,
+        });
+      message.success(t('yardOps.correctionSaved'));
+      setCorrection(null);
+      correctionForm.resetFields();
+      await loadSlots(selectedYardId);
+    } catch (error) {
+      message.error(
+        (error as { response?: { data?: { message?: string } } }).response?.data
+          ?.message ?? t('yardOps.correctionFailed'),
+      );
+    } finally {
+      setCorrecting(false);
     }
   };
 
@@ -212,7 +271,8 @@ export default function YardBoardInner() {
       setSelectedSlotId(toSlot.id);
       if (selectedYardId) loadSlots(selectedYardId);
     } catch (err) {
-      const msg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      const msg = (err as { response?: { data?: { message?: string } } })
+        .response?.data?.message;
       message.error(msg || t('yards.moveFailed'));
     }
   };
@@ -271,10 +331,12 @@ export default function YardBoardInner() {
   const grid = useMemo(() => {
     const zoneSlots = zones.find((z) => z.zone === activeZone)?.slots ?? slots;
     if (zoneSlots.length === 0) return null;
-    const rowSet = Array.from(new Set(zoneSlots.map((slot) => String(slot.line))))
-      .sort((a, b) => Number(a) - Number(b));
-    const colSet = Array.from(new Set(zoneSlots.map((slot) => String(slot.row))))
-      .sort((a, b) => Number(a) - Number(b));
+    const rowSet = Array.from(
+      new Set(zoneSlots.map((slot) => String(slot.line))),
+    ).sort((a, b) => Number(a) - Number(b));
+    const colSet = Array.from(
+      new Set(zoneSlots.map((slot) => String(slot.row))),
+    ).sort((a, b) => Number(a) - Number(b));
     const map = new Map<string, YardSlot>();
     for (const slot of zoneSlots) {
       map.set(`${slot.line}|${slot.row}`, slot);
@@ -295,7 +357,14 @@ export default function YardBoardInner() {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div
+        style={{
+          marginBottom: 16,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
         <Space>
           <h2 style={{ margin: 0 }}>{t('yardBoard.title')}</h2>
           <OrgFilter value={orgFilter} onChange={setOrgFilter} />
@@ -332,45 +401,42 @@ export default function YardBoardInner() {
               : t('yards.moveModeBanner')
           }
           description={t('yards.moveModeCrossZoneHint')}
-          action={<Button size="small" onClick={cancelMoveMode}>{t('yards.moveModeCancel')}</Button>}
+          action={
+            <Button size="small" onClick={cancelMoveMode}>
+              {t('yards.moveModeCancel')}
+            </Button>
+          }
           style={{ marginBottom: 12 }}
         />
       )}
 
       {selectedYard ? (
         <>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={8}>
-              <Card>
-                <Statistic
-                  title={t('yards.statTotal')}
-                  value={stats?.total ?? 0}
-                  suffix={t('yards.statSlots')}
-                />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card>
-                <Statistic
-                  title={t('yards.statOccupied')}
-                  value={stats?.occupied ?? 0}
-                  suffix={t('yards.statOccupiedSuffix')}
-                  valueStyle={{ color: '#16a34a' }}
-                />
-              </Card>
-            </Col>
-            <Col span={8}>
-              <Card>
-                <Statistic
-                  title={t('yards.statVacant')}
-                  value={stats?.vacant ?? 0}
-                  suffix={t('yards.statVacantSuffix')}
-                  valueStyle={{ color: '#eab308' }}
-                />
-              </Card>
-            </Col>
+          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+            {(
+              [
+                ['design', 'designCapacity'],
+                ['enabled', 'enabledCapacity'],
+                ['available', 'availableCapacity'],
+                ['frozen', 'frozenCapacity'],
+                ['disabled', 'disabledCapacity'],
+                ['ungenerated', 'ungeneratedCapacity'],
+                ['parking', 'parking'],
+                ['staging', 'staging'],
+                ['loaded', 'loaded'],
+                ['onSite', 'onSite'],
+              ] as const
+            ).map(([label, key]) => (
+              <Col key={key} xs={12} md={6}>
+                <Card size="small">
+                  <Statistic
+                    title={t(`yardOps.${label}`)}
+                    value={stats?.[key] ?? 0}
+                  />
+                </Card>
+              </Col>
+            ))}
           </Row>
-
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col flex="auto">
               <Space>
@@ -396,10 +462,58 @@ export default function YardBoardInner() {
                 title={t('yards.gridTitle', { code: selectedYard.code })}
                 extra={
                   <Space size={12} style={{ fontSize: 12, color: '#64748b' }}>
-                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#94a3b8', borderRadius: 2, marginRight: 4 }} />{t('yards.legendVacant')}</span>
-                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#2563eb', borderRadius: 2, marginRight: 4 }} />{t('yards.legendOccupied')}</span>
-                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#ea580c', borderRadius: 2, marginRight: 4 }} />{t('yards.legendLongStay')}</span>
-                    <span><span style={{ display: 'inline-block', width: 10, height: 10, background: '#dc2626', borderRadius: 2, marginRight: 4 }} />{t('yards.legendLocked')}</span>
+                    <span>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: 10,
+                          height: 10,
+                          background: '#94a3b8',
+                          borderRadius: 2,
+                          marginRight: 4,
+                        }}
+                      />
+                      {t('yards.legendVacant')}
+                    </span>
+                    <span>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: 10,
+                          height: 10,
+                          background: '#2563eb',
+                          borderRadius: 2,
+                          marginRight: 4,
+                        }}
+                      />
+                      {t('yards.legendOccupied')}
+                    </span>
+                    <span>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: 10,
+                          height: 10,
+                          background: '#ea580c',
+                          borderRadius: 2,
+                          marginRight: 4,
+                        }}
+                      />
+                      {t('yards.legendLongStay')}
+                    </span>
+                    <span>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          width: 10,
+                          height: 10,
+                          background: '#dc2626',
+                          borderRadius: 2,
+                          marginRight: 4,
+                        }}
+                      />
+                      {t('yards.legendLocked')}
+                    </span>
                   </Space>
                 }
               >
@@ -421,12 +535,21 @@ export default function YardBoardInner() {
                   <Empty description={t('yardBoard.noSlotsGoConfigure')} />
                 ) : grid ? (
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ borderCollapse: 'separate', borderSpacing: 8 }}>
+                    <table
+                      style={{ borderCollapse: 'separate', borderSpacing: 8 }}
+                    >
                       <thead>
                         <tr>
                           <th style={{ width: 40 }}></th>
                           {grid.cols.map((c) => (
-                            <th key={c} style={{ padding: 4, color: '#64748b', textAlign: 'center' }}>
+                            <th
+                              key={c}
+                              style={{
+                                padding: 4,
+                                color: '#64748b',
+                                textAlign: 'center',
+                              }}
+                            >
                               {c}
                             </th>
                           ))}
@@ -435,7 +558,15 @@ export default function YardBoardInner() {
                       <tbody>
                         {grid.rows.map((r) => (
                           <tr key={r}>
-                            <td style={{ padding: 4, color: '#64748b', fontWeight: 600 }}>{r}</td>
+                            <td
+                              style={{
+                                padding: 4,
+                                color: '#64748b',
+                                fontWeight: 600,
+                              }}
+                            >
+                              {r}
+                            </td>
                             {grid.cols.map((c) => {
                               const slot = grid.map.get(`${r}|${c}`);
                               if (!slot) {
@@ -452,10 +583,14 @@ export default function YardBoardInner() {
                                 );
                               }
                               const isSelected = slot.id === selectedSlotId;
-                              const isHighlighted = highlightSlotIds.has(slot.id);
+                              const isHighlighted = highlightSlotIds.has(
+                                slot.id,
+                              );
                               const isMoveSource = slot.id === moveFromSlotId;
                               const isMoveTargetCandidate =
-                                moveMode && slot.status === 'VACANT' && slot.zoneIsActive;
+                                moveMode &&
+                                slot.status === 'VACANT' &&
+                                slot.zoneIsActive;
                               return (
                                 <td
                                   key={c}
@@ -464,7 +599,11 @@ export default function YardBoardInner() {
                                     width: 96,
                                     height: 72,
                                     borderRadius: 6,
-                                    backgroundColor: slotCellColor(slot, nowRef),
+                                    backgroundColor: slotCellColor(
+                                      slot,
+                                      nowRef,
+                                      stats?.longStayDays ?? null,
+                                    ),
                                     color: '#fff',
                                     padding: 8,
                                     cursor: 'pointer',
@@ -486,9 +625,16 @@ export default function YardBoardInner() {
                                   <div style={{ fontSize: 12, opacity: 0.8 }}>
                                     {formatSlotCode(slot)}
                                   </div>
-                                  <div style={{ fontSize: 13, fontWeight: 600, marginTop: 4 }}>
+                                  <div
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: 600,
+                                      marginTop: 4,
+                                    }}
+                                  >
                                     {slot.status === 'OCCUPIED'
-                                      ? slot.currentVin ?? t('yards.slotOccupied')
+                                      ? (slot.currentVin ??
+                                        t('yards.slotOccupied'))
                                       : t('yards.slotVacant')}
                                   </div>
                                 </td>
@@ -500,15 +646,23 @@ export default function YardBoardInner() {
                     </table>
                     <style jsx>{`
                       @keyframes pulse {
-                        0%, 100% { opacity: 1; }
-                        50% { opacity: 0.6; }
+                        0%,
+                        100% {
+                          opacity: 1;
+                        }
+                        50% {
+                          opacity: 0.6;
+                        }
                       }
                     `}</style>
                   </div>
                 ) : (
                   <Space wrap>
                     {slots.map((s) => (
-                      <Tooltip key={s.id} title={s.currentVin ?? t('yards.slotVacant')}>
+                      <Tooltip
+                        key={s.id}
+                        title={s.currentVin ?? t('yards.slotVacant')}
+                      >
                         <Tag
                           color={s.status === 'OCCUPIED' ? 'green' : 'default'}
                           style={{ cursor: 'pointer' }}
@@ -527,11 +681,16 @@ export default function YardBoardInner() {
                 {selectedSlot ? (
                   <Space direction="vertical" style={{ width: '100%' }}>
                     <div>
-                      <span style={{ color: '#64748b' }}>{t('yards.slotCode')}: </span>
+                      <span style={{ color: '#64748b' }}>
+                        {t('yards.slotCode')}:{' '}
+                      </span>
                       <strong>{formatSlotCode(selectedSlot)}</strong>
                     </div>
                     <div>
-                      <span style={{ color: '#64748b' }}>{t('yards.status')}: </span>
+                      <span style={{ color: '#64748b' }}>
+                        {t('yards.status')}:{' '}
+                      </span>
+                      <Tag>{t(`yardOps.${selectedSlot.zonePurpose}`)}</Tag>
                       {selectedSlot.status === 'OCCUPIED' ? (
                         <Tag color="green">{t('yards.slotOccupied')}</Tag>
                       ) : (
@@ -547,62 +706,89 @@ export default function YardBoardInner() {
                     )}
                     {selectedSlot.assignedAt && (
                       <div>
-                        <span style={{ color: '#64748b' }}>{t('vinInventory.stayDays')}: </span>
+                        <span style={{ color: '#64748b' }}>
+                          {t('vinInventory.stayDays')}:{' '}
+                        </span>
                         {t('vinInventory.days', {
                           n: Math.floor(
-                            (nowRef - new Date(selectedSlot.assignedAt).getTime()) /
+                            (nowRef -
+                              new Date(selectedSlot.assignedAt).getTime()) /
                               86400000,
                           ),
                         })}
                       </div>
+                    )}
+                    <Alert type="info" title={t('yardOps.departureHint')} />
+                    {canAdjust && (
+                      <Button
+                        onClick={() => {
+                          correctionForm.resetFields();
+                          setPhotos([]);
+                          setCorrection(selectedSlot.currentVin ? 'OUT' : 'IN');
+                        }}
+                      >
+                        {t(
+                          selectedSlot.currentVin
+                            ? 'yardOps.adjustOut'
+                            : 'yardOps.adjustIn',
+                        )}
+                      </Button>
                     )}
                     <Space wrap>
                       {selectedSlot.currentVin && (
                         <Button
                           type="primary"
                           icon={<FileSearchOutlined />}
-                          onClick={() => setLifecycleVin(selectedSlot.currentVin)}
+                          onClick={() =>
+                            setLifecycleVin(selectedSlot.currentVin)
+                          }
                         >
                           {t('yards.viewLifecycle')}
                         </Button>
                       )}
-                      {selectedSlot.status === 'VACANT' && selectedSlot.zoneIsActive
-                        ? canAssign && (
-                            <Button onClick={() => setAssignOpen(true)}>
-                              {t('yards.assignSlot')}
+                      {selectedSlot.status === 'VACANT' &&
+                      selectedSlot.zoneIsActive ? (
+                        canAssign && (
+                          <Button
+                            onClick={() => {
+                              setPhotos([]);
+                              setAssignOpen(true);
+                            }}
+                          >
+                            {t('yardOps.receive')}
+                          </Button>
+                        )
+                      ) : (
+                        <>
+                          {canMove && selectedSlot.status === 'OCCUPIED' && (
+                            <Button
+                              icon={<SwapOutlined />}
+                              onClick={enterMoveMode}
+                              disabled={moveMode}
+                            >
+                              {t('yards.moveVehicle')}
                             </Button>
-                          )
-                        : (
-                          <>
-                            {canMove && (
-                              <Button
-                                icon={<SwapOutlined />}
-                                onClick={enterMoveMode}
-                                disabled={moveMode}
-                              >
-                                {t('yards.moveVehicle')}
-                              </Button>
-                            )}
-                            {canRelease && (
-                              <Popconfirm
-                                title={t('yards.revertInboundTitle')}
-                                description={t('yards.revertInboundHint')}
-                                okText={t('yards.revertInboundOk')}
-                                cancelText={t('yards.moveModeCancel')}
-                                okButtonProps={{ danger: true }}
-                                onConfirm={onReleaseSlot}
-                              >
-                                <Button danger>
-                                  {t('yards.revertInbound')}
-                                </Button>
-                              </Popconfirm>
-                            )}
-                          </>
-                        )}
+                          )}
+                          {canRelease && selectedSlot.status === 'OCCUPIED' && (
+                            <Button
+                              danger
+                              onClick={() => {
+                                correctionForm.resetFields();
+                                setCorrection('UNDO');
+                              }}
+                            >
+                              {t('yardOps.undo')}
+                            </Button>
+                          )}
+                        </>
+                      )}
                     </Space>
                   </Space>
                 ) : (
-                  <Empty description={t('yards.slotDetailEmpty')} imageStyle={{ height: 60 }} />
+                  <Empty
+                    description={t('yards.slotDetailEmpty')}
+                    imageStyle={{ height: 60 }}
+                  />
                 )}
               </Card>
             </Col>
@@ -614,13 +800,16 @@ export default function YardBoardInner() {
 
       {/* 库位占用/扫码 */}
       <Modal
-        title={t('yards.assignSlot')}
+        title={t('yardOps.receive')}
         open={assignOpen}
         onCancel={() => setAssignOpen(false)}
         onOk={() => assignForm.submit()}
         destroyOnHidden
       >
         <Form form={assignForm} layout="vertical" onFinish={onAssignSlot}>
+          <Form.Item label={t('yardOps.photo')} required>
+            <PhotoUpload value={photos} onChange={setPhotos} />
+          </Form.Item>
           <Form.Item
             label="VIN"
             name="vin"
@@ -632,6 +821,66 @@ export default function YardBoardInner() {
         </Form>
       </Modal>
 
+      <Modal
+        open={!!correction}
+        title={t(
+          correction === 'UNDO'
+            ? 'yardOps.undo'
+            : correction === 'IN'
+              ? 'yardOps.adjustIn'
+              : 'yardOps.adjustOut',
+        )}
+        onCancel={() => setCorrection(null)}
+        onOk={() => correctionForm.submit()}
+        confirmLoading={correcting}
+        destroyOnHidden
+      >
+        <Alert
+          type="warning"
+          title={t(
+            correction === 'UNDO' ? 'yardOps.undoHint' : 'yardOps.adjustHint',
+          )}
+        />
+        <Form
+          form={correctionForm}
+          layout="vertical"
+          onFinish={submitCorrection}
+        >
+          {correction === 'IN' && (
+            <>
+              <Form.Item label="VIN" name="vin" rules={[{ required: true }]}>
+                <Input />
+              </Form.Item>
+              <Form.Item
+                label={t('yardOps.enteredAt')}
+                name="enteredAt"
+                rules={[{ required: true }]}
+              >
+                <Input type="datetime-local" />
+              </Form.Item>
+              <Form.Item label={t('yardOps.photo')} required>
+                <PhotoUpload value={photos} onChange={setPhotos} />
+              </Form.Item>
+            </>
+          )}
+          {correction !== 'UNDO' && (
+            <Form.Item
+              label={t('yardOps.reference')}
+              name="reference"
+              rules={[{ required: true, whitespace: true }]}
+            >
+              <Input maxLength={100} />
+            </Form.Item>
+          )}
+          <Form.Item
+            label={t('yardOps.reason')}
+            name="reason"
+            rules={[{ required: true, whitespace: true }]}
+          >
+            <Input.TextArea maxLength={500} />
+          </Form.Item>
+        </Form>
+      </Modal>
       <VinLifecycleDrawer
         vin={lifecycleVin}
         onClose={() => setLifecycleVin(null)}

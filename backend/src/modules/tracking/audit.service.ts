@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { OperationLog } from './entities/operation-log.entity';
 import { OperationType } from '../../common/enums/operation-type.enum';
 
@@ -15,37 +15,42 @@ export class AuditService {
     private readonly logs: Repository<OperationLog>,
   ) {}
 
-  // 幂等最外层保底：审计失败不能阻塞业务事务
-  async log(data: {
-    operationType: OperationType;
-    orderId?: string | null;
-    vin?: string | null;
-    yardId?: string | null;
-    slotId?: string | null;
-    waybillId?: string | null;
-    attachmentUrls?: string[] | null;
-    payload?: Record<string, unknown> | null;
-    operatorUserId?: string | null;
-    // 业务发生时间：不传则用 now()（sysdate = createdAt = eventAt）
-    eventAt?: Date | null;
-  }): Promise<void> {
+  // 库存/场地写入显式传业务事务，审计失败整体回滚。其他旧模块保持原有 best-effort 行为。
+  async log(
+    data: {
+      operationType: OperationType;
+      orderId?: string | null;
+      vin?: string | null;
+      yardId?: string | null;
+      slotId?: string | null;
+      waybillId?: string | null;
+      attachmentUrls?: string[] | null;
+      payload?: Record<string, unknown> | null;
+      operatorUserId?: string | null;
+      // 业务发生时间：不传则用 now()（sysdate = createdAt = eventAt）
+      eventAt?: Date | null;
+    },
+    manager?: EntityManager,
+  ): Promise<void> {
+    if (manager) {
+      if (!manager.queryRunner?.isTransactionActive)
+        throw new Error('Audit requires an active transaction');
+      await manager.save(
+        OperationLog,
+        manager.create(OperationLog, {
+          ...data,
+          eventAt: data.eventAt ?? new Date(),
+        }),
+      );
+      return;
+    }
     try {
-      const row = this.logs.create({
-        operationType: data.operationType,
-        orderId: data.orderId ?? null,
-        vin: data.vin ?? null,
-        yardId: data.yardId ?? null,
-        slotId: data.slotId ?? null,
-        waybillId: data.waybillId ?? null,
-        attachmentUrls: data.attachmentUrls ?? null,
-        payload: data.payload ?? null,
-        operatorUserId: data.operatorUserId ?? null,
-        eventAt: data.eventAt ?? new Date(),
-      });
-      await this.logs.save(row);
-    } catch (err) {
+      await this.logs.save(
+        this.logs.create({ ...data, eventAt: data.eventAt ?? new Date() }),
+      );
+    } catch (error) {
       this.logger.error(
-        `audit log failed for ${data.operationType}: ${(err as Error).message}`,
+        `audit log failed for ${data.operationType}: ${(error as Error).message}`,
       );
     }
   }
@@ -72,9 +77,7 @@ export class AuditService {
       );
       await this.logs.save(entities);
     } catch (err) {
-      this.logger.error(
-        `audit logMany failed: ${(err as Error).message}`,
-      );
+      this.logger.error(`audit logMany failed: ${(err as Error).message}`);
     }
   }
 }

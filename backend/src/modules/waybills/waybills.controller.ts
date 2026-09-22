@@ -23,7 +23,7 @@ import { ScopeService } from '../../common/scope/scope.service';
 import { WaybillsService } from './waybills.service';
 import { CreateWaybillDto } from './dto/create-waybill.dto';
 import { ScanDto } from './dto/scan.dto';
-import { LoadVinDto } from './dto/load-vin.dto';
+import { LoadVinDto, UnloadVinDto } from './dto/load-vin.dto';
 import { DepartWaybillDto } from './dto/depart-waybill.dto';
 import { AssignWaybillDto } from './dto/assign-waybill.dto';
 import { WaybillStatus } from '../../common/enums/waybill-status.enum';
@@ -93,19 +93,34 @@ export class WaybillsController {
       dateTo,
       vin,
       page: page ? Math.max(1, Number(page)) : undefined,
-      pageSize: pageSize ? Math.max(1, Math.min(500, Number(pageSize))) : undefined,
+      pageSize: pageSize
+        ? Math.max(1, Math.min(500, Number(pageSize)))
+        : undefined,
       sortBy,
-      sortOrder: sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
+      sortOrder:
+        sortOrder === 'asc' ? 'asc' : sortOrder === 'desc' ? 'desc' : undefined,
       all: all === 'true' || all === '1',
     });
   }
 
   // 司机扫码前预查：给出 vin 所在运单 + 是否已签收；不改状态
-  @Roles(Role.CARRIER_DRIVER, Role.CARRIER_STAFF, Role.YARD_STAFF, Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Roles(
+    Role.CARRIER_DRIVER,
+    Role.CARRIER_STAFF,
+    Role.YARD_STAFF,
+    Role.HQ_ADMIN,
+    Role.ORG_ADMIN,
+  )
   @Permissions(Permission.WAYBILL_VIEW)
   @Get('lookup/:vin')
-  async lookupVin(@Param('vin') vin: string, @CurrentUser() user: AuthenticatedUser) {
-    return this.waybillsService.lookupVin(vin, await this.scopeService.resolve(user));
+  async lookupVin(
+    @Param('vin') vin: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.waybillsService.lookupVin(
+      vin,
+      await this.scopeService.resolve(user),
+    );
   }
 
   @Roles(
@@ -155,7 +170,13 @@ export class WaybillsController {
     @Body() dto: LoadVinDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.waybillsService.loadVin(id, vin, dto.photoKeys, dto.remark, user);
+    return this.waybillsService.loadVin(
+      id,
+      vin,
+      dto.photoKeys,
+      dto.remark,
+      user,
+    );
   }
 
   // 撤销单台 VIN 装车 (扫错车/换车位时用)
@@ -166,8 +187,9 @@ export class WaybillsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Param('vin') vin: string,
     @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: UnloadVinDto,
   ) {
-    return this.waybillsService.unloadVin(id, vin, user);
+    return this.waybillsService.unloadVin(id, vin, user, dto?.slotId);
   }
 
   // 整单启运出闸：全部装完后一次性触发状态翻转 + slot 释放
@@ -185,7 +207,12 @@ export class WaybillsController {
     @Body() dto: DepartWaybillDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.waybillsService.departWaybill(id, dto.gatePhotoKeys, dto.remark, user);
+    return this.waybillsService.departWaybill(
+      id,
+      dto.gatePhotoKeys,
+      dto.remark,
+      user,
+    );
   }
 
   // 撤销未启运的运单：释放 VIN.isAllocated 让业务员能重开

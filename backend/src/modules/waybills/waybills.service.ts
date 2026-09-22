@@ -1,3 +1,4 @@
+import { InventoryService } from '../inventory/inventory.service';
 import {
   BadRequestException,
   ForbiddenException,
@@ -11,7 +12,6 @@ import { randomUUID } from 'crypto';
 import { Waybill } from './entities/waybill.entity';
 import { WaybillVin } from './entities/waybill-vin.entity';
 import { OrderVin } from '../orders/entities/order-vin.entity';
-import { YardSlot, YardSlotStatus } from '../yards/entities/yard-slot.entity';
 import { Driver } from '../carriers/entities/driver.entity';
 import { Vehicle } from '../carriers/entities/vehicle.entity';
 import { Carrier } from '../carriers/entities/carrier.entity';
@@ -43,22 +43,6 @@ import {
   resolveSortColumn,
 } from '../../common/dto/paginated.dto';
 
-const ACTION_RULES: Partial<
-  Record<TransportType, Partial<Record<ScanAction, WaybillStatus>>>
-> = {
-  [TransportType.TRANSFER]: {
-    [ScanAction.INBOUND_ARRIVAL]: WaybillStatus.ARRIVED,
-  },
-  [TransportType.REALLOCATION]: {
-    [ScanAction.REALLOCATION_DEPARTURE]: WaybillStatus.IN_TRANSIT,
-    [ScanAction.REALLOCATION_ARRIVAL]: WaybillStatus.ARRIVED,
-  },
-  [TransportType.DELIVERY]: {
-    [ScanAction.DELIVERY_DEPARTURE]: WaybillStatus.IN_TRANSIT,
-    [ScanAction.INBOUND_ARRIVAL]: WaybillStatus.ARRIVED,
-  },
-};
-
 const TRANSPORT_TYPE_LABEL: Record<TransportType, string> = {
   [TransportType.TRANSFER]: '转运',
   [TransportType.REALLOCATION]: '调拨',
@@ -69,17 +53,12 @@ const TRANSPORT_TYPE_LABEL: Record<TransportType, string> = {
 export class WaybillsService {
   private readonly logger = new Logger(WaybillsService.name);
 
-  // OrderVin / YardSlot 不直接注入 repo：只在 scan 事务里用 mgr.getRepository 拿
-  // (必须和 waybill 更新同一事务，注入版 repo 用不到)
   constructor(
+    private readonly inventory: InventoryService,
     @InjectRepository(Waybill)
     private readonly waybillsRepository: Repository<Waybill>,
     @InjectRepository(WaybillVin)
     private readonly waybillVinsRepository: Repository<WaybillVin>,
-    @InjectRepository(Driver)
-    private readonly driversRepository: Repository<Driver>,
-    @InjectRepository(Vehicle)
-    private readonly vehiclesRepository: Repository<Vehicle>,
     @InjectRepository(Carrier)
     private readonly carriersRepository: Repository<Carrier>,
     private readonly dataSource: DataSource,
@@ -282,17 +261,36 @@ export class WaybillsService {
     if (dto.transportType === TransportType.DELIVERY)
       throw new BadRequestException('出库派送必须通过出库订单开单');
     const manager = this.dataSource.manager;
-    const order = dto.orderId ? await manager.findOneBy(Order, { id: dto.orderId }) : null;
+    const order = dto.orderId
+      ? await manager.findOneBy(Order, { id: dto.orderId })
+      : null;
     if (!order || order.organizationId !== dto.organizationId)
       throw new BadRequestException('必须关联当前机构的订单');
-    for (const yardId of [dto.originYardId, dto.destinationYardId].filter(Boolean)) {
-      const yard = await manager.findOneBy(Yard, { id: yardId!, organizationId: dto.organizationId, isActive: true });
+    for (const yardId of [dto.originYardId, dto.destinationYardId].filter(
+      Boolean,
+    )) {
+      const yard = await manager.findOneBy(Yard, {
+        id: yardId!,
+        organizationId: dto.organizationId,
+        isActive: true,
+      });
       if (!yard) throw new BadRequestException('场地必须属于当前机构且有效');
     }
-    if (dto.destinationDealerId && !await manager.findOneBy(CustomerAddress, { id: dto.destinationDealerId, customerId: order.customerId }))
+    if (
+      dto.destinationDealerId &&
+      !(await manager.findOneBy(CustomerAddress, {
+        id: dto.destinationDealerId,
+        customerId: order.customerId,
+      }))
+    )
       throw new BadRequestException('目的门店不属于订单客户');
     for (const row of dto.vins) {
-      if (!await manager.findOneBy(OrderVin, { vin: row.vin, orderId: order.id }))
+      if (
+        !(await manager.findOneBy(OrderVin, {
+          vin: row.vin,
+          orderId: order.id,
+        }))
+      )
         throw new BadRequestException('VIN 必须属于关联订单');
     }
     if (dto.carrierId) {
@@ -300,14 +298,31 @@ export class WaybillsService {
         where: { id: dto.carrierId },
       });
       if (!carrier) throw new NotFoundException('承运商不存在');
-      if (carrier.organizationId !== dto.organizationId) throw new ForbiddenException('承运商必须属于当前机构');
+      if (carrier.organizationId !== dto.organizationId)
+        throw new ForbiddenException('承运商必须属于当前机构');
       if (carrier.status !== PartnerStatus.ACTIVE) {
         throw new BadRequestException('承运商当前未开放新增业务');
       }
     }
-    if (dto.driverId && (!dto.carrierId || !await manager.findOneBy(Driver, { id: dto.driverId, carrierId: dto.carrierId, isActive: true })))
+    if (
+      dto.driverId &&
+      (!dto.carrierId ||
+        !(await manager.findOneBy(Driver, {
+          id: dto.driverId,
+          carrierId: dto.carrierId,
+          isActive: true,
+        })))
+    )
       throw new BadRequestException('司机未启用或不属于此承运商');
-    if (dto.vehicleId && (!dto.carrierId || !await manager.findOneBy(Vehicle, { id: dto.vehicleId, carrierId: dto.carrierId, isActive: true })))
+    if (
+      dto.vehicleId &&
+      (!dto.carrierId ||
+        !(await manager.findOneBy(Vehicle, {
+          id: dto.vehicleId,
+          carrierId: dto.carrierId,
+          isActive: true,
+        })))
+    )
       throw new BadRequestException('车辆未启用或不属于此承运商');
     return this.dataSource
       .transaction(async (manager) => {
@@ -368,202 +383,69 @@ export class WaybillsService {
     }
   }
 
-  // 扫码统一入口：所有变动包在一个事务里，避免 slot 释放 / waybill 状态 / vin 签收
-  // 中间任何一步失败留下脏数据
-  async scan(
-    dto: ScanDto,
-    operator: AuthenticatedUser,
-  ) {
+  // Web and Android use this endpoint only for signing. Legacy departure/arrival mutations removed.
+  async scan(dto: ScanDto, operator: AuthenticatedUser) {
+    if (dto.action !== ScanAction.SIGNED)
+      throw new BadRequestException('此接口仅支持签收');
+    const scope = await this.scopeService.resolve(operator);
+    const candidate = await this.waybillVinsRepository.findOne({
+      where: { vin: dto.vin },
+      order: { createdAt: 'DESC' },
+    });
+    if (!candidate) throw new NotFoundException('VIN 无对应运单');
+    await this.findOne(candidate.waybillId, scope);
     const result = await this.dataSource.transaction(async (mgr) => {
-      const waybillVinRepo = mgr.getRepository(WaybillVin);
-      const waybillRepo = mgr.getRepository(Waybill);
-      const orderVinRepo = mgr.getRepository(OrderVin);
-      const slotRepo = mgr.getRepository(YardSlot);
-
-      const waybillVin = await waybillVinRepo.findOne({
-        where: { vin: dto.vin },
-        order: { createdAt: 'DESC' },
+      const waybill = await mgr.findOneOrFail(Waybill, {
+        where: { id: candidate.waybillId },
+        lock: { mode: 'pessimistic_write' },
       });
-      if (!waybillVin) {
-        throw new NotFoundException('VIN无效或无对应待执行的运单/调拨单');
-      }
-
-      const waybill = await waybillRepo.findOne({
-        where: { id: waybillVin.waybillId },
-      });
-      if (!waybill) throw new NotFoundException('运单不存在');
-      const scope = await this.scopeService.resolve(operator);
-      await this.findOne(waybill.id, scope);
-      if (scope.type === 'ORG') {
+      if (scope.type === 'ORG')
         this.scopeService.assertOrgWritable(scope, waybill.organizationId);
-        if (scope.role === Role.YARD_STAFF) {
-          const arrival = [ScanAction.INBOUND_ARRIVAL, ScanAction.REALLOCATION_ARRIVAL].includes(dto.action);
-          const yardId = arrival ? waybill.destinationYardId : waybill.originYardId;
-          if (yardId !== scope.scopeYardId) throw new ForbiddenException('仅当前业务场地可执行此扫码');
-        }
-      }
       if (
-        (operator?.role === Role.CARRIER_DRIVER ||
-          operator?.role === Role.CARRIER_STAFF) &&
-        waybill.carrierId !== operator.carrierId
-      ) {
-        throw new ForbiddenException('此运单不属于您的承运商');
-      }
-      if (waybill.isLocked) {
-        throw new BadRequestException(
-          '该VIN的运输数据已到达锁定，不可再次扫码',
-        );
-      }
-
-      // 签收走独立路径：逐 VIN 标记，不改整单 status；等全部签完再统一 ARRIVED
-      if (dto.action === ScanAction.SIGNED) {
-        if (waybillVin.isSigned) {
-          throw new BadRequestException(`VIN ${dto.vin} 已签收，不可重复签收`);
-        }
-        waybillVin.isSigned = true;
-        await waybillVinRepo.save(waybillVin);
-
-        // 兜底释放 slot：正常路径应该在启运扫码 (DELIVERY_DEPARTURE) 时统一释放，
-        // 但生产遇到过"漏扫启运直接签收"，导致车已交付但库位一直被占、库存显示"还在库"。
-        // 签收时如果 orderVin 还挂着 slot，就代表流程有跳步 —— 强制释放，保证库存干净。
-        const orderVin = await orderVinRepo.findOne({
-          where: { vin: waybillVin.vin },
-        });
-        if (orderVin?.slotId) {
-          const slot = await slotRepo.findOne({
-            where: { id: orderVin.slotId },
-          });
-          if (slot && slot.currentVin === waybillVin.vin) {
-            slot.status = YardSlotStatus.VACANT;
-            slot.currentVin = null;
-            slot.assignedAt = null;
-            await slotRepo.save(slot);
-          }
-          orderVin.slotId = null;
-          await orderVinRepo.save(orderVin);
-        }
-
-        const allVins = await waybillVinRepo.find({
-          where: { waybillId: waybill.id },
-        });
-        const allSigned = allVins.every((v) => v.isSigned);
-        if (allSigned) {
-          waybill.status = WaybillStatus.ARRIVED;
-          waybill.isLocked = true;
-          await waybillRepo.save(waybill);
-        }
-        return { waybill, statusChanged: allSigned };
-      }
-
-      // 其他 action 通过 ACTION_RULES 校验
-      const rule = ACTION_RULES[waybill.transportType]?.[dto.action];
-      if (!rule) {
-        throw new BadRequestException('该运输类型不支持此扫码操作');
-      }
-
-      if (
-        dto.action === ScanAction.DELIVERY_DEPARTURE &&
-        !dto.attachmentUrls?.length
-      ) {
-        throw new BadRequestException('启运操作需上传交付凭证(SJ照片)');
-      }
-
-      if (dto.yardId) {
-        const isDepartureAction = [
-          ScanAction.REALLOCATION_DEPARTURE,
-          ScanAction.DELIVERY_DEPARTURE,
-        ].includes(dto.action);
-        const isArrivalAction = [
-          ScanAction.INBOUND_ARRIVAL,
-          ScanAction.REALLOCATION_ARRIVAL,
-        ].includes(dto.action);
-        if (
-          isDepartureAction &&
-          waybill.originYardId &&
-          dto.yardId !== waybill.originYardId
-        ) {
-          throw new ForbiddenException('仅始发场地可执行启运扫码');
-        }
-        if (
-          isArrivalAction &&
-          waybill.destinationYardId &&
-          dto.yardId !== waybill.destinationYardId
-        ) {
-          throw new ForbiddenException('仅目的场地可执行到达扫码');
-        }
-      }
-
-      // 启运时释放整张运单里所有 VIN 对应的 slot
-      // 业务实际：一辆拖车通常一次拉走整张运单的车，扫一台 VIN 上传一次 SJ 凭证
-      // 就代表"这批全部离场"，逐台扫既繁琐也不符合装车节奏
-      if (
-        dto.action === ScanAction.DELIVERY_DEPARTURE ||
-        dto.action === ScanAction.REALLOCATION_DEPARTURE
-      ) {
-        const allVinsOfWaybill = await waybillVinRepo.find({
-          where: { waybillId: waybill.id },
-        });
-        const orderVins = await orderVinRepo.find({
-          where: allVinsOfWaybill.map((wv) => ({ vin: wv.vin })),
-        });
-        const slotIds = orderVins
-          .map((ov) => ov.slotId)
-          .filter((id): id is string => !!id);
-        if (slotIds.length > 0) {
-          const slots = await slotRepo.find({
-            where: slotIds.map((id) => ({ id })),
-          });
-          for (const slot of slots) {
-            slot.status = YardSlotStatus.VACANT;
-            slot.currentVin = null;
-            slot.assignedAt = null;
-          }
-          await slotRepo.save(slots);
-        }
-        for (const ov of orderVins) ov.slotId = null;
-        if (orderVins.length > 0) await orderVinRepo.save(orderVins);
-      }
-
-      waybill.status = rule;
-      if (rule === WaybillStatus.ARRIVED) {
+        waybill.status !== WaybillStatus.IN_TRANSIT ||
+        waybill.isLocked ||
+        waybill.transportType !== TransportType.DELIVERY
+      )
+        throw new BadRequestException('只有已启运、运输中的派送运单可以签收');
+      const wv = await mgr.findOneByOrFail(WaybillVin, { id: candidate.id });
+      if (wv.isSigned) throw new BadRequestException('该 VIN 已签收');
+      wv.isSigned = true;
+      await mgr.save(wv);
+      const unsigned = await mgr.countBy(WaybillVin, {
+        waybillId: waybill.id,
+        isSigned: false,
+      });
+      if (!unsigned) {
+        waybill.status = WaybillStatus.ARRIVED;
         waybill.isLocked = true;
+        await mgr.save(waybill);
       }
-      await waybillRepo.save(waybill);
-      return { waybill, statusChanged: true };
-    });
-
-    // 事务外副作用：审计日志 + WebSocket 广播 + 队列通知
-    // (放事务外是为了不阻塞事务提交；即使这些失败也不影响业务状态一致性)
-    await this.trackingService.appendLog({
-      waybillId: result.waybill.id,
-      vin: dto.vin,
-      action: dto.action,
-      yardId: dto.yardId ?? null,
-      operatorUserId: operator?.userId ?? null,
-      vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
-      attachmentUrls: dto.attachmentUrls ?? null,
-      remark: dto.remark,
-    });
-
-    if (result.statusChanged) {
-      this.trackingGateway.emitWaybillStatusChanged({
-        waybillId: result.waybill.id,
-        vin: dto.vin,
-        status: result.waybill.status,
-        yardId: dto.yardId ?? operator.scopeYardId ?? null,
+      await this.trackingService.appendLog(
+        {
+          waybillId: waybill.id,
+          vin: dto.vin,
+          action: ScanAction.SIGNED,
+          operatorUserId: operator.userId,
+          attachmentUrls: dto.attachmentUrls ?? null,
+          remark: dto.remark,
+          vehicleCheckInfo: dto.vehicleCheckInfo ?? null,
+        },
+        mgr,
+      );
+      return mgr.findOneOrFail(Waybill, {
+        where: { id: waybill.id },
+        relations: ['vins', 'carrier', 'originYard', 'destinationDealer'],
       });
-      await this.queueService.notifyWaybillStatusChanged({
-        waybillId: result.waybill.id,
-        vin: dto.vin,
-        status: result.waybill.status,
-      });
-    }
-
-    return (await this.findByIdUnscoped(result.waybill.id)) ?? result.waybill;
+    });
+    await this.publishStatus(result, dto.vin);
+    return result;
   }
 
   // 供司机扫码前用：给一个 VIN，返回它当前挂在哪张 Waybill 上 + 是否已签收
-  async lookupVin(vin: string, scope: EffectiveScope): Promise<{
+  async lookupVin(
+    vin: string,
+    scope: EffectiveScope,
+  ): Promise<{
     vin: string;
     isSigned: boolean;
     waybill: Waybill;
@@ -607,13 +489,16 @@ export class WaybillsService {
       throw new BadRequestException('运单已锁定，无法撤销');
     }
 
-    const releasedVins = await this.dataSource.transaction(async (mgr) => {
+    await this.dataSource.transaction(async (mgr) => {
       const waybillVinRepo = mgr.getRepository(WaybillVin);
       const waybillRepo = mgr.getRepository(Waybill);
       const orderVinRepo = mgr.getRepository(OrderVin);
 
+      await this.pendingWaybill(mgr, id);
       // 拿 waybill 里所有 VIN
       const wvs = await waybillVinRepo.find({ where: { waybillId: id } });
+      if (wvs.some((v) => v.loadedAt))
+        throw new BadRequestException('请先卸车回库，再撤销运单');
       const vinCodes = wvs.map((wv) => wv.vin);
 
       // 释放 OrderVin.isAllocated
@@ -626,202 +511,215 @@ export class WaybillsService {
           .execute();
       }
 
-      // 删 waybill_vins + waybill (CASCADE 会自动删 vin，但显式删更清晰)
+      // 删除前记录快照；删除会将日志的 waybill_id 置空，原编号和 ID 保留在 payload。
+      for (const vin of vinCodes) {
+        await this.audit.log(
+          {
+            operationType: OperationType.WAYBILL_CANCEL,
+            vin,
+            waybillId: id,
+            yardId: waybill.originYardId,
+            operatorUserId,
+            payload: {
+              waybillId: id,
+              waybillCode: waybill.waybillCode,
+              before: waybill,
+              after: null,
+            },
+          },
+          mgr,
+        );
+      }
       await waybillVinRepo.delete({ waybillId: id });
       await waybillRepo.delete(id);
-      return vinCodes;
     });
+  }
 
-    // 每台车都记一条撤销运单事件，方便按 VIN 查轨迹
-    for (const vin of releasedVins) {
-      await this.audit.log({
-        operationType: OperationType.WAYBILL_CANCEL,
-        vin,
-        waybillId: id,
-        yardId: waybill.originYardId ?? null,
-        operatorUserId,
-        payload: {
-          waybillCode: waybill.waybillCode,
-        },
-      });
+  private async publishStatus(waybill: Waybill, vin: string) {
+    const event = {
+      waybillId: waybill.id,
+      vin,
+      status: waybill.status,
+      yardId: waybill.originYardId,
+    };
+    try {
+      this.trackingGateway.emitWaybillStatusChanged(event);
+      await this.queueService.notifyWaybillStatusChanged(event);
+    } catch (error) {
+      this.logger.error(
+        `库存及审计已提交，状态通知失败: ${(error as Error).message}`,
+      );
     }
   }
 
-  // 单台 VIN 装车：只写 WaybillVin.loadedAt+loadPhotoKeys；不动 waybill.status，不释放 slot
-  // 目的：真实 FVL 装车是逐台完成的，全部装完才在闸口整单出仓
+  private async pendingWaybill(
+    mgr: import('typeorm').EntityManager,
+    id: string,
+  ) {
+    const waybill = await mgr.findOne(Waybill, {
+      where: { id },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (
+      !waybill ||
+      waybill.status !== WaybillStatus.NOT_ARRIVED ||
+      waybill.isLocked ||
+      waybill.transportType !== TransportType.DELIVERY
+    )
+      throw new BadRequestException('仅未启运派送运单可执行此操作');
+    return waybill;
+  }
+
   async loadVin(
     waybillId: string,
     vin: string,
     photoKeys: string[],
     remark: string | undefined,
     user: AuthenticatedUser,
-  ): Promise<{ loadedAt: Date; loadedCount: number; totalCount: number }> {
+  ) {
     const waybill = await this.findByIdUnscoped(waybillId);
     if (!waybill) throw new NotFoundException('运单不存在');
     await this.assertCanLoad(waybill, user);
-
-    const result = await this.dataSource.transaction(async (mgr) => {
-      const waybillVinRepo = mgr.getRepository(WaybillVin);
-      const wv = await waybillVinRepo.findOne({ where: { waybillId, vin } });
-      if (!wv) throw new NotFoundException('该 VIN 不在此运单');
-      if (wv.loadedAt) {
-        throw new BadRequestException('该 VIN 已装车，请勿重复扫码');
-      }
+    if (!photoKeys.length) throw new BadRequestException('装车照片必填');
+    return this.dataSource.transaction(async (mgr) => {
+      const current = await this.pendingWaybill(mgr, waybillId);
+      const wv = await mgr.findOneBy(WaybillVin, { waybillId, vin });
+      if (!wv || wv.loadedAt)
+        throw new BadRequestException('VIN 不属于此运单或已装车');
+      const stock = await this.inventory.active(mgr, vin);
+      if (
+        stock.yardId !== current.originYardId ||
+        stock.organizationId !== current.organizationId
+      )
+        throw new BadRequestException('车辆不在始发场地');
+      await this.inventory.load(mgr, stock, {
+        userId: user.userId,
+        waybillId,
+        reason: remark,
+      });
       wv.loadedAt = new Date();
       wv.loadPhotoKeys = photoKeys;
-      await waybillVinRepo.save(wv);
-
-      const all = await waybillVinRepo.find({ where: { waybillId } });
+      await mgr.save(wv);
+      await this.trackingService.appendLog(
+        {
+          waybillId,
+          vin,
+          action: ScanAction.DELIVERY_LOAD,
+          yardId: current.originYardId,
+          operatorUserId: user.userId,
+          attachmentUrls: photoKeys,
+          remark,
+        },
+        mgr,
+      );
+      const all = await mgr.findBy(WaybillVin, { waybillId });
       return {
         loadedAt: wv.loadedAt,
         loadedCount: all.filter((v) => v.loadedAt).length,
         totalCount: all.length,
       };
     });
-
-    await this.trackingService.appendLog({
-      waybillId,
-      vin,
-      action: ScanAction.DELIVERY_LOAD,
-      yardId: waybill.originYardId ?? null,
-      operatorUserId: user.userId,
-      attachmentUrls: photoKeys,
-      remark,
-    });
-
-    return result;
   }
 
-  // 撤销单台装车：清 loadedAt + loadPhotoKeys（例如扫错车/上错车位）
   async unloadVin(
     waybillId: string,
     vin: string,
     user: AuthenticatedUser,
-  ): Promise<{ loadedCount: number; totalCount: number }> {
+    slotId?: string,
+  ) {
     const waybill = await this.findByIdUnscoped(waybillId);
     if (!waybill) throw new NotFoundException('运单不存在');
     await this.assertCanLoad(waybill, user);
-
-    const result = await this.dataSource.transaction(async (mgr) => {
-      const waybillVinRepo = mgr.getRepository(WaybillVin);
-      const wv = await waybillVinRepo.findOne({ where: { waybillId, vin } });
-      if (!wv) throw new NotFoundException('该 VIN 不在此运单');
-      if (!wv.loadedAt) {
-        throw new BadRequestException('该 VIN 未装车，无需撤销');
-      }
+    return this.dataSource.transaction(async (mgr) => {
+      const current = await this.pendingWaybill(mgr, waybillId);
+      const wv = await mgr.findOneBy(WaybillVin, { waybillId, vin });
+      if (!wv?.loadedAt) throw new BadRequestException('该 VIN 未装车');
+      const stock = await this.inventory.active(mgr, vin);
+      if (stock.yardId !== current.originYardId)
+        throw new BadRequestException('车辆不在始发场地');
+      const target = slotId ?? stock.lastSlotId;
+      if (!target) throw new BadRequestException('请选择卸车后的实际库位');
+      await this.inventory.move(
+        mgr,
+        stock,
+        target,
+        { userId: user.userId, waybillId },
+        true,
+      );
       wv.loadedAt = null;
       wv.loadPhotoKeys = [];
-      await waybillVinRepo.save(wv);
-
-      const all = await waybillVinRepo.find({ where: { waybillId } });
+      await mgr.save(wv);
+      await this.trackingService.appendLog(
+        {
+          waybillId,
+          vin,
+          action: ScanAction.DELIVERY_LOAD_UNDO,
+          yardId: current.originYardId,
+          operatorUserId: user.userId,
+        },
+        mgr,
+      );
+      const all = await mgr.findBy(WaybillVin, { waybillId });
       return {
         loadedCount: all.filter((v) => v.loadedAt).length,
         totalCount: all.length,
       };
     });
-
-    await this.trackingService.appendLog({
-      waybillId,
-      vin,
-      action: ScanAction.DELIVERY_LOAD_UNDO,
-      yardId: waybill.originYardId ?? null,
-      operatorUserId: user.userId,
-    });
-
-    return result;
   }
 
-  // 整单启运出闸：校验全部装完 → 释放 slot → 状态翻 IN_TRANSIT
   async departWaybill(
     waybillId: string,
     gatePhotoKeys: string[] | undefined,
     remark: string | undefined,
     user: AuthenticatedUser,
-  ): Promise<Waybill> {
+  ) {
     const waybill = await this.findByIdUnscoped(waybillId);
     if (!waybill) throw new NotFoundException('运单不存在');
     await this.assertCanLoad(waybill, user);
-    if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
-      throw new BadRequestException(`运单已 ${waybill.status}，无法再次启运`);
-    }
-    if (waybill.transportType !== TransportType.DELIVERY) {
-      throw new BadRequestException('此接口仅用于派送运单启运');
-    }
-    if (!waybill.driverId || !waybill.vehicleId) {
-      throw new BadRequestException('启运前必须完成司机和运输车辆分配');
-    }
-
-    const { updated, vins } = await this.dataSource.transaction(async (mgr) => {
-      const waybillVinRepo = mgr.getRepository(WaybillVin);
-      const waybillRepo = mgr.getRepository(Waybill);
-      const orderVinRepo = mgr.getRepository(OrderVin);
-      const slotRepo = mgr.getRepository(YardSlot);
-
-      const wvs = await waybillVinRepo.find({ where: { waybillId } });
-      if (wvs.length === 0) throw new BadRequestException('运单无 VIN');
-      const unloaded = wvs.filter((v) => !v.loadedAt);
-      if (unloaded.length > 0) {
-        throw new BadRequestException(
-          `还有 ${unloaded.length} 台未装车：${unloaded.map((v) => v.vin).join(', ')}`,
+    const result = await this.dataSource.transaction(async (mgr) => {
+      const current = await this.pendingWaybill(mgr, waybillId);
+      if (!current.driverId || !current.vehicleId)
+        throw new BadRequestException('启运前必须分配司机和运输车辆');
+      const vins = await mgr.find(WaybillVin, {
+        where: { waybillId },
+        order: { vin: 'ASC' },
+      });
+      if (!vins.length || vins.some((v) => !v.loadedAt))
+        throw new BadRequestException('必须逐台完成全部车辆装车后才能启运');
+      for (const wv of vins) {
+        const stock = await this.inventory.active(mgr, wv.vin);
+        if (
+          stock.yardId !== current.originYardId ||
+          stock.organizationId !== current.organizationId
+        )
+          throw new BadRequestException('车辆不在始发场地');
+        await this.inventory.close(mgr, stock, 'DEPARTURE', {
+          userId: user.userId,
+          waybillId,
+          reason: remark,
+        });
+        await this.trackingService.appendLog(
+          {
+            waybillId,
+            vin: wv.vin,
+            action: ScanAction.DELIVERY_DEPARTURE,
+            yardId: current.originYardId,
+            operatorUserId: user.userId,
+            attachmentUrls: gatePhotoKeys ?? null,
+            remark,
+          },
+          mgr,
         );
       }
-
-      // 释放整单所有 VIN 对应的 slot
-      const orderVins = await orderVinRepo.find({
-        where: wvs.map((wv) => ({ vin: wv.vin })),
+      current.status = WaybillStatus.IN_TRANSIT;
+      await mgr.save(current);
+      return mgr.findOneOrFail(Waybill, {
+        where: { id: waybillId },
+        relations: ['vins', 'carrier', 'originYard', 'destinationDealer'],
       });
-      const slotIds = orderVins
-        .map((ov) => ov.slotId)
-        .filter((id): id is string => !!id);
-      if (slotIds.length > 0) {
-        const slots = await slotRepo.find({
-          where: slotIds.map((id) => ({ id })),
-        });
-        for (const slot of slots) {
-          slot.status = YardSlotStatus.VACANT;
-          slot.currentVin = null;
-          slot.assignedAt = null;
-        }
-        await slotRepo.save(slots);
-      }
-      for (const ov of orderVins) ov.slotId = null;
-      if (orderVins.length > 0) await orderVinRepo.save(orderVins);
-
-      const w = await waybillRepo.findOne({ where: { id: waybillId } });
-      if (!w) throw new NotFoundException('运单不存在');
-      w.status = WaybillStatus.IN_TRANSIT;
-      await waybillRepo.save(w);
-      return { updated: w, vins: wvs };
     });
-
-    // 每台车都写一条 DELIVERY_DEPARTURE 日志，闸口合影只挂在第一台上避免存储冗余
-    for (let i = 0; i < vins.length; i += 1) {
-      await this.trackingService.appendLog({
-        waybillId,
-        vin: vins[i].vin,
-        action: ScanAction.DELIVERY_DEPARTURE,
-        yardId: waybill.originYardId ?? null,
-        operatorUserId: user.userId,
-        attachmentUrls: i === 0 ? (gatePhotoKeys ?? null) : null,
-        remark: i === 0 ? remark : undefined,
-      });
-    }
-
-    // 广播一次（消费者按 waybillId 刷新，vin 传第一台即可）
-    const representativeVin = vins[0]?.vin ?? '';
-    this.trackingGateway.emitWaybillStatusChanged({
-      waybillId,
-      vin: representativeVin,
-      status: updated.status,
-      yardId: waybill.originYardId ?? null,
-    });
-    await this.queueService.notifyWaybillStatusChanged({
-      waybillId,
-      vin: representativeVin,
-      status: updated.status,
-    });
-
-    return updated;
+    await this.publishStatus(result, result.vins[0]?.vin ?? '');
+    return result;
   }
 
   // 装车/启运权限：ORG_ADMIN/HQ_ADMIN 全通；YARD_STAFF 仅本人所属场地=运单始发地；
@@ -831,7 +729,8 @@ export class WaybillsService {
     user: AuthenticatedUser,
   ): Promise<void> {
     const scope = await this.scopeService.resolve(user);
-    if (scope.type === 'ORG') this.scopeService.assertOrgWritable(scope, waybill.organizationId);
+    if (scope.type === 'ORG')
+      this.scopeService.assertOrgWritable(scope, waybill.organizationId);
     if (scope.role === Role.ORG_ADMIN) return;
     if (user.role === Role.YARD_STAFF) {
       if (waybill.originYardId && user.scopeYardId === waybill.originYardId) {
@@ -856,67 +755,80 @@ export class WaybillsService {
     scope: EffectiveScope,
     operatorUserId: string,
   ): Promise<Waybill> {
-    const waybill = await this.findByIdUnscoped(waybillId);
-    if (!waybill) throw new NotFoundException('运单不存在');
-
-    this.assertCanAssignWaybill(waybill, scope);
-
-    if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
-      throw new BadRequestException(
-        `运单已 ${waybill.status}，无法再改司机/车辆`,
-      );
-    }
-    if (waybill.isLocked) {
-      throw new BadRequestException('运单已锁定，无法修改');
-    }
-
-    // 校验司机/车辆归属：必须属于此运单的承运商，防跨供应商乱指
-    if (dto.driverId) {
-      const driver = await this.driversRepository.findOne({
-        where: { id: dto.driverId },
+    return this.dataSource.transaction(async (mgr) => {
+      const waybill = await mgr.findOne(Waybill, {
+        where: { id: waybillId },
+        lock: { mode: 'pessimistic_write' },
       });
-      if (!driver) throw new NotFoundException('司机不存在');
-      if (driver.carrierId !== waybill.carrierId) {
-        throw new BadRequestException('司机不属于此运单的承运商');
+      if (!waybill) throw new NotFoundException('运单不存在');
+
+      this.assertCanAssignWaybill(waybill, scope);
+
+      if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
+        throw new BadRequestException(
+          `运单已 ${waybill.status}，无法再改司机/车辆`,
+        );
       }
-      if (!driver.isActive)
-        throw new BadRequestException('司机已停用，无法分派');
-    }
-    if (dto.vehicleId) {
-      const vehicle = await this.vehiclesRepository.findOne({
-        where: { id: dto.vehicleId },
-      });
-      if (!vehicle) throw new NotFoundException('拖车不存在');
-      if (vehicle.carrierId !== waybill.carrierId) {
-        throw new BadRequestException('拖车不属于此运单的承运商');
+      if (waybill.isLocked) {
+        throw new BadRequestException('运单已锁定，无法修改');
       }
-      if (!vehicle.isActive)
-        throw new BadRequestException('拖车已停用，无法分派');
-    }
 
-    const before = { driverId: waybill.driverId, vehicleId: waybill.vehicleId };
-    if (dto.driverId !== undefined) waybill.driverId = dto.driverId;
-    if (dto.vehicleId !== undefined) waybill.vehicleId = dto.vehicleId;
-    const saved = await this.waybillsRepository.save(waybill);
+      // 校验司机/车辆归属：必须属于此运单的承运商，防跨供应商乱指
+      if (dto.driverId) {
+        const driver = await mgr.getRepository(Driver).findOne({
+          where: { id: dto.driverId },
+        });
+        if (!driver) throw new NotFoundException('司机不存在');
+        if (driver.carrierId !== waybill.carrierId) {
+          throw new BadRequestException('司机不属于此运单的承运商');
+        }
+        if (!driver.isActive)
+          throw new BadRequestException('司机已停用，无法分派');
+      }
+      if (dto.vehicleId) {
+        const vehicle = await mgr.getRepository(Vehicle).findOne({
+          where: { id: dto.vehicleId },
+        });
+        if (!vehicle) throw new NotFoundException('拖车不存在');
+        if (vehicle.carrierId !== waybill.carrierId) {
+          throw new BadRequestException('拖车不属于此运单的承运商');
+        }
+        if (!vehicle.isActive)
+          throw new BadRequestException('拖车已停用，无法分派');
+      }
 
-    // 每台车都写一条审计日志，追溯"谁在何时分派了谁"
-    const wvs = await this.waybillVinsRepository.find({ where: { waybillId } });
-    for (const wv of wvs) {
-      await this.audit.log({
-        operationType: OperationType.WAYBILL_ASSIGN,
-        vin: wv.vin,
-        waybillId,
-        yardId: waybill.originYardId ?? null,
-        operatorUserId,
-        payload: {
-          waybillCode: waybill.waybillCode,
-          before,
-          after: { driverId: saved.driverId, vehicleId: saved.vehicleId },
-        },
-      });
-    }
+      const before = {
+        driverId: waybill.driverId,
+        vehicleId: waybill.vehicleId,
+      };
+      if (dto.driverId !== undefined) waybill.driverId = dto.driverId;
+      if (dto.vehicleId !== undefined) waybill.vehicleId = dto.vehicleId;
+      const saved = await mgr.save(waybill);
 
-    return saved;
+      // 每台车都写一条审计日志，追溯"谁在何时分派了谁"
+      const wvs = await mgr
+        .getRepository(WaybillVin)
+        .find({ where: { waybillId } });
+      for (const wv of wvs) {
+        await this.audit.log(
+          {
+            operationType: OperationType.WAYBILL_ASSIGN,
+            vin: wv.vin,
+            waybillId,
+            yardId: waybill.originYardId ?? null,
+            operatorUserId,
+            payload: {
+              waybillCode: waybill.waybillCode,
+              before,
+              after: { driverId: saved.driverId, vehicleId: saved.vehicleId },
+            },
+          },
+          mgr,
+        );
+      }
+
+      return saved;
+    });
   }
 
   private assertCanAssignWaybill(

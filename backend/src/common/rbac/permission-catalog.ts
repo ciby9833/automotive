@@ -22,7 +22,14 @@ export const ACTIONS: Record<P, ActionDefinition> = {
   [P.ORG_CRUD]: { types: [R.HQ_ADMIN], requires: [P.ORG_VIEW] },
   [P.YARD_VIEW_BOARD]: { types: internal },
   [P.YARD_VIEW_VIN_INVENTORY]: { types: [...internal, R.CUSTOMER] },
-  [P.YARD_ASSIGN_SLOT]: { types: yardOps, requires: [P.YARD_VIEW_BOARD] },
+  [P.YARD_ASSIGN_SLOT]: {
+    types: yardOps,
+    requires: [P.YARD_VIEW_BOARD, P.FILE_UPLOAD],
+  },
+  [P.YARD_ADJUST_INVENTORY]: {
+    types: yardOps,
+    requires: [P.YARD_VIEW_BOARD, P.FILE_UPLOAD],
+  },
   [P.YARD_RELEASE_SLOT]: { types: yardOps, requires: [P.YARD_VIEW_BOARD] },
   [P.YARD_MOVE_VEHICLE]: {
     types: yardOps,
@@ -338,7 +345,12 @@ export const MENUS: MenuDefinition[] = [
     'nav.yardBoard',
     internal,
     [P.YARD_VIEW_BOARD],
-    [P.YARD_ASSIGN_SLOT, P.YARD_RELEASE_SLOT, P.YARD_MOVE_VEHICLE],
+    [
+      P.YARD_ASSIGN_SLOT,
+      P.YARD_RELEASE_SLOT,
+      P.YARD_MOVE_VEHICLE,
+      P.YARD_ADJUST_INVENTORY,
+    ],
   ),
   menu(
     'yard-batch-assign',

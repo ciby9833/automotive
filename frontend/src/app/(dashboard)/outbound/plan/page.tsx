@@ -34,8 +34,10 @@ import { Customer, CustomerAddress, customersApi } from '@/lib/api/customers';
 import { Yard, yardsApi } from '@/lib/api/yards';
 import { useTranslation } from '@/i18n/useTranslation';
 import { formatSlotCode } from '@/lib/slots';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 function OutboundPlanInner() {
+  const canPlan = usePermission(Permission.OUTBOUND_PLAN);
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const initialOrderId = searchParams.get('orderId') ?? undefined;
@@ -753,7 +755,7 @@ function OutboundPlanInner() {
               block
               size="large"
               loading={submitting}
-              disabled={!selected.length || !!validationError}
+              disabled={!canPlan || !selected.length || !!validationError}
               onClick={submit}
             >
               {t('outbound.plan.submit', { n: selected.length })}

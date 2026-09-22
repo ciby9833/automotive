@@ -10,6 +10,13 @@ import { Organization } from '../../modules/organizations/entities/organization.
 import { UserOrganizationMembership } from '../../modules/users/entities/user-organization-membership.entity';
 import type { AuthenticatedUser } from '../../modules/auth/auth.types';
 import type { EffectiveScope } from './scope.types';
+import { User } from '../../modules/users/entities/user.entity';
+import { Yard } from '../../modules/yards/entities/yard.entity';
+import { JwtPayload } from '../../modules/auth/auth.types';
+import {
+  effectivePermissions,
+  permissionsForRole,
+} from '../rbac/role-permissions';
 
 // 所有业务模块统一通过 ScopeService.resolve(user) 得到 EffectiveScope 再查库，
 // 不允许 controller/service 自行拼 role 判断——那是权限漏权的高发区。
@@ -20,13 +27,43 @@ export class ScopeService {
     private readonly memRepo: Repository<UserOrganizationMembership>,
     @InjectRepository(Organization)
     private readonly orgRepo: Repository<Organization>,
+    @InjectRepository(User) private readonly userRepo: Repository<User>,
+    @InjectRepository(Yard) private readonly yardRepo: Repository<Yard>,
   ) {}
+
+  async authenticate(payload: JwtPayload): Promise<AuthenticatedUser> {
+    const account = await this.userRepo.findOneBy({
+      id: payload.sub,
+      isActive: true,
+    });
+    if (!account) throw new UnauthorizedException('账号不存在或已停用');
+    const user: AuthenticatedUser = {
+      userId: account.id,
+      username: account.username,
+      role: account.role,
+      preAuth: payload.preAuth === true,
+      activeOrgId: payload.activeOrgId,
+      scopeYardId: null,
+      carrierId: account.carrierId,
+      customerId: account.customerId,
+      permissions: [],
+    };
+    if (user.preAuth) return user;
+    const scope = await this.resolve(user);
+    user.scope = scope;
+    user.role = scope.role;
+    user.scopeYardId = scope.type === 'ORG' ? scope.scopeYardId : null;
+    user.permissions =
+      scope.type === 'ORG' ? scope.permissions : permissionsForRole(scope.role);
+    return user;
+  }
 
   async resolve(user: AuthenticatedUser): Promise<EffectiveScope> {
     if (user.preAuth) {
       // 预授权令牌不允许调用任何业务接口；理论上被 PreAuthGuard 提前拦，这里再兜一次
       throw new UnauthorizedException('尚未选择机构，无权访问业务数据');
     }
+    if (user.scope) return user.scope;
 
     // 外部账号：CARRIER_STAFF / CARRIER_DRIVER
     if (user.role === Role.CARRIER_STAFF || user.role === Role.CARRIER_DRIVER) {
@@ -59,21 +96,54 @@ export class ScopeService {
 
     // 每次请求都校验 membership 仍然存在（防止管理员撤销权限后旧 token 仍能访问）
     const membership = await this.memRepo.findOne({
-      where: { userId: user.userId, organizationId: user.activeOrgId },
+      relations: { accessRoles: true },
+      where: {
+        userId: user.userId,
+        organizationId: user.activeOrgId,
+        isActive: true,
+      },
     });
     if (!membership) {
       throw new ForbiddenException('对该机构无权限');
     }
 
-    const orgIds = await this.getDescendantOrgIds(user.activeOrgId);
-    if (!orgIds.length) throw new ForbiddenException('当前机构不存在或已停用');
+    const org = await this.orgRepo.findOneBy({
+      id: user.activeOrgId,
+      isActive: true,
+    });
+    if (!org) throw new ForbiddenException('当前机构不存在或已停用');
+    if ((membership.role === Role.HQ_ADMIN) !== (org.parentId === null))
+      throw new ForbiddenException(
+        '总部角色必须绑定总部，业务角色必须绑定业务机构',
+      );
+    const orgIds =
+      membership.role === Role.HQ_ADMIN
+        ? await this.getDescendantOrgIds(user.activeOrgId, true)
+        : [user.activeOrgId];
+    if (membership.role === Role.YARD_STAFF) {
+      const yard =
+        membership.scopeYardId &&
+        (await this.yardRepo.findOneBy({
+          id: membership.scopeYardId,
+          organizationId: org.id,
+          isActive: true,
+        }));
+      if (!yard)
+        throw new ForbiddenException('场地账号未绑定当前机构的有效场地');
+    }
 
     return {
       type: 'ORG',
       activeOrgId: user.activeOrgId,
       orgIds,
       role: membership.role,
-      scopeYardId: user.scopeYardId,
+      scopeYardId: membership.scopeYardId,
+      permissions: effectivePermissions(
+        membership.role,
+        membership.accessRoles.filter((r) => r.isActive && r.organizationId === org.id && r.type === membership.role)
+          .flatMap((r) => r.permissions),
+      ),
+      userId: user.userId,
     };
   }
 
@@ -100,6 +170,13 @@ export class ScopeService {
 
   // 写操作前校验：目标机构必须在当前 scope 内；外部账号不允许直接创建 org-scoped 数据
   assertOrgWritable(scope: EffectiveScope, targetOrgId: string): void {
+    this.assertOrgReadable(scope, targetOrgId);
+    if (scope.role === Role.HQ_ADMIN)
+      throw new ForbiddenException('总部仅可查询业务，不能执行业务操作');
+  }
+
+  // 机构/账号治理使用此范围校验；业务写入必须使用 assertOrgWritable。
+  assertOrgReadable(scope: EffectiveScope, targetOrgId: string): void {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('外部账号无权创建机构维度数据');
     }

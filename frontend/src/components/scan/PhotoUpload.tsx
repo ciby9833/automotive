@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button, Space, message } from 'antd';
 import { CameraOutlined, DeleteOutlined } from '@ant-design/icons';
 import { uploadFile } from '@/lib/api/storage';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 interface Props {
   value?: string[];
@@ -14,10 +15,11 @@ interface Props {
 
 // H5 拍照上传：相机 capture + MinIO 上传，返回 key 数组
 export function PhotoUpload({ value = [], onChange, maxCount = 10 }: Props) {
+  const canUpload = usePermission(Permission.FILE_UPLOAD);
   const [uploading, setUploading] = useState(false);
 
   const handlePick = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+    if (!canUpload || !files || files.length === 0) return;
     if (value.length + files.length > maxCount) {
       message.warning(`最多 ${maxCount} 张照片`);
       return;
@@ -94,7 +96,7 @@ export function PhotoUpload({ value = [], onChange, maxCount = 10 }: Props) {
             capture="environment"
             multiple
             style={{ display: 'none' }}
-            disabled={uploading}
+            disabled={!canUpload || uploading}
             onChange={(e) => handlePick(e.target.files)}
           />
           <CameraOutlined style={{ fontSize: 22, color: '#94a3b8' }} />

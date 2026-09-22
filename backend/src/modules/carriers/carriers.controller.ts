@@ -42,6 +42,7 @@ export class CarriersController {
   ) {}
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Post()
   async create(
     @Body() dto: CreateCarrierDto,
@@ -52,6 +53,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_VIEW)
   @Get()
   async findAll(
     @CurrentUser() user: AuthenticatedUser,
@@ -62,6 +64,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_VIEW)
   @Get(':id')
   async findOne(
     @Param('id') id: string,
@@ -97,6 +100,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_VIEW)
   @Get(':id/drivers')
   async listDrivers(
     @Param('id') id: string,
@@ -112,6 +116,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Post(':id/drivers')
   async addDriver(
     @Param('id') id: string,
@@ -123,6 +128,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Patch(':id/drivers/:driverId')
   async updateDriver(
     @Param('id', ParseUUIDPipe) id: string,
@@ -141,6 +147,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Patch(':id/drivers/:driverId/deactivate')
   async deactivateDriver(
     @Param('id', ParseUUIDPipe) id: string,
@@ -158,6 +165,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Patch(':id/drivers/:driverId/reactivate')
   async reactivateDriver(
     @Param('id', ParseUUIDPipe) id: string,
@@ -175,6 +183,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Delete(':id/drivers/:driverId')
   async deleteDriver(
     @Param('id', ParseUUIDPipe) id: string,
@@ -187,6 +196,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_VIEW)
   @Get(':id/vehicles')
   async listVehicles(
     @Param('id') id: string,
@@ -202,6 +212,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Post(':id/vehicles')
   async addVehicle(
     @Param('id') id: string,
@@ -213,6 +224,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Patch(':id/vehicles/:vehicleId')
   async updateVehicle(
     @Param('id', ParseUUIDPipe) id: string,
@@ -231,6 +243,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Patch(':id/vehicles/:vehicleId/deactivate')
   async deactivateVehicle(
     @Param('id', ParseUUIDPipe) id: string,
@@ -248,6 +261,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Patch(':id/vehicles/:vehicleId/reactivate')
   async reactivateVehicle(
     @Param('id', ParseUUIDPipe) id: string,
@@ -265,6 +279,7 @@ export class CarriersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.PARTNER_CARRIER_CRUD)
   @Delete(':id/vehicles/:vehicleId')
   async deleteVehicle(
     @Param('id', ParseUUIDPipe) id: string,

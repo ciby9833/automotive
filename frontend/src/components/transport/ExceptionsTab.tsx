@@ -1,4 +1,5 @@
 "use client";
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Form, Input, Modal, Radio, Select, Space, Table, Tag, Typography, message } from "antd";
@@ -11,6 +12,7 @@ import {
 import { Vin, addressOptions, fmtTime, notifyError, useCustomerAddresses, useTransportText } from "./shared";
 
 export function ExceptionsTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void }) {
+  const canResolve = usePermission(Permission.TRANSPORT_ORDER_MANAGE);
   const t = useTransportText();
   const [status, setStatus] = useState("OPEN");
   const [page, setPage] = useState(1);
@@ -83,7 +85,7 @@ export function ExceptionsTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => 
             width: 170,
             render: (_, e) =>
               e.status === "OPEN" ? (
-                <Button size="small" type="primary" onClick={() => setResolving(e)}>
+                <Button size="small" type="primary" disabled={!canResolve} onClick={() => setResolving(e)}>
                   {t("resolve")}
                 </Button>
               ) : (

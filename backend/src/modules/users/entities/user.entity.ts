@@ -11,7 +11,6 @@ import { BaseEntity } from '../../../common/entities/base.entity';
 import { Role } from '../../../common/enums/role.enum';
 import { Carrier } from '../../carriers/entities/carrier.entity';
 import { Customer } from '../../customers/entities/customer.entity';
-import { Yard } from '../../yards/entities/yard.entity';
 import { UserOrganizationMembership } from './user-organization-membership.entity';
 
 // 账号分两类：
@@ -37,15 +36,6 @@ export class User extends BaseEntity {
   // 外部账号的 role 与 carrierId/customerId 必须一致（在 service 层保证）。
   @Column({ type: 'enum', enum: Role })
   role: Role;
-
-  // YARD_STAFF 专属：绑定到具体场地
-  @ManyToOne(() => Yard, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'scope_yard_id' })
-  scopeYard: Yard | null;
-
-  @Index()
-  @Column({ name: 'scope_yard_id', type: 'uuid', nullable: true })
-  scopeYardId: string | null;
 
   // CARRIER_STAFF / CARRIER_DRIVER 专属：直接挂在承运商下
   @ManyToOne(() => Carrier, { nullable: true, onDelete: 'CASCADE' })

@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 // 工作台已打开的页面标签
 export interface WorkspaceTab {
@@ -25,6 +25,8 @@ interface LayoutState {
   // 当前活动 tab 的 path
   activeTabPath: string | null;
   hasHydrated: boolean;
+  contextKey: string | null;
+  setContext: (contextKey: string) => void;
 
   toggleSidebar: () => void;
   setSidebarCollapsed: (v: boolean) => void;
@@ -39,14 +41,7 @@ interface LayoutState {
   setHasHydrated: (v: boolean) => void;
 }
 
-const DEFAULT_TABS: WorkspaceTab[] = [
-  {
-    key: 'dashboard',
-    path: '/dashboard',
-    i18nKey: 'nav.dashboard',
-    closable: false,
-  },
-];
+const DEFAULT_TABS: WorkspaceTab[] = [];
 
 export const useLayoutStore = create<LayoutState>()(
   persist(
@@ -54,8 +49,13 @@ export const useLayoutStore = create<LayoutState>()(
       sidebarCollapsed: false,
       openKeys: null,
       tabs: DEFAULT_TABS,
-      activeTabPath: '/dashboard',
+      activeTabPath: null,
       hasHydrated: false,
+      contextKey: null,
+      setContext: (contextKey) => {
+        if (get().contextKey !== contextKey)
+          set({ contextKey, tabs: [], activeTabPath: null });
+      },
 
       toggleSidebar: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -85,7 +85,7 @@ export const useLayoutStore = create<LayoutState>()(
         if (isActive) {
           // 找相邻：优先左边、其次右边、再次 dashboard
           const neighbor = tabs[idx - 1] ?? tabs[idx + 1] ?? nextTabs[0];
-          nextActive = neighbor?.path ?? '/dashboard';
+          nextActive = neighbor?.path ?? "/dashboard";
         }
 
         set({ tabs: nextTabs, activeTabPath: nextActive });
@@ -99,7 +99,9 @@ export const useLayoutStore = create<LayoutState>()(
 
         const nextTabs = tabs.filter((t) => !t.closable || t.path === path);
         const activeTabPath = get().activeTabPath;
-        const activeStillExists = nextTabs.some((t) => t.path === activeTabPath);
+        const activeStillExists = nextTabs.some(
+          (t) => t.path === activeTabPath,
+        );
         const nextActive = activeStillExists ? activeTabPath : path;
 
         set({ tabs: nextTabs, activeTabPath: nextActive });
@@ -112,11 +114,16 @@ export const useLayoutStore = create<LayoutState>()(
         if (idx < 0) return null;
 
         const rightPaths = new Set(
-          tabs.slice(idx + 1).filter((t) => t.closable).map((t) => t.path),
+          tabs
+            .slice(idx + 1)
+            .filter((t) => t.closable)
+            .map((t) => t.path),
         );
         const nextTabs = tabs.filter((t) => !rightPaths.has(t.path));
         const activeTabPath = get().activeTabPath;
-        const activeStillExists = nextTabs.some((t) => t.path === activeTabPath);
+        const activeStillExists = nextTabs.some(
+          (t) => t.path === activeTabPath,
+        );
         const nextActive = activeStillExists ? activeTabPath : path;
 
         set({ tabs: nextTabs, activeTabPath: nextActive });
@@ -135,18 +142,18 @@ export const useLayoutStore = create<LayoutState>()(
       setActiveTab: (path) => set({ activeTabPath: path }),
 
       // 机构切换/登出时调用，避免跨机构脏数据残留
-      clearTabs: () =>
-        set({ tabs: DEFAULT_TABS, activeTabPath: '/dashboard' }),
+      clearTabs: () => set({ tabs: DEFAULT_TABS, activeTabPath: null }),
 
       setHasHydrated: (v) => set({ hasHydrated: v }),
     }),
     {
-      name: 'tms-layout',
+      name: "tms-layout",
       partialize: (s) => ({
         sidebarCollapsed: s.sidebarCollapsed,
         openKeys: s.openKeys,
         tabs: s.tabs,
         activeTabPath: s.activeTabPath,
+        contextKey: s.contextKey,
       }),
       onRehydrateStorage: () => (state) => state?.setHasHydrated(true),
     },

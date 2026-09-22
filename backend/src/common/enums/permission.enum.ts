@@ -1,7 +1,19 @@
 // 功能权限枚举：细化到"能做哪个动作"，比 Role 粒度更细
 // 角色→权限 映射在 role-permissions.ts；接口用 @Permissions(X) 声明所需权限
 export enum Permission {
+  SETUP_ROLE_VIEW = 'setup:role-view',
+  SETUP_ROLE_MANAGE = 'setup:role-manage',
+  SETUP_USER_VIEW = 'setup:user-view',
   TRANSPORT_VIEW = 'transport:view',
+  TRANSPORT_ORDER_MANAGE = 'transport:order-manage',
+  TRANSPORT_DISPATCH = 'transport:dispatch',
+  TRANSPORT_EXECUTE = 'transport:execute',
+  TRANSPORT_FINANCE_VIEW = 'transport:finance-view',
+  TRANSPORT_FINANCE = 'transport:finance',
+  APP_RELEASE_VIEW = 'system:app-release-view',
+  APP_RELEASE_MANAGE = 'system:app-release-manage',
+  SNAPSHOT_MANAGE = 'system:snapshot-manage',
+  FILE_UPLOAD = 'file:upload',
   // 场地看板 (日常运营，YARD_STAFF 每天用)
   YARD_VIEW_BOARD = 'yard:view-board',
   YARD_ASSIGN_SLOT = 'yard:assign-slot',

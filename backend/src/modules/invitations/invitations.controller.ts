@@ -1,3 +1,6 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
+import { Public } from '../../common/decorators/public.decorator';
 import {
   Body,
   Controller,
@@ -32,6 +35,7 @@ export class InvitationsController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_INVITE)
   @Post('carriers/:id/invitations')
   async createForCarrier(
     @Param('id', ParseUUIDPipe) carrierId: string,
@@ -51,6 +55,7 @@ export class InvitationsController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_INVITE)
   @Post('customers/:id/invitations')
   async createForCustomer(
     @Param('id', ParseUUIDPipe) customerId: string,
@@ -68,12 +73,14 @@ export class InvitationsController {
   }
 
   // 公开：预览邀请信息（用户点开注册链接时前端拉这个显示"你被 XX 邀请为 XX 角色"）
+  @Public()
   @Get('public/invitations/:token')
   preview(@Param('token') token: string) {
     return this.invitationsService.previewByToken(token);
   }
 
   // 公开：凭 token 完成注册
+  @Public()
   @Post('public/register-with-invitation')
   async register(@Body() dto: RegisterWithInvitationDto) {
     return this.invitationsService.registerWithToken(

@@ -1,3 +1,5 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import {
   Body,
   Controller,
@@ -30,6 +32,7 @@ export class FinanceController {
   ) {}
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.FINANCE_CREATE)
   @Post()
   async create(
     @Body() dto: CreateFinanceRecordDto,
@@ -40,6 +43,7 @@ export class FinanceController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Permissions(Permission.FINANCE_VIEW)
   @Get()
   async findAll(
     @CurrentUser() user: AuthenticatedUser,
@@ -56,6 +60,7 @@ export class FinanceController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Permissions(Permission.FINANCE_CONFIRM)
   @Patch(':id/confirm')
   async confirm(
     @Param('id') id: string,
@@ -66,6 +71,7 @@ export class FinanceController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.FINANCE_SEND_BILL)
   @Post('customers/:customerId/notify')
   async notifyCustomer(
     @Param('customerId') customerId: string,

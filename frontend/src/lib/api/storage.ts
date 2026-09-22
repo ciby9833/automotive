@@ -4,7 +4,6 @@ import { apiClient, unwrap } from './client';
 // 之所以走 apiClient.defaults.baseURL 而不是硬编码：本地开发/生产/测试环境 API 域名可能不同
 function absolutize(url: string): string {
   if (!url) return url;
-  if (/^https?:/i.test(url)) return url; // 兼容旧数据 (直接是 MinIO signed URL)
   const base = apiClient.defaults.baseURL ?? '';
   return `${base}${url}`;
 }

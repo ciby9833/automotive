@@ -1,0 +1,176 @@
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.pageHeader h2,
+.editorHeader h3,
+.permissionTitle h3 {
+  margin: 0 0 6px;
+}
+.muted {
+  color: #718096;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.organizationLabel {
+  display: inline-block;
+  margin-right: 10px;
+  font-size: 13px;
+}
+.organizationSelect {
+  min-width: 240px;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+.rolePanel {
+  position: sticky;
+  top: 0;
+}
+.rolePanel :global(.ant-card-body) {
+  padding: 16px;
+}
+.createButton {
+  margin: 12px 0;
+}
+.roleList {
+  margin-top: 12px;
+  max-height: 65vh;
+  min-height: 180px;
+  overflow-y: auto;
+}
+.roleItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #e7edf4;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+.roleItem:hover {
+  border-color: #91caff;
+}
+.roleItem:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 2px;
+}
+.roleItem.selected {
+  border-color: #1677ff;
+  background: #f0f7ff;
+}
+.roleName {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.roleName strong {
+  overflow-wrap: anywhere;
+}
+.roleName :global(.ant-tag) {
+  flex: none;
+  margin: 0;
+}
+.editorPanel {
+  min-width: 0;
+}
+.editorHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.baseFields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 16px;
+}
+.notice {
+  margin-bottom: 18px;
+}
+.permissionTitle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+.moduleTabs {
+  margin-top: 12px;
+}
+.moduleRows {
+  border: 1px solid #e7edf4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.menuRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 30%) 1fr;
+  border-bottom: 1px solid #e7edf4;
+}
+.menuRow:last-child {
+  border-bottom: none;
+}
+.menuAccess {
+  padding: 16px;
+  background: #f8fafc;
+}
+.menuAccess > div {
+  padding-left: 24px;
+  margin-top: 4px;
+}
+.actions {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+.emptyEditor {
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width: 1000px) {
+  .workspace {
+    grid-template-columns: 230px minmax(0, 1fr);
+    gap: 12px;
+  }
+  .baseFields {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .menuRow {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+  .rolePanel {
+    position: static;
+  }
+  .roleList {
+    max-height: 220px;
+  }
+  .organizationSelect {
+    min-width: 200px;
+  }
+}

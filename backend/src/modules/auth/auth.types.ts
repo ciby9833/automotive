@@ -1,4 +1,5 @@
 import { Role } from '../../common/enums/role.enum';
+import { EffectiveScope } from '../../common/scope/scope.types';
 
 // JWT payload / 请求上下文里的用户身份信息
 // 分预授权(preAuth=true) 和 完整授权(preAuth=false) 两种：
@@ -7,7 +8,9 @@ import { Role } from '../../common/enums/role.enum';
 export interface AuthenticatedUser {
   userId: string;
   username: string;
-  role: Role; // 账号类型（首要角色，非 membership 内跨 org 的动态角色）
+  role: Role; // 当前机构 membership 的角色；外部账号取账号角色
+  permissions?: string[];
+  scope?: EffectiveScope; // 仅由后端解析，绝不从 JWT/请求体复制
   preAuth: boolean;
   // 内部账号：当前会话已选定的机构；未选择或外部账号 → null
   activeOrgId: string | null;

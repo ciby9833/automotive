@@ -57,6 +57,7 @@ export class YardsController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_VIEW_BOARD)
   @Get()
   async findAll(
     @CurrentUser() user: AuthenticatedUser,
@@ -69,6 +70,7 @@ export class YardsController {
   // ========== 场地下的库位（含 zone 信息，前端拼展示码） ==========
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_VIEW_BOARD)
   @Get(':id/slots')
   async findSlots(
     @Param('id', ParseUUIDPipe) id: string,
@@ -79,6 +81,7 @@ export class YardsController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_VIEW_BOARD)
   @Get(':id/stats')
   async stats(
     @Param('id', ParseUUIDPipe) id: string,
@@ -91,7 +94,7 @@ export class YardsController {
   // ========== 场地下的 Zone 配置 ==========
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
-  @Permissions(Permission.SETUP_ZONE_CRUD)
+  @Permissions(Permission.YARD_VIEW_BOARD)
   @Get(':id/zones')
   async listZones(
     @Param('id', ParseUUIDPipe) id: string,
@@ -103,6 +106,7 @@ export class YardsController {
 
   // 入库扫描/看板端拉可用 zone 下拉（不需要 SETUP_ZONE_CRUD）
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_VIEW_BOARD)
   @Get(':id/zones/active')
   async listActiveZones(
     @Param('id', ParseUUIDPipe) id: string,

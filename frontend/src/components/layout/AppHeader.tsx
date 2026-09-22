@@ -79,7 +79,7 @@ export function AppHeader() {
             className="header-user-role"
             style={{ marginLeft: 8 }}
           >
-            {t(`roles.${user.role}`)}
+            {t(`${isInternal ? 'access.scope' : 'roles'}.${user.role}`)}
           </Typography.Text>
         </span>
       </Dropdown>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import Link from "next/link";
 import {
   Alert,
@@ -59,6 +60,7 @@ function errorMessage(error: unknown, fallback: string) {
 }
 
 export default function OrganizationsPage() {
+  const canManage = usePermission(Permission.ORG_CRUD);
   const { t } = useTranslation();
   const [messageApi, contextHolder] = message.useMessage();
   const role = useAuthStore((s) => s.user?.role);
@@ -248,7 +250,7 @@ export default function OrganizationsPage() {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              disabled={!hq || !!loadError}
+              disabled={!canManage || !hq || !!loadError}
               onClick={() => openCreate()}
             >
               {t("orgManagement.create")}
@@ -350,14 +352,15 @@ export default function OrganizationsPage() {
               render: (_, row) => (
                 <Space wrap>
                   <Button
+                    disabled={!canManage || !row.isActive}
                     size="small"
-                    disabled={!row.isActive}
                     onClick={() => openCreate(row)}
                   >
                     {t("orgManagement.addChild")}
                   </Button>
                   <Button
                     size="small"
+                    disabled={!canManage}
                     onClick={() => {
                       setDialog({ type: "edit", org: row });
                     }}
@@ -366,14 +369,14 @@ export default function OrganizationsPage() {
                   </Button>
                   <Button
                     size="small"
-                    disabled={!row.operatingPolicy}
+                    disabled={!canManage || !row.operatingPolicy}
                     onClick={() => {
                       setPolicyOrg(row);
                     }}
                   >
                     {t("orgManagement.policy")}
                   </Button>
-                  {row.parentId && (
+                  {canManage && row.parentId && (
                     <Popconfirm
                       title={t(
                         row.isActive

@@ -13,10 +13,16 @@ import { User } from './entities/user.entity';
 import { UserOrganizationMembership } from './entities/user-organization-membership.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { AddMembershipDto } from './dto/add-membership.dto';
+import {
+  AddMembershipDto,
+  UpdateMembershipDto,
+} from './dto/add-membership.dto';
 import { Role } from '../../common/enums/role.enum';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
+import { AccessRolesService } from './access-roles.service';
+import { Organization } from '../organizations/entities/organization.entity';
+import { Yard } from '../yards/entities/yard.entity';
 
 const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
 
@@ -37,6 +43,7 @@ export class UsersService {
     private readonly membershipsRepository: Repository<UserOrganizationMembership>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
+    private readonly accessRoles: AccessRolesService,
   ) {}
 
   findByUsername(username: string): Promise<User | null> {
@@ -49,6 +56,15 @@ export class UsersService {
 
   findById(id: string): Promise<User | null> {
     return this.usersRepository.findOne({ where: { id } });
+  }
+
+  async assignmentYards(organizationId: string, scope: EffectiveScope) {
+    this.scopeService.assertOrgReadable(scope, organizationId);
+    return this.dataSource.getRepository(Yard).find({
+      where: { organizationId, isActive: true },
+      select: { id: true, name: true, code: true },
+      order: { code: 'ASC' },
+    });
   }
 
   // 列表：内部账号按 scope.orgIds 内的 memberships 筛选；外部账号不在此接口显示
@@ -64,10 +80,16 @@ export class UsersService {
       .getRawMany<{ userId: string }>();
     const ids = rows.map((r) => r.userId);
     if (ids.length === 0) return [];
-    return this.usersRepository.find({
+    const users = await this.usersRepository.find({
       where: { id: In(ids) },
-      relations: { memberships: { organization: true } },
+      relations: { memberships: { organization: true, accessRoles: true } },
       order: { createdAt: 'DESC' },
+    });
+    return users.map((u) => {
+      u.memberships = u.memberships.filter((m) =>
+        scope.orgIds.includes(m.organizationId),
+      );
+      return u;
     });
   }
 
@@ -77,7 +99,7 @@ export class UsersService {
     }
     const user = await this.usersRepository.findOne({
       where: { id: userId },
-      relations: { memberships: { organization: true } },
+      relations: { memberships: { organization: true, accessRoles: true } },
     });
     if (!user) throw new NotFoundException('用户不存在');
     const overlaps = user.memberships.some((m) =>
@@ -86,6 +108,9 @@ export class UsersService {
     if (!overlaps) {
       throw new ForbiddenException('无权查看该用户');
     }
+    user.memberships = user.memberships.filter((m) =>
+      scope.orgIds.includes(m.organizationId),
+    );
     return user;
   }
 
@@ -94,7 +119,7 @@ export class UsersService {
       throw new ForbiddenException('外部账号无权创建用户');
     }
     // 目标机构必须在 scope 内
-    this.scopeService.assertOrgWritable(scope, dto.organizationId);
+    const grant = await this.validateGrant(dto, scope);
     // 机构管理员不能提权到 HQ_ADMIN
     if (
       scope.role === Role.ORG_ADMIN &&
@@ -118,7 +143,6 @@ export class UsersService {
         passwordHash,
         displayName: dto.displayName,
         role: dto.role,
-        scopeYardId: dto.scopeYardId ?? null,
         email: dto.email ?? null,
       });
       const saved = await mgr.save(user);
@@ -127,12 +151,20 @@ export class UsersService {
         userId: saved.id,
         organizationId: dto.organizationId,
         role: dto.role,
+        ...grant,
+        accessRoles: await this.accessRoles.forAssignment(
+          dto.roleIds ?? [],
+          dto.organizationId,
+          dto.role,
+          scope,
+          mgr,
+        ),
       });
       await mgr.save(membership);
 
       return mgr.findOneOrFail(User, {
         where: { id: saved.id },
-        relations: { memberships: { organization: true } },
+        relations: { memberships: { organization: true, accessRoles: true } },
       });
     });
   }
@@ -142,11 +174,10 @@ export class UsersService {
     dto: UpdateUserDto,
     scope: EffectiveScope,
   ): Promise<User> {
+    await this.assertAccountManageable(id, scope);
     const user = await this.findOneScoped(id, scope);
     Object.assign(user, {
       displayName: dto.displayName ?? user.displayName,
-      scopeYardId:
-        dto.scopeYardId !== undefined ? dto.scopeYardId : user.scopeYardId,
       email: dto.email !== undefined ? dto.email : user.email,
       isActive: dto.isActive ?? user.isActive,
     });
@@ -154,12 +185,14 @@ export class UsersService {
   }
 
   async deactivate(id: string, scope: EffectiveScope): Promise<User> {
+    await this.assertAccountManageable(id, scope);
     const user = await this.findOneScoped(id, scope);
     user.isActive = false;
     return this.usersRepository.save(user);
   }
 
   async reactivate(id: string, scope: EffectiveScope): Promise<User> {
+    await this.assertAccountManageable(id, scope);
     const user = await this.findOneScoped(id, scope);
     user.isActive = true;
     return this.usersRepository.save(user);
@@ -175,7 +208,7 @@ export class UsersService {
     if (scope.type !== 'ORG') {
       throw new ForbiddenException('外部账号无权维护用户机构关系');
     }
-    this.scopeService.assertOrgWritable(scope, dto.organizationId);
+    const grant = await this.validateGrant(dto, scope);
     if (
       scope.role === Role.ORG_ADMIN &&
       !ORG_ADMIN_MANAGEABLE_ROLES.has(dto.role)
@@ -191,12 +224,22 @@ export class UsersService {
       where: { userId, organizationId: dto.organizationId },
     });
     if (existing) throw new ConflictException('此用户已在该机构有 membership');
-    const membership = this.membershipsRepository.create({
-      userId,
-      organizationId: dto.organizationId,
-      role: dto.role,
+    return this.dataSource.transaction(async (mgr) => {
+      const membership = mgr.create(UserOrganizationMembership, {
+        userId,
+        organizationId: dto.organizationId,
+        role: dto.role,
+        ...grant,
+        accessRoles: await this.accessRoles.forAssignment(
+          dto.roleIds ?? [],
+          dto.organizationId,
+          dto.role,
+          scope,
+          mgr,
+        ),
+      });
+      return mgr.save(membership);
     });
-    return this.membershipsRepository.save(membership);
   }
 
   async removeMembership(
@@ -206,9 +249,12 @@ export class UsersService {
   ): Promise<void> {
     const membership = await this.membershipsRepository.findOne({
       where: { id: membershipId, userId },
+      relations: { accessRoles: true },
     });
     if (!membership) throw new NotFoundException('membership 不存在');
-    this.scopeService.assertOrgWritable(scope, membership.organizationId);
+    this.scopeService.assertOrgReadable(scope, membership.organizationId);
+    this.assertNotSelf(userId, scope);
+    this.accessRoles.assertManageable(membership.accessRoles, scope);
     await this.membershipsRepository.delete(membership.id);
   }
 
@@ -218,9 +264,106 @@ export class UsersService {
   ): Promise<UserOrganizationMembership[]> {
     await this.findOneScoped(userId, scope);
     return this.membershipsRepository.find({
-      where: { userId },
-      relations: { organization: true },
+      where: {
+        userId,
+        organizationId: In(scope.type === 'ORG' ? scope.orgIds : []),
+      },
+      relations: { organization: true, accessRoles: true },
     });
+  }
+
+  async updateMembership(
+    userId: string,
+    id: string,
+    dto: UpdateMembershipDto,
+    scope: EffectiveScope,
+  ) {
+    this.assertNotSelf(userId, scope);
+    const membership = await this.membershipsRepository.findOne({
+      where: { id, userId },
+      relations: { accessRoles: true },
+    });
+    if (!membership) throw new NotFoundException('机构成员关系不存在');
+    this.accessRoles.assertManageable(membership.accessRoles, scope);
+    const grant = await this.validateGrant(
+      { ...dto, organizationId: membership.organizationId },
+      scope,
+    );
+    return this.dataSource.transaction(async (mgr) => {
+      Object.assign(membership, grant, {
+        role: dto.role,
+        isActive: dto.isActive,
+        accessRoles: await this.accessRoles.forAssignment(
+          dto.roleIds,
+          membership.organizationId,
+          dto.role,
+          scope,
+          mgr,
+        ),
+      });
+      return mgr.save(membership);
+    });
+  }
+
+  private assertNotSelf(userId: string, scope: EffectiveScope) {
+    if (scope.type !== 'ORG' || scope.userId === userId)
+      throw new ForbiddenException(
+        '不能修改或撤销自己的机构授权，请由另一管理员处理',
+      );
+  }
+
+  private async assertAccountManageable(userId: string, scope: EffectiveScope) {
+    this.assertNotSelf(userId, scope);
+    if (scope.type !== 'ORG') throw new ForbiddenException();
+    const memberships = await this.membershipsRepository.find({
+      where: { userId },
+      relations: { accessRoles: true },
+    });
+    this.accessRoles.assertManageable(
+      memberships.flatMap((m) => m.accessRoles),
+      scope,
+    );
+    if (
+      scope.role !== Role.HQ_ADMIN &&
+      memberships.some(
+        (m) =>
+          !scope.orgIds.includes(m.organizationId) || m.role === Role.HQ_ADMIN,
+      )
+    )
+      throw new ForbiddenException(
+        '跨机构账号的全局资料及启停仅总部可维护；请维护本机构授权',
+      );
+  }
+
+  private async validateGrant(dto: AddMembershipDto, scope: EffectiveScope) {
+    this.scopeService.assertOrgReadable(scope, dto.organizationId);
+    if (
+      scope.type !== 'ORG' ||
+      ![Role.HQ_ADMIN, Role.ORG_ADMIN].includes(scope.role)
+    )
+      throw new ForbiddenException('无权分配机构授权');
+    const org = await this.dataSource
+      .getRepository(Organization)
+      .findOneBy({ id: dto.organizationId, isActive: true });
+    if (!org || (dto.role === Role.HQ_ADMIN) !== (org.parentId === null))
+      throw new BadRequestException(
+        '总部角色仅属于总部；业务角色必须选择有效业务机构',
+      );
+    if (scope.role !== Role.HQ_ADMIN && dto.role === Role.HQ_ADMIN)
+      throw new ForbiddenException('不能授予总部角色');
+    let scopeYardId: string | null = null;
+    if (dto.role === Role.YARD_STAFF) {
+      const yard =
+        dto.scopeYardId &&
+        (await this.dataSource.getRepository(Yard).findOneBy({
+          id: dto.scopeYardId,
+          organizationId: org.id,
+          isActive: true,
+        }));
+      if (!yard) throw new BadRequestException('请选择当前机构的有效场地');
+      scopeYardId = yard.id;
+    }
+    return { scopeYardId };
   }
 
   // 找回密码相关（不涉及 scope，公开身份可用）

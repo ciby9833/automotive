@@ -1,12 +1,13 @@
-'use client';
+"use client";
 
-import { Select, message } from 'antd';
-import { GlobalOutlined } from '@ant-design/icons';
-import { switchOrg } from '@/lib/api/auth';
-import { useAuthStore } from '@/lib/auth/store';
-import { useTranslation } from '@/i18n/useTranslation';
-import { localizedOrganizationName } from '@/i18n/organizationNames';
-import { useLayoutStore } from './layoutStore';
+import { Select, message } from "antd";
+import { GlobalOutlined } from "@ant-design/icons";
+import { switchOrg } from "@/lib/api/auth";
+import { useAuthStore } from "@/lib/auth/store";
+import { useTranslation } from "@/i18n/useTranslation";
+import { localizedOrganizationName } from "@/i18n/organizationNames";
+import { useLayoutStore } from "./layoutStore";
+import { landingPath } from "./navModel";
 
 // 顶栏机构切换器：显示当前用户所有 membership，切换时后端换发新 token，前端硬重载
 // 硬重载而不是走 SPA 路由：所有页面都是 useState+useEffect 拉数据，不重载会有旧数据残留
@@ -14,6 +15,7 @@ import { useLayoutStore } from './layoutStore';
 export function OrganizationSwitcher() {
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const memberships = useAuthStore((s) => s.memberships);
+  const switching = useAuthStore((s) => s.isSwitchingOrg);
   const setAuth = useAuthStore((s) => s.setAuth);
   const clearTabs = useLayoutStore((s) => s.clearTabs);
   const { locale, t } = useTranslation();
@@ -21,9 +23,13 @@ export function OrganizationSwitcher() {
   if (memberships.length <= 1) return null; // 只有 1 个也没必要显示切换器
 
   const onChange = async (value: string) => {
-    if (value === activeOrgId) return;
+    if (value === activeOrgId || useAuthStore.getState().isSwitchingOrg) return;
+    const previousToken = useAuthStore.getState().token;
+    useAuthStore.setState({ isSwitchingOrg: true });
     try {
       const res = await switchOrg(value);
+      if (useAuthStore.getState().token !== previousToken) return;
+      clearTabs();
       setAuth({
         token: res.accessToken,
         user: res.user,
@@ -33,17 +39,23 @@ export function OrganizationSwitcher() {
         externalContext: res.externalContext ?? null,
         accountUnit: res.accountUnit ?? null,
         permissions: res.permissions ?? [],
+        navigation: res.navigation,
       });
-      // 硬重载前先清 tabs：避免下一次进来 tabs 里还有旧机构的路由
-      clearTabs();
-      window.location.reload();
+      window.location.assign(landingPath(res.navigation, res.permissions));
     } catch {
-      message.error(t('organization.switchFailed'));
+      if (useAuthStore.getState().token === previousToken)
+        message.error(t("organization.switchFailed"));
+    } finally {
+      if (useAuthStore.getState().token === previousToken)
+        useAuthStore.setState({ isSwitchingOrg: false });
     }
   };
 
   return (
     <Select
+      aria-label={t("users.organization")}
+      loading={switching}
+      disabled={switching}
       prefix={<GlobalOutlined />}
       style={{ width: 200, marginRight: 16 }}
       value={activeOrgId ?? undefined}

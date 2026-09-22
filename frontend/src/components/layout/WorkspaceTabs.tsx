@@ -1,17 +1,23 @@
-'use client';
+"use client";
 
-import { Dropdown, Tabs } from 'antd';
-import { useRouter } from 'next/navigation';
-import { useTranslation } from '@/i18n/useTranslation';
-import { useLayoutStore } from './layoutStore';
-import { getNavIcon } from './navModel';
+import { Dropdown, Tabs } from "antd";
+import { useRouter } from "next/navigation";
+import { useTranslation } from "@/i18n/useTranslation";
+import { useLayoutStore } from "./layoutStore";
+import { getNavIcon, canAccessPath, landingPath } from "./navModel";
+import { useAuthStore } from "@/lib/auth/store";
 
 // 工作台 tab 条：显示已打开的页面，可切换/关闭
 // 依赖 layoutStore.tabs；通过路由 pathname 变化同步"当前活动 tab"
 export function WorkspaceTabs() {
   const router = useRouter();
   const { t } = useTranslation();
-  const tabs = useLayoutStore((s) => s.tabs);
+  const storedTabs = useLayoutStore((s) => s.tabs);
+  const permissions = useAuthStore((s) => s.permissions);
+  const navigation = useAuthStore((s) => s.navigation);
+  const tabs = storedTabs.filter((tab) =>
+    canAccessPath(tab.path, permissions, navigation),
+  );
   const activeTabPath = useLayoutStore((s) => s.activeTabPath);
   const closeTab = useLayoutStore((s) => s.closeTab);
   const closeOtherTabs = useLayoutStore((s) => s.closeOtherTabs);
@@ -23,6 +29,8 @@ export function WorkspaceTabs() {
 
   const navigateIfNeeded = (next: string | null) => {
     if (next) {
+      if (!canAccessPath(next, permissions, navigation))
+        next = landingPath(navigation, permissions);
       setActiveTab(next);
       router.push(next);
     }
@@ -40,7 +48,7 @@ export function WorkspaceTabs() {
           router.push(k);
         }}
         onEdit={(target, action) => {
-          if (action === 'remove' && typeof target === 'string') {
+          if (action === "remove" && typeof target === "string") {
             navigateIfNeeded(closeTab(target));
           }
         }}
@@ -53,31 +61,31 @@ export function WorkspaceTabs() {
             key: tab.path,
             label: (
               <Dropdown
-                trigger={['contextMenu']}
+                trigger={["contextMenu"]}
                 menu={{
                   items: [
-                    { key: 'refresh', label: '刷新当前页' },
+                    { key: "refresh", label: "刷新当前页" },
                     {
-                      key: 'close',
-                      label: '关闭当前页',
+                      key: "close",
+                      label: "关闭当前页",
                       disabled: !tab.closable,
                     },
-                    { type: 'divider' },
-                    { key: 'closeOthers', label: '关闭其他页' },
+                    { type: "divider" },
+                    { key: "closeOthers", label: "关闭其他页" },
                     {
-                      key: 'closeRight',
-                      label: '关闭右侧页',
+                      key: "closeRight",
+                      label: "关闭右侧页",
                       disabled: !hasClosableTabsOnRight,
                     },
                   ],
                   onClick: ({ key, domEvent }) => {
                     domEvent.stopPropagation();
-                    if (key === 'refresh') refreshTab(tab.path);
-                    if (key === 'close') navigateIfNeeded(closeTab(tab.path));
-                    if (key === 'closeOthers') {
+                    if (key === "refresh") refreshTab(tab.path);
+                    if (key === "close") navigateIfNeeded(closeTab(tab.path));
+                    if (key === "closeOthers") {
                       navigateIfNeeded(closeOtherTabs(tab.path));
                     }
-                    if (key === 'closeRight') {
+                    if (key === "closeRight") {
                       navigateIfNeeded(closeTabsToRight(tab.path));
                     }
                   },

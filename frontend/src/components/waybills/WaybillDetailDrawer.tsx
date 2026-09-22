@@ -26,9 +26,11 @@ interface Props {
 export function WaybillDetailDrawer({ waybill, onClose, onSaved }: Props) {
   const { t } = useTranslation();
   const userRole = useAuthStore((s) => s.user?.role);
+  const permissions = useAuthStore((s) => s.permissions);
   const userCarrierId = useAuthStore((s) => s.externalContext?.carrierId);
 
   const canAssign = canAssignWaybill(waybill, {
+    permissions,
     role: userRole,
     carrierId: userCarrierId ?? null,
   });

@@ -13,6 +13,7 @@ import { GenerateInviteButton } from '@/components/invitations/GenerateInviteBut
 import { CarrierUsersPanel } from '@/components/carriers/CarrierUsersPanel';
 import { CarrierFleetPanel } from '@/components/carriers/CarrierFleetPanel';
 import { Role } from '@/lib/auth/role';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { OrgFilter } from '@/components/layout/OrgFilter';
 
 export default function CarriersPage() {
@@ -32,7 +33,9 @@ export default function CarriersPage() {
   const { t, locale } = useTranslation();
 
   // 供应商员工不能新增供应商、也不能生成邀请码；只读自己的记录
-  const canManage = role === Role.HQ_ADMIN || role === Role.ORG_ADMIN;
+  const canEditCarrier = usePermission(Permission.PARTNER_CARRIER_CRUD);
+  const canManage = canEditCarrier && role === Role.ORG_ADMIN;
+  const canViewUsers = usePermission(Permission.CARRIER_USER_VIEW);
 
   const load = async () => {
     setLoading(true);
@@ -156,7 +159,7 @@ export default function CarriersPage() {
     { title: t('carriers.contactPhone'), dataIndex: 'contactPhone' },
     { title: t('carriers.email'), dataIndex: 'email' },
   ];
-  if (canManage) {
+  {
     columns.push({
       title: t('carriers.action'),
       render: (_: unknown, record: Carrier) => (
@@ -164,9 +167,11 @@ export default function CarriersPage() {
           <Button
             size="small"
             icon={<EditOutlined />}
+            disabled={!canManage}
             onClick={() => openEdit(record)}
           />
           <Select<PartnerStatus>
+            disabled={!canManage}
             size="small"
             value={record.status}
             style={{ width: 110 }}
@@ -180,6 +185,7 @@ export default function CarriersPage() {
             type="link"
             size="small"
             icon={<TeamOutlined />}
+            disabled={!canViewUsers}
             onClick={() => setUsersDrawer(record)}
           >
             {t('carriers.viewUsers')}

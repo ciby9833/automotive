@@ -35,6 +35,16 @@ export class CustomersService {
     private readonly audit: AuditService,
   ) {}
 
+  async options(scope: EffectiveScope) {
+    if (scope.type !== 'ORG') throw new ForbiddenException();
+    const qb = this.customersRepository.createQueryBuilder('customer')
+      .select(['customer.id', 'customer.name'])
+      .where('customer.status = :status', { status: PartnerStatus.ACTIVE })
+      .orderBy('customer.name', 'ASC');
+    this.scopeService.applyScopeToQuery(qb, 'customer', scope, {});
+    return qb.getMany();
+  }
+
   // ============ 客户主数据编辑 / 状态化启停 ============
   async update(
     customerId: string,

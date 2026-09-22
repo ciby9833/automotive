@@ -8,12 +8,19 @@ import {
   IsString,
   IsUUID,
   MinLength,
+  IsArray,
+  ArrayUnique,
 } from 'class-validator';
 import { Role } from '../../../common/enums/role.enum';
 
 // 内部账号创建入口：必须给一个初始机构+角色形成第一条 membership。
 // 外部账号(CARRIER_STAFF/CARRIER_DRIVER/CUSTOMER) 走邀请码注册，不允许经此接口创建。
 export class CreateUserDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayUnique()
+  @IsUUID('all', { each: true })
+  roleIds?: string[];
   @ApiProperty()
   @IsString()
   @IsNotEmpty()

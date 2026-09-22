@@ -8,6 +8,8 @@ import { Currency } from '../common/enums/currency.enum';
 import { Organization } from '../modules/organizations/entities/organization.entity';
 import { User } from '../modules/users/entities/user.entity';
 import { UserOrganizationMembership } from '../modules/users/entities/user-organization-membership.entity';
+import { defaultRolePermissions } from '../common/rbac/permission-catalog';
+import { AccessRole } from '../modules/users/entities/access-role.entity';
 import { OrganizationOperatingPolicy } from '../modules/organizations/entities/organization-operating-policy.entity';
 
 // 最小化生产 seed：只做"启动系统必要的骨架"，其他所有业务实体（场地/承运商/客户/司机等）
@@ -118,6 +120,10 @@ async function seed() {
         userId: admin.id,
         organizationId: hq.id,
         role: Role.HQ_ADMIN,
+        accessRoles: [await app.get(DataSource).getRepository(AccessRole).save({
+          organizationId: hq.id, name: '总部系统管理员', type: Role.HQ_ADMIN,
+          permissions: defaultRolePermissions(Role.HQ_ADMIN), isActive: true,
+        })],
       }),
     );
     console.log('created admin: admin / Admin@12345 (⚠ 上线后立即改密码)');

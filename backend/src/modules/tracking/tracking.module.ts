@@ -7,9 +7,11 @@ import { TrackingService } from './tracking.service';
 import { TrackingController } from './tracking.controller';
 import { TrackingGateway } from './tracking.gateway';
 import { AuditService } from './audit.service';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
+    JwtModule.register({}),
     TypeOrmModule.forFeature([WaybillStatusLog, OperationLog, DriverPosition]),
   ],
   controllers: [TrackingController],

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card, Tabs } from "antd";
 import { useAuthStore } from "@/lib/auth/store";
 import { Role } from "@/lib/auth/role";
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { OrdersTab } from "@/components/transport/OrdersTab";
 import { DispatchTab } from "@/components/transport/DispatchTab";
 import { TripDrawer, TripsTab } from "@/components/transport/TripsTab";
@@ -27,7 +28,7 @@ function TransportWorkspace({ role }: { role?: string }) {
   const carrierStaff = role === Role.CARRIER_STAFF;
   const driver = role === Role.CARRIER_DRIVER;
   const customer = role === Role.CUSTOMER;
-  const canManage = internal || carrierStaff;
+  const canManage = usePermission(Permission.TRANSPORT_DISPATCH);
   const [tripId, setTripId] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [active, setActive] = useState(internal || customer ? "orders" : carrierStaff ? "dispatch" : "trips");
@@ -38,12 +39,12 @@ function TransportWorkspace({ role }: { role?: string }) {
       label: t("tabOrders"),
       children: <OrdersTab key={version} internal={internal} onOpenTrip={setTripId} />,
     },
-    canManage && {
+    (internal || carrierStaff) && {
       key: "dispatch",
       label: t("tabDispatch"),
       children: <DispatchTab key={version} internal={internal} onOpenTrip={setTripId} />,
     },
-    (canManage || driver) && {
+    (internal || carrierStaff || driver) && {
       key: "trips",
       label: t("tabTrips"),
       children: <TripsTab key={version} internal={internal} canManage={canManage} onOpenTrip={setTripId} />,

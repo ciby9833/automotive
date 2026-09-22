@@ -4,10 +4,12 @@ import { Role } from '../enums/role.enum';
 // 各业务 service 一律通过 switch(scope.type) 分支写查询，避免遗漏某类账号或漏加过滤条件。
 
 export interface OrgScope {
+  userId?: string;
+  permissions?: string[];
   type: 'ORG';
   // 当前会话选中的 org 节点
   activeOrgId: string;
-  // activeOrgId 及其所有子孙节点的 id 集合，直接塞进 WHERE organization_id IN (...) 里
+  // HQ 可查询机构树；业务账号仅当前机构，不合并其他 memberships。
   orgIds: string[];
   // 该用户在 activeOrgId 节点上的 membership 角色（HQ_ADMIN | ORG_ADMIN | YARD_STAFF）
   role: Role;

@@ -1,13 +1,23 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne, Unique } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  ManyToMany,
+  JoinTable,
+  Unique,
+} from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Role } from '../../../common/enums/role.enum';
+import { AccessRole } from './access-role.entity';
 import { Organization } from '../../organizations/entities/organization.entity';
 import { User } from './user.entity';
 
-// 内部账号 -> Organization 节点的多对多关系；同一用户在不同 org 允许不同 role（飞书式多组织）。
+// 内部账号 -> Organization 节点的多对多关系；每条成员关系有独立数据范围和业务角色。
 // 外部账号(CARRIER_*/CUSTOMER) 不使用此表——他们通过 User.carrierId/customerId 直接挂在业务实体下。
-// (userId, organizationId) 唯一：一个用户在同一 org 只有一条 membership（换个角色就 update，不 append）。
-// role 存这里而不是 User 表，是因为同一账号跨机构可以担任不同职务(比如印尼是 ORG_ADMIN、马来是 YARD_STAFF)。
+// (userId, organizationId) 唯一；role 仅表示固定数据范围类型，不代表拥有管理员的全部功能。
+// 可配置岗位角色在 accessRoles 中多选，功能权限由当前成员关系的角色合并得出。
 @Entity('user_organization_memberships')
 @Unique(['userId', 'organizationId'])
 export class UserOrganizationMembership extends BaseEntity {
@@ -30,4 +40,18 @@ export class UserOrganizationMembership extends BaseEntity {
   // 这里的 role 允许 HQ_ADMIN / ORG_ADMIN / YARD_STAFF，外部三类角色不允许入 membership 表
   @Column({ type: 'enum', enum: Role })
   role: Role;
+
+  @ManyToMany(() => AccessRole)
+  @JoinTable({
+    name: 'membership_access_roles',
+    joinColumn: { name: 'membership_id' },
+    inverseJoinColumn: { name: 'role_id' },
+  })
+  accessRoles: AccessRole[];
+
+  @Column({ name: 'scope_yard_id', type: 'uuid', nullable: true })
+  scopeYardId: string | null;
+
+  @Column({ name: 'is_active', default: true })
+  isActive: boolean;
 }

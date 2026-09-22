@@ -852,6 +852,7 @@ export class OutboundService {
       where: { id: dto.carrierId },
     });
     if (!carrier) throw new NotFoundException('承运商不存在');
+    if (carrier.organizationId !== outOrder.organizationId) throw new ForbiddenException('承运商与出库订单必须属于同一机构');
     if (carrier.status !== PartnerStatus.ACTIVE) {
       throw new BadRequestException('承运商当前未开放新增业务，不能开单');
     }

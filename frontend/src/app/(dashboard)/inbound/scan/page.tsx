@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   Alert,
   Button,
@@ -31,6 +32,8 @@ import { formatSlotCode } from '@/lib/slots';
 // 场地业务员 H5 入库扫描页
 // 流程: 选/建批次 → 扫 VIN → 扫库位 → 车检信息(电量/里程/外观) → 拍照 → 确认入库
 export default function InboundScanPage() {
+  const canScan = usePermission(Permission.INBOUND_SCAN);
+  const canManageBatch = usePermission(Permission.INBOUND_BATCH_MANAGE);
   const { t } = useTranslation();
   const user = useAuthStore((s) => s.user);
 
@@ -65,15 +68,15 @@ export default function InboundScanPage() {
   const [batchForm] = Form.useForm();
 
   // 未登记 VIN 到仓的应急登记 Modal
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customers, setCustomers] = useState<Array<Pick<Customer, 'id' | 'name'>>>([]);
   const [unexpectedOpen, setUnexpectedOpen] = useState(false);
   const [unexpectedForm] = Form.useForm();
   const [unexpectedSubmitting, setUnexpectedSubmitting] = useState(false);
 
   useEffect(() => {
     yardsApi.list().then(setYards).catch(() => undefined);
-    customersApi.list().then((items) => setCustomers(items.filter((item) => item.status === 'ACTIVE'))).catch(() => undefined);
-  }, []);
+    if (canScan) customersApi.options().then(setCustomers).catch(() => undefined);
+  }, [canScan]);
 
   useEffect(() => {
     if (!selectedYardId) return;
@@ -285,7 +288,7 @@ export default function InboundScanPage() {
             />
             <Button
               icon={<PlusOutlined />}
-              disabled={!selectedYardId}
+              disabled={!canManageBatch || !selectedYardId}
               onClick={() => setNewBatchOpen(true)}
             />
           </Space.Compact>
@@ -448,7 +451,7 @@ export default function InboundScanPage() {
               block
               icon={<CheckCircleOutlined />}
               loading={submitting}
-              disabled={photos.length === 0}
+              disabled={!canScan || photos.length === 0}
               onClick={confirm}
             >
               {t('inbound.scan.confirm')}
@@ -496,6 +499,7 @@ export default function InboundScanPage() {
         open={newBatchOpen}
         onCancel={() => setNewBatchOpen(false)}
         onOk={() => batchForm.submit()}
+        okButtonProps={{ disabled: !canManageBatch }}
         destroyOnHidden
       >
         <Form form={batchForm} layout="vertical" onFinish={createBatch}>
@@ -533,6 +537,7 @@ export default function InboundScanPage() {
         open={unexpectedOpen}
         onCancel={() => setUnexpectedOpen(false)}
         onOk={submitUnexpected}
+        okButtonProps={{ disabled: !canScan }}
         confirmLoading={unexpectedSubmitting}
         destroyOnClose
       >

@@ -32,6 +32,12 @@ import { CarriersModule } from '../src/modules/carriers/carriers.module';
 import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
 import { PreAuthBlockGuard } from '../src/common/guards/preauth-block.guard';
 import { PermissionsGuard } from '../src/common/guards/permissions.guard';
+import { JwtAuthGuard } from '../src/common/guards/jwt-auth.guard';
+import { Permission } from '../src/common/enums/permission.enum';
+import { defaultRolePermissions } from '../src/common/rbac/permission-catalog';
+import { AccessRole } from '../src/modules/users/entities/access-role.entity';
+import { TransportModule } from '../src/modules/transport/transport.module';
+import { Customer } from '../src/modules/customers/entities/customer.entity';
 
 // Supply a schema-only disposable database. Never seed or reset the development DB.
 config({ quiet: true });
@@ -53,6 +59,33 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
   let emptyId: string;
   const password = 'Organization-Test-Only-42!';
 
+  let fixtureSequence = 0;
+  const fixtureRole = (
+    organizationId: string,
+    type: Role,
+    permissions = defaultRolePermissions(type),
+  ) =>
+    db.getRepository(AccessRole).save({
+      organizationId,
+      type,
+      name: 'Fixture role ' + ++fixtureSequence,
+      permissions,
+      isActive: true,
+    });
+  const apiRole = async (
+    organizationId: string,
+    type: Role,
+    permissions: string[],
+    name = 'API role ' + ++fixtureSequence,
+  ) =>
+    (
+      await request(app.getHttpServer())
+        .post('/roles')
+        .auth(hqToken, { type: 'bearer' })
+        .send({ organizationId, type, name, permissions })
+        .expect(201)
+    ).body.data as AccessRole;
+
   beforeAll(async () => {
     const module = await Test.createTestingModule({
       imports: [
@@ -73,6 +106,7 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
         YardsModule,
         CustomersModule,
         CarriersModule,
+        TransportModule,
       ],
     }).compile();
     app = module.createNestApplication();
@@ -86,6 +120,7 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
     );
     app.useGlobalFilters(new HttpExceptionFilter());
     app.useGlobalGuards(
+      app.get(JwtAuthGuard),
       new PreAuthBlockGuard(app.get(Reflector)),
       new PermissionsGuard(app.get(Reflector)),
     );
@@ -135,9 +170,12 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
         passwordHash: await bcrypt.hash(password, 4),
       });
       if (role === Role.HQ_ADMIN) admin = user;
-      await db
-        .getRepository(UserOrganizationMembership)
-        .save({ userId: user.id, organizationId: org.id, role });
+      await db.getRepository(UserOrganizationMembership).save({
+        userId: user.id,
+        organizationId: org.id,
+        role,
+        accessRoles: [await fixtureRole(org.id, role)],
+      });
       const login = await request(app.getHttpServer())
         .post('/auth/login')
         .send({ username, password })
@@ -287,7 +325,7 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
     expect(
       all.body.data.find((o: Organization) => o.id === emptyId).isActive,
     ).toBe(false);
-    await post(payload('INACTIVE_CHILD', emptyId)).expect(403);
+    await post(payload('INACTIVE_CHILD', emptyId)).expect(400);
     await status(emptyId, true).expect(200);
   });
 
@@ -297,10 +335,11 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
       userId: admin.id,
       organizationId: memberOrg.body.data.id,
       role: Role.ORG_ADMIN,
+      accessRoles: [await fixtureRole(memberOrg.body.data.id, Role.ORG_ADMIN)],
     });
     await status(memberOrg.body.data.id, false).expect(409);
     await patch(memberOrg.body.data.id, { parentId: branch.id }).expect(409);
-    const token = app.get(JwtService).sign({
+    const token = new JwtService({ secret: process.env.JWT_SECRET }).sign({
       sub: admin.id,
       username: admin.username,
       role: Role.HQ_ADMIN,
@@ -364,6 +403,15 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
       .post('/users')
       .auth(hqToken, { type: 'bearer' })
       .send({
+        roleIds: [
+          (
+            await apiRole(
+              org.id,
+              Role.ORG_ADMIN,
+              defaultRolePermissions(Role.ORG_ADMIN),
+            )
+          ).id,
+        ],
         username: 'onboard_admin',
         password,
         displayName: 'New organization admin',
@@ -459,6 +507,797 @@ suite('HQ organization maintenance (real PostgreSQL + HTTP)', () => {
       type: 'EXTERNAL',
     }).expect(403);
     await status(org.id, false).expect(409);
+  });
+
+  it('keeps HQ business read-only while allowing organization governance', async () => {
+    await list('/customers').expect(200);
+    await list('/yards').expect(200);
+    for (const [path, body] of [
+      ['/yards', { organizationId: branch.id, code: 'HQ_WRITE', name: 'No' }],
+      ['/customers', { organizationId: branch.id, name: 'No' }],
+      [
+        '/carriers',
+        { organizationId: branch.id, name: 'No', type: 'EXTERNAL' },
+      ],
+    ] as const)
+      await request(app.getHttpServer())
+        .post(path)
+        .auth(hqToken, { type: 'bearer' })
+        .send(body)
+        .expect(403);
+    await list('/organizations/management').expect(200);
+  });
+
+  it('isolates feature grants per membership and revokes existing tokens immediately', async () => {
+    const second = (await post(payload('PERMISSIONS_B')).expect(201)).body.data;
+    const roleA = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:customers',
+      'menu:dashboard',
+    ]);
+    const roleB = await apiRole(second.id, Role.ORG_ADMIN, [
+      'menu:carriers',
+      'menu:dashboard',
+    ]);
+    const created = await request(app.getHttpServer())
+      .post('/users')
+      .auth(hqToken, { type: 'bearer' })
+      .send({
+        username: 'permission_user',
+        password,
+        displayName: 'Scoped user',
+        role: Role.ORG_ADMIN,
+        organizationId: branch.id,
+        roleIds: [roleA.id],
+      })
+      .expect(201);
+    const userId = created.body.data.id;
+    const firstMembership = created.body.data.memberships[0];
+    await request(app.getHttpServer())
+      .post(`/users/${userId}/memberships`)
+      .auth(hqToken, { type: 'bearer' })
+      .send({
+        organizationId: second.id,
+        role: Role.ORG_ADMIN,
+        roleIds: [roleB.id],
+      })
+      .expect(201);
+    const pre = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'permission_user', password })
+        .expect(201)
+    ).body.data;
+    expect(pre.permissions).toEqual([]);
+    expect(pre.navigation).toEqual([]);
+    await list('/customers', pre.accessToken).expect(401);
+    const select = async (id: string) =>
+      (
+        await request(app.getHttpServer())
+          .post('/auth/select-org')
+          .auth(pre.accessToken, { type: 'bearer' })
+          .send({ organizationId: id })
+          .expect(201)
+      ).body.data;
+    const a = await select(branch.id);
+    const switchTo = async (token: string, organizationId: string) =>
+      (
+        await request(app.getHttpServer())
+          .post('/auth/switch-org')
+          .auth(token, { type: 'bearer' })
+          .send({ organizationId })
+          .expect(201)
+      ).body.data;
+    const b = await switchTo(a.accessToken, second.id);
+    expect(b.activeOrgId).toBe(second.id);
+    expect(b.permissions).toContain('menu:carriers');
+    expect(b.permissions).not.toContain('menu:customers');
+    const back = await switchTo(b.accessToken, branch.id);
+    expect(back.permissions).toContain('menu:customers');
+    expect(back.permissions).not.toContain('menu:carriers');
+    await request(app.getHttpServer())
+      .post('/auth/switch-org')
+      .auth(b.accessToken, { type: 'bearer' })
+      .send({ organizationId: root.id })
+      .expect(403);
+    await list('/customers', a.accessToken).expect(200);
+    await list('/carriers', a.accessToken).expect(403);
+    await list('/customers', b.accessToken).expect(403);
+    await list('/carriers', b.accessToken).expect(200);
+    expect(
+      (await list('/organizations', a.accessToken)).body.data.map(
+        (o: Organization) => o.id,
+      ),
+    ).toEqual([branch.id]);
+    const forgedRole = new JwtService({ secret: process.env.JWT_SECRET }).sign({
+      sub: userId,
+      activeOrgId: branch.id,
+      role: Role.HQ_ADMIN,
+      preAuth: false,
+    });
+    await list('/organizations/management', forgedRole).expect(403);
+    const update = (roleIds: string[], isActive = true) =>
+      request(app.getHttpServer())
+        .patch(`/users/${userId}/memberships/${firstMembership.id}`)
+        .auth(hqToken, { type: 'bearer' })
+        .send({ role: Role.ORG_ADMIN, roleIds, isActive });
+    await update([]).expect(200);
+    await list('/customers', a.accessToken).expect(403);
+    await update([], false).expect(200);
+    await list('/organizations', a.accessToken).expect(403);
+    await list('/auth/me', a.accessToken).expect(403);
+    await request(app.getHttpServer())
+      .post('/auth/switch-org')
+      .auth(b.accessToken, { type: 'bearer' })
+      .send({ organizationId: branch.id })
+      .expect(403);
+    const meB = (await list('/auth/me', b.accessToken).expect(200)).body.data;
+    expect(
+      meB.memberships.map((m: { organizationId: string }) => m.organizationId),
+    ).toEqual([second.id]);
+    const relogin = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'permission_user', password })
+        .expect(201)
+    ).body.data;
+    expect(relogin.mode).toBe('SINGLE_ORG');
+    expect(relogin.activeOrgId).toBe(second.id);
+    expect(relogin.permissions).not.toContain('menu:customers');
+    await list('/carriers', b.accessToken).expect(200);
+    await request(app.getHttpServer())
+      .patch(`/users/${userId}/deactivate`)
+      .auth(orgToken, { type: 'bearer' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/users/${userId}/deactivate`)
+      .auth(hqToken, { type: 'bearer' })
+      .expect(200);
+    await list('/carriers', b.accessToken).expect(401);
+  });
+
+  it('rejects cross-organization yard binding and permission escalation', async () => {
+    const outside = await db
+      .getRepository(Yard)
+      .findOne({ where: { code: 'ONBOARD_YARD' } });
+    await request(app.getHttpServer())
+      .post('/users')
+      .auth(orgToken, { type: 'bearer' })
+      .send({
+        username: 'bad_yard_binding',
+        password,
+        displayName: 'No',
+        role: Role.YARD_STAFF,
+        organizationId: branch.id,
+        scopeYardId: outside!.id,
+      })
+      .expect(400);
+    await request(app.getHttpServer())
+      .post('/roles')
+      .auth(orgToken, { type: 'bearer' })
+      .send({
+        organizationId: branch.id,
+        type: Role.ORG_ADMIN,
+        name: 'Illegal HQ',
+        permissions: ['menu:setup-organizations', Permission.ORG_CRUD],
+      })
+      .expect(400);
+    const orgUser = await db
+      .getRepository(User)
+      .findOneByOrFail({ username: 'org_test' });
+    const membership = await db
+      .getRepository(UserOrganizationMembership)
+      .findOneOrFail({
+        where: { userId: orgUser.id, organizationId: branch.id },
+        relations: { accessRoles: true },
+      });
+    const original = membership.accessRoles;
+    const delegatedRole = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:outbound-plan',
+      Permission.OUTBOUND_PLAN,
+    ]);
+    membership.accessRoles = [
+      await fixtureRole(branch.id, Role.ORG_ADMIN, [
+        'menu:users',
+        Permission.SETUP_USER_CRUD,
+        Permission.SETUP_USER_MEMBERSHIP,
+      ]),
+    ];
+    await db.getRepository(UserOrganizationMembership).save(membership);
+    try {
+      await request(app.getHttpServer())
+        .post('/users')
+        .auth(orgToken, { type: 'bearer' })
+        .send({
+          username: 'bad_delegation',
+          password,
+          displayName: 'No',
+          role: Role.ORG_ADMIN,
+          organizationId: branch.id,
+          roleIds: [delegatedRole.id],
+        })
+        .expect(403);
+    } finally {
+      membership.accessRoles = original;
+      await db.getRepository(UserOrganizationMembership).save(membership);
+    }
+  });
+
+  it('uses the selected membership role and yard, never the account-level role or another organization yard', async () => {
+    const second = (await post(payload('YARD_SCOPE_B')).expect(201)).body.data;
+    const yardA = await db
+      .getRepository(Yard)
+      .save({ organizationId: branch.id, code: 'BOUND_A', name: 'Bound A' });
+    const yardB = await db
+      .getRepository(Yard)
+      .save({ organizationId: second.id, code: 'BOUND_B', name: 'Bound B' });
+    const hidden = await db
+      .getRepository(Yard)
+      .save({ organizationId: second.id, code: 'OTHER_B', name: 'Other B' });
+    const roleA = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:yard-board',
+      'menu:customers',
+    ]);
+    const roleB = await apiRole(second.id, Role.YARD_STAFF, [
+      'menu:yard-board',
+      'menu:inbound-scan',
+      Permission.INBOUND_SCAN,
+    ]);
+    const created = (
+      await request(app.getHttpServer())
+        .post('/users')
+        .auth(hqToken, { type: 'bearer' })
+        .send({
+          username: 'multi_yard_user',
+          password,
+          displayName: 'Different roles',
+          role: Role.ORG_ADMIN,
+          organizationId: branch.id,
+          roleIds: [roleA.id],
+        })
+        .expect(201)
+    ).body.data;
+    const member = (
+      await request(app.getHttpServer())
+        .post(`/users/${created.id}/memberships`)
+        .auth(hqToken, { type: 'bearer' })
+        .send({
+          organizationId: second.id,
+          role: Role.YARD_STAFF,
+          scopeYardId: yardB.id,
+          roleIds: [roleB.id],
+        })
+        .expect(201)
+    ).body.data;
+    const pre = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'multi_yard_user', password })
+        .expect(201)
+    ).body.data.accessToken;
+    const select = async (organizationId: string) =>
+      (
+        await request(app.getHttpServer())
+          .post('/auth/select-org')
+          .auth(pre, { type: 'bearer' })
+          .send({ organizationId })
+          .expect(201)
+      ).body.data;
+    const a = await select(branch.id);
+    const b = await select(second.id);
+    expect(a.user.role).toBe(Role.ORG_ADMIN);
+    expect(b.user.role).toBe(Role.YARD_STAFF);
+    const localCustomer = await db
+      .getRepository(Customer)
+      .save({ name: 'Local customer', organizationId: second.id });
+    const options = (
+      await list('/customers/options', b.accessToken).expect(200)
+    ).body.data;
+    expect(options.map((c: { id: string }) => c.id)).toEqual([
+      localCustomer.id,
+    ]);
+    expect(Object.keys(options[0]).sort()).toEqual(['id', 'name']);
+    expect(
+      (await list('/yards', b.accessToken).expect(200)).body.data.map(
+        (y: Yard) => y.id,
+      ),
+    ).toEqual([yardB.id]);
+    await list(`/yards/${yardA.id}/slots`, b.accessToken).expect(404);
+    await list(`/yards/${hidden.id}/slots`, b.accessToken).expect(404);
+    await list('/customers', a.accessToken).expect(200);
+    await list('/customers', b.accessToken).expect(403);
+    await request(app.getHttpServer())
+      .patch(`/users/${created.id}/memberships/${member.id}`)
+      .auth(hqToken, { type: 'bearer' })
+      .send({
+        role: Role.YARD_STAFF,
+        isActive: true,
+        scopeYardId: hidden.id,
+        roleIds: [roleB.id],
+      })
+      .expect(200);
+    expect(
+      (await list('/yards', b.accessToken).expect(200)).body.data.map(
+        (y: Yard) => y.id,
+      ),
+    ).toEqual([hidden.id]);
+    await list(`/yards/${yardB.id}/slots`, b.accessToken).expect(404);
+  });
+
+  it('validates role menus, scope ceilings and unique names without accepting legacy grants', async () => {
+    await apiRole(
+      branch.id,
+      Role.ORG_ADMIN,
+      ['menu:customers'],
+      'Unique custom role',
+    );
+    const createRole = (body: object) =>
+      request(app.getHttpServer())
+        .post('/roles')
+        .auth(hqToken, { type: 'bearer' })
+        .send({
+          organizationId: branch.id,
+          type: Role.ORG_ADMIN,
+          name: 'Invalid role',
+          permissions: [],
+          ...body,
+        });
+    await createRole({ name: ' unique CUSTOM role ' }).expect(409);
+    await createRole({ name: '   ' }).expect(400);
+    await createRole({ type: undefined }).expect(400);
+    await createRole({ permissions: ['unknown:permission'] }).expect(400);
+    await createRole({ permissions: [Permission.OUTBOUND_PLAN] }).expect(400);
+    await createRole({ type: Role.HQ_ADMIN }).expect(400);
+    await createRole({
+      organizationId: root.id,
+      type: Role.HQ_ADMIN,
+      permissions: ['menu:outbound-plan', Permission.OUTBOUND_PLAN],
+    }).expect(400);
+    await request(app.getHttpServer())
+      .post('/users')
+      .auth(hqToken, { type: 'bearer' })
+      .send({
+        username: 'legacy_grant',
+        displayName: 'No',
+        password,
+        role: Role.ORG_ADMIN,
+        organizationId: branch.id,
+        permissions: [Permission.SETUP_USER_CRUD],
+      })
+      .expect(400);
+    const catalog = (
+      await list(
+        `/roles/catalog?organizationId=${branch.id}&type=ORG_ADMIN`,
+      ).expect(200)
+    ).body.data;
+    expect(
+      catalog
+        .find((m: { key: string }) => m.key === 'users')
+        .actions.map((a: { code: string }) => a.code),
+    ).toEqual(
+      expect.arrayContaining([
+        Permission.SETUP_USER_CRUD,
+        Permission.SETUP_USER_MEMBERSHIP,
+      ]),
+    );
+    await list(`/roles?organizationId=${root.id}`, orgToken).expect(403);
+  });
+
+  it('unions multiple custom roles and reflects role edits/removal on an existing token', async () => {
+    const customer = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:customers',
+    ]);
+    const carrier = await apiRole(branch.id, Role.ORG_ADMIN, ['menu:carriers']);
+    const created = (
+      await request(app.getHttpServer())
+        .post('/users')
+        .auth(hqToken, { type: 'bearer' })
+        .send({
+          username: 'union_user',
+          displayName: 'Union',
+          password,
+          role: Role.ORG_ADMIN,
+          organizationId: branch.id,
+          roleIds: [customer.id, carrier.id],
+        })
+        .expect(201)
+    ).body.data;
+    const token = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'union_user', password })
+        .expect(201)
+    ).body.data.accessToken;
+    await list('/customers', token).expect(200);
+    await list('/carriers', token).expect(200);
+    const changeRole = (permissions: string[], isActive = true) =>
+      request(app.getHttpServer())
+        .patch(`/roles/${customer.id}`)
+        .auth(hqToken, { type: 'bearer' })
+        .send({ name: customer.name, permissions, isActive });
+    await changeRole(['menu:customers'], false).expect(409);
+    await changeRole([
+      'menu:customers',
+      Permission.PARTNER_CUSTOMER_CRUD,
+    ]).expect(200);
+    expect(
+      (await list('/auth/me', token).expect(200)).body.data.permissions,
+    ).toContain(Permission.PARTNER_CUSTOMER_CRUD);
+    await changeRole(['menu:customers']).expect(200);
+    await request(app.getHttpServer())
+      .post('/customers')
+      .auth(token, { type: 'bearer' })
+      .send({ organizationId: branch.id, name: 'Forbidden' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/users/${created.id}/memberships/${created.memberships[0].id}`)
+      .auth(hqToken, { type: 'bearer' })
+      .send({ role: Role.ORG_ADMIN, roleIds: [customer.id], isActive: true })
+      .expect(200);
+    await list('/carriers', token).expect(403);
+    await list('/customers', token).expect(200);
+  });
+
+  it('separates menu reading from role/user administration and supports limited directory lookup', async () => {
+    const readonly = await apiRole(root.id, Role.HQ_ADMIN, [
+      'menu:users',
+      'menu:roles',
+      'menu:setup-organizations',
+    ]);
+    const createUser = async (
+      username: string,
+      organizationId: string,
+      type: Role,
+      roleIds: string[],
+    ) =>
+      (
+        await request(app.getHttpServer())
+          .post('/users')
+          .auth(hqToken, { type: 'bearer' })
+          .send({
+            username,
+            password,
+            displayName: username,
+            organizationId,
+            role: type,
+            roleIds,
+          })
+          .expect(201)
+      ).body.data;
+    const reader = await createUser('read_admin', root.id, Role.HQ_ADMIN, [
+      readonly.id,
+    ]);
+    const token = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'read_admin', password })
+        .expect(201)
+    ).body.data.accessToken;
+    await list('/users', token).expect(200);
+    await list(`/roles?organizationId=${branch.id}`, token).expect(200);
+    await list('/organizations/management', token).expect(200);
+    await request(app.getHttpServer())
+      .post('/roles')
+      .auth(token, { type: 'bearer' })
+      .send({})
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/users/${reader.id}/memberships/${reader.memberships[0].id}`)
+      .auth(token, { type: 'bearer' })
+      .send({})
+      .expect(403);
+    const clerkRole = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:users',
+      Permission.SETUP_USER_CRUD,
+    ]);
+    await createUser('account_clerk', branch.id, Role.ORG_ADMIN, [
+      clerkRole.id,
+    ]);
+    const clerk = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'account_clerk', password })
+        .expect(201)
+    ).body.data.accessToken;
+    await list('/yards', clerk).expect(403);
+    const yards = (
+      await list(
+        `/users/assignment-yards?organizationId=${branch.id}`,
+        clerk,
+      ).expect(200)
+    ).body.data;
+    expect(yards.length).toBeGreaterThan(0);
+    expect(Object.keys(yards[0]).sort()).toEqual(['code', 'id', 'name']);
+    await list(
+      `/users/assignment-yards?organizationId=${root.id}`,
+      clerk,
+    ).expect(403);
+    await list(
+      `/roles/assignable?organizationId=${branch.id}&type=ORG_ADMIN`,
+      clerk,
+    ).expect(403);
+  });
+
+  it('does not expose finance APIs to transport-only readers', async () => {
+    const role = await apiRole(branch.id, Role.ORG_ADMIN, ['menu:transport']);
+    await request(app.getHttpServer())
+      .post('/users')
+      .auth(hqToken, { type: 'bearer' })
+      .send({
+        username: 'dispatch_reader',
+        password,
+        displayName: 'Reader',
+        organizationId: branch.id,
+        role: Role.ORG_ADMIN,
+        roleIds: [role.id],
+      })
+      .expect(201);
+    const token = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'dispatch_reader', password })
+        .expect(201)
+    ).body.data.accessToken;
+    await list('/transport/orders', token).expect(200);
+    await list('/transport/charges', token).expect(403);
+    await list('/transport/tariffs', token).expect(403);
+    await list('/transport/charges', hqToken).expect(200);
+    await request(app.getHttpServer())
+      .post('/transport/orders')
+      .auth(hqToken, { type: 'bearer' })
+      .send({})
+      .expect(403);
+  });
+
+  it('rejects cross-org/type and disabled role assignment, self editing and higher-privilege revocation', async () => {
+    const other = await apiRole(emptyId, Role.ORG_ADMIN, ['menu:customers']);
+    const yard = await apiRole(branch.id, Role.YARD_STAFF, ['menu:yard-board']);
+    const disabled = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:customers',
+    ]);
+    await request(app.getHttpServer())
+      .patch(`/roles/${disabled.id}`)
+      .auth(hqToken, { type: 'bearer' })
+      .send({
+        name: disabled.name,
+        permissions: disabled.permissions,
+        isActive: false,
+      })
+      .expect(200);
+    for (const role of [other, yard, disabled])
+      await request(app.getHttpServer())
+        .post('/users')
+        .auth(hqToken, { type: 'bearer' })
+        .send({
+          username: 'bad_role_assignment',
+          password,
+          displayName: 'No',
+          organizationId: branch.id,
+          role: Role.ORG_ADMIN,
+          roleIds: [role.id],
+        })
+        .expect(400);
+    const own = await db
+      .getRepository(UserOrganizationMembership)
+      .findOneOrFail({
+        where: { userId: admin.id, organizationId: root.id },
+        relations: { accessRoles: true },
+      });
+    const ownRole = own.accessRoles[0];
+    const ownListed = (
+      await list(`/roles?organizationId=${root.id}`).expect(200)
+    ).body.data.find((r: { id: string }) => r.id === ownRole.id);
+    expect(ownListed.isAssignedToSelf).toBe(true);
+    expect(ownListed.canManage).toBe(true);
+    await request(app.getHttpServer())
+      .patch(`/roles/${ownRole.id}`)
+      .auth(hqToken, { type: 'bearer' })
+      .send({ name: ownRole.name, permissions: [], isActive: true })
+      .expect(403);
+    const limited = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:users',
+      Permission.SETUP_USER_MEMBERSHIP,
+      'menu:roles',
+      Permission.SETUP_ROLE_MANAGE,
+    ]);
+    const actor = (
+      await request(app.getHttpServer())
+        .post('/users')
+        .auth(hqToken, { type: 'bearer' })
+        .send({
+          username: 'limited_role_admin',
+          password,
+          displayName: 'Limited',
+          organizationId: branch.id,
+          role: Role.ORG_ADMIN,
+          roleIds: [limited.id],
+        })
+        .expect(201)
+    ).body.data;
+    const token = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'limited_role_admin', password })
+        .expect(201)
+    ).body.data.accessToken;
+    const orgUser = await db
+      .getRepository(User)
+      .findOneByOrFail({ username: 'org_test' });
+    const orgMember = await db
+      .getRepository(UserOrganizationMembership)
+      .findOneOrFail({
+        where: { userId: orgUser.id, organizationId: branch.id },
+        relations: { accessRoles: true },
+      });
+    const listed = (
+      await list(`/roles?organizationId=${branch.id}`, token).expect(200)
+    ).body.data;
+    expect(
+      listed.find((r: { id: string }) => r.id === limited.id).isAssignedToSelf,
+    ).toBe(true);
+    expect(
+      listed.find((r: { id: string }) => r.id === orgMember.accessRoles[0].id)
+        .canManage,
+    ).toBe(false);
+    await request(app.getHttpServer())
+      .patch(`/users/${orgUser.id}/memberships/${orgMember.id}`)
+      .auth(token, { type: 'bearer' })
+      .send({ role: Role.ORG_ADMIN, roleIds: [], isActive: true })
+      .expect(403);
+    await request(app.getHttpServer())
+      .delete(`/users/${orgUser.id}/memberships/${orgMember.id}`)
+      .auth(token, { type: 'bearer' })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/roles/${orgMember.accessRoles[0].id}`)
+      .auth(token, { type: 'bearer' })
+      .send({ name: 'No', permissions: [], isActive: true })
+      .expect(403);
+    await request(app.getHttpServer())
+      .patch(`/users/${actor.id}/memberships/${actor.memberships[0].id}`)
+      .auth(token, { type: 'bearer' })
+      .send({ role: Role.ORG_ADMIN, roleIds: [], isActive: true })
+      .expect(403);
+  });
+
+  it('switches the same account between HQ read-only and branch business grants without carrying privileges', async () => {
+    const hqRole = await apiRole(root.id, Role.HQ_ADMIN, ['menu:customers']);
+    const branchRole = await apiRole(branch.id, Role.ORG_ADMIN, [
+      'menu:customers',
+      Permission.PARTNER_CUSTOMER_CRUD,
+    ]);
+    const created = (
+      await request(app.getHttpServer())
+        .post('/users')
+        .auth(hqToken, { type: 'bearer' })
+        .send({
+          username: 'hq_branch_switch',
+          password,
+          displayName: 'HQ and branch',
+          role: Role.HQ_ADMIN,
+          organizationId: root.id,
+          roleIds: [hqRole.id],
+        })
+        .expect(201)
+    ).body.data;
+    await request(app.getHttpServer())
+      .post(`/users/${created.id}/memberships`)
+      .auth(hqToken, { type: 'bearer' })
+      .send({
+        organizationId: branch.id,
+        role: Role.ORG_ADMIN,
+        roleIds: [branchRole.id],
+      })
+      .expect(201);
+    const pre = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'hq_branch_switch', password })
+        .expect(201)
+    ).body.data;
+    expect(pre.mode).toBe('NEEDS_SELECTION');
+    const hq = (
+      await request(app.getHttpServer())
+        .post('/auth/select-org')
+        .auth(pre.accessToken, { type: 'bearer' })
+        .send({ organizationId: root.id })
+        .expect(201)
+    ).body.data;
+    expect(hq.user.role).toBe(Role.HQ_ADMIN);
+    expect(hq.permissions).not.toContain(Permission.PARTNER_CUSTOMER_CRUD);
+    await list('/customers', hq.accessToken).expect(200);
+    await request(app.getHttpServer())
+      .post('/customers')
+      .auth(hq.accessToken, { type: 'bearer' })
+      .send({ name: 'HQ denied', organizationId: branch.id })
+      .expect(403);
+    const local = (
+      await request(app.getHttpServer())
+        .post('/auth/switch-org')
+        .auth(hq.accessToken, { type: 'bearer' })
+        .send({ organizationId: branch.id })
+        .expect(201)
+    ).body.data;
+    expect(local.user.role).toBe(Role.ORG_ADMIN);
+    expect(local.permissions).toContain(Permission.PARTNER_CUSTOMER_CRUD);
+    await request(app.getHttpServer())
+      .post('/customers')
+      .auth(local.accessToken, { type: 'bearer' })
+      .send({ name: 'Branch allowed', organizationId: branch.id })
+      .expect(201);
+    await request(app.getHttpServer())
+      .post('/customers')
+      .auth(local.accessToken, { type: 'bearer' })
+      .send({ name: 'Cross branch denied', organizationId: emptyId })
+      .expect(403);
+    const localRows = (await list('/customers', local.accessToken).expect(200))
+      .body.data;
+    expect(
+      localRows.every((c: Customer) => c.organizationId === branch.id),
+    ).toBe(true);
+    const back = (
+      await request(app.getHttpServer())
+        .post('/auth/switch-org')
+        .auth(local.accessToken, { type: 'bearer' })
+        .send({ organizationId: root.id })
+        .expect(201)
+    ).body.data;
+    expect(back.user.role).toBe(Role.HQ_ADMIN);
+    expect(back.permissions).not.toContain(Permission.PARTNER_CUSTOMER_CRUD);
+    await request(app.getHttpServer())
+      .post('/customers')
+      .auth(back.accessToken, { type: 'bearer' })
+      .send({ name: 'Still denied', organizationId: branch.id })
+      .expect(403);
+  });
+
+  it('ignores inactive and wrong-organization roles at runtime, and rejects a disabled organization on existing sessions', async () => {
+    const org = (await post(payload('RUNTIME_SCOPE')).expect(201)).body.data;
+    const local = await fixtureRole(org.id, Role.ORG_ADMIN, ['menu:customers']);
+    const foreign = await fixtureRole(branch.id, Role.ORG_ADMIN, [
+      'menu:carriers',
+    ]);
+    const wrongType = await fixtureRole(org.id, Role.YARD_STAFF, [
+      'menu:waybills',
+    ]);
+    const user = await db
+      .getRepository(User)
+      .save({
+        username: 'runtime_scope',
+        displayName: 'Runtime',
+        role: Role.ORG_ADMIN,
+        passwordHash: await bcrypt.hash(password, 4),
+      });
+    await db
+      .getRepository(UserOrganizationMembership)
+      .save({
+        userId: user.id,
+        organizationId: org.id,
+        role: Role.ORG_ADMIN,
+        accessRoles: [local, foreign, wrongType],
+      });
+    const login = (
+      await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ username: 'runtime_scope', password })
+        .expect(201)
+    ).body.data;
+    expect(login.permissions).toContain('menu:customers');
+    expect(login.permissions).not.toContain('menu:carriers');
+    expect(login.permissions).not.toContain('menu:waybills');
+    await list('/carriers', login.accessToken).expect(403);
+    await db.getRepository(AccessRole).update(local.id, { isActive: false });
+    expect(
+      (await list('/auth/me', login.accessToken).expect(200)).body.data
+        .permissions,
+    ).toEqual([]);
+    await list('/customers', login.accessToken).expect(403);
+    await db.getRepository(Organization).update(org.id, { isActive: false });
+    await list('/auth/me', login.accessToken).expect(403);
+    await request(app.getHttpServer())
+      .post('/auth/switch-org')
+      .auth(login.accessToken, { type: 'bearer' })
+      .send({ organizationId: org.id })
+      .expect(403);
   });
 
   it('rolls back organization creation if saving the policy fails', async () => {

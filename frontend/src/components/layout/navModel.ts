@@ -24,74 +24,76 @@ import {
   TruckOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import { NAV_GROUPS_BY_ROLE, NavGroup, NavItem, Role } from "@/lib/auth/role";
+import type { NavGroup, NavigationMenu } from "@/lib/auth/role";
 import type { WorkspaceTab } from "./layoutStore";
 
-// 供 sidebar 和 tabs 双方使用的稳定 nav 模型
-// 未来接可配置角色时改这里，不动 UI 组件
-export function getNavForRole(role: Role): NavGroup[] {
-  return NAV_GROUPS_BY_ROLE[role] ?? [];
-}
-
-export function findExactNavItemByPath(
-  role: Role,
+// 菜单来自后端统一权限目录，不再按固定角色复制多份。
+export function canAccessPath(
   path: string,
-): { item: NavItem; group: NavGroup } | null {
-  const groups = getNavForRole(role);
-  for (const group of groups) {
-    const item = group.items.find((it) => it.path === path);
-    if (item) return { item, group };
-  }
-  return null;
+  permissions: string[],
+  navigation: NavigationMenu[],
+): boolean {
+  const menu = [...navigation]
+    .sort((a, b) => b.path.length - a.path.length)
+    .find((m) => path === m.path || path.startsWith(m.path + "/"));
+  return !!menu && permissions.includes(menu.permission);
 }
-
+export function getNavGroups(
+  navigation: NavigationMenu[],
+  permissions?: string[],
+): NavGroup[] {
+  const groups: NavGroup[] = [];
+  for (const m of navigation) {
+    if (permissions && !permissions.includes(m.permission)) continue;
+    let group = groups.find((g) => g.key === m.group);
+    if (!group) {
+      group = {
+        key: m.group,
+        i18nKey: "nav.group." + m.group,
+        label: m.groupLabel,
+        items: [],
+      };
+      groups.push(group);
+    }
+    group.items.push(m);
+  }
+  return groups;
+}
+export function landingPath(
+  navigation: NavigationMenu[],
+  permissions: string[],
+): string {
+  return (
+    navigation.find((m) => permissions.includes(m.permission))?.path ??
+    "/dashboard"
+  );
+}
 export function resolveWorkspaceTab(
-  role: Role,
+  navigation: NavigationMenu[],
   path: string,
 ): WorkspaceTab | null {
-  const exact = findExactNavItemByPath(role, path);
-  if (exact) {
+  const exact = navigation.find((m) => m.path === path);
+  if (exact)
     return {
-      key: exact.item.key,
-      path: exact.item.path,
-      i18nKey: exact.item.i18nKey,
-      closable: exact.item.path !== "/dashboard",
-    };
-  }
-
-  const inboundOrderDetail = path.match(/^\/inbound\/orders\/([^/?#]+)$/);
-  if (inboundOrderDetail) {
-    const canViewInboundOrders = Boolean(
-      findExactNavItemByPath(role, "/inbound/orders"),
-    );
-    if (!canViewInboundOrders) return null;
-    return {
-      key: "inbound-order-detail",
+      key: exact.key,
       path,
-      i18nKey: "inbound.detail.title",
-      closable: true,
-      params: { id: decodeURIComponent(inboundOrderDetail[1]) },
+      i18nKey: exact.i18nKey,
+      closable: path !== "/dashboard",
     };
+  for (const kind of ["inbound", "outbound"]) {
+    const match = path.match(new RegExp("^/" + kind + "/orders/([^/?#]+)$"));
+    if (match && navigation.some((m) => m.path === "/" + kind + "/orders")) {
+      return {
+        key: kind + "-order-detail",
+        path,
+        i18nKey: kind + ".detail.title",
+        closable: true,
+        params: { id: decodeURIComponent(match[1]) },
+      };
+    }
   }
-
-  const outboundOrderDetail = path.match(/^\/outbound\/orders\/([^/?#]+)$/);
-  if (outboundOrderDetail) {
-    const canViewOutboundOrders = Boolean(
-      findExactNavItemByPath(role, "/outbound/orders"),
-    );
-    if (!canViewOutboundOrders) return null;
-    return {
-      key: "outbound-order-detail",
-      path,
-      i18nKey: "outbound.detail.title",
-      closable: true,
-      params: { id: decodeURIComponent(outboundOrderDetail[1]) },
-    };
-  }
-
   return null;
 }
-
 const NAV_ICONS: Record<string, ReactNode> = {
   dashboard: createElement(DashboardOutlined),
   inbound: createElement(InboxOutlined),

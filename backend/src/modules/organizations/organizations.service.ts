@@ -29,7 +29,7 @@ export class OrganizationsService {
   async findAll(scope: EffectiveScope): Promise<Organization[]> {
     if (scope.type === 'ORG') {
       return this.organizationsRepository.find({
-        where: { id: In(scope.orgIds) },
+        where: { id: In(scope.orgIds), isActive: true },
         relations: { operatingPolicy: true },
         order: { name: 'ASC' },
       });
@@ -60,7 +60,7 @@ export class OrganizationsService {
     scope: EffectiveScope,
   ): Promise<Organization> {
     await this.assertHeadquarters(scope);
-    this.scopeService.assertOrgWritable(scope, dto.parentId);
+    this.scopeService.assertOrgReadable(scope, dto.parentId);
     this.assertTimezone(dto.timezone);
     return this.dataSource.transaction(async (manager) => {
       await this.lockMaintenance(manager);
@@ -148,7 +148,7 @@ export class OrganizationsService {
         );
         if (descendants.includes(dto.parentId!))
           throw new BadRequestException('上级机构不能是自己的下级');
-        this.scopeService.assertOrgWritable(scope, dto.parentId!);
+        this.scopeService.assertOrgReadable(scope, dto.parentId!);
         await this.requireActiveParent(manager, dto.parentId!);
         await this.assertUnused(manager, id, true);
       } else if (currencyChanged) {

@@ -17,6 +17,8 @@ import { ScopeService } from '../../common/scope/scope.service';
 import { Waybill } from '../waybills/entities/waybill.entity';
 import { CustomersService } from '../customers/customers.service';
 import { EmailService } from '../email/email.service';
+import { Customer } from '../customers/entities/customer.entity';
+import { Carrier } from '../carriers/entities/carrier.entity';
 
 function formatAmount(amount: string, currency: string): string {
   const decimals =
@@ -78,9 +80,18 @@ export class FinanceService {
   ): Promise<FinanceRecord> {
     const waybill = await this.waybillsRepository.findOne({
       where: { id: dto.waybillId },
+      relations: { order: true },
     });
     if (!waybill) throw new NotFoundException('运单不存在');
     this.scopeService.assertOrgWritable(scope, waybill.organizationId);
+    for (const [entity, id] of [[Customer, dto.customerId], [Carrier, dto.carrierId]] as const) {
+      if (!id) continue;
+      const partner = await this.recordsRepository.manager.findOne(entity, { where: { id } });
+      if (!partner || partner.organizationId !== waybill.organizationId)
+        throw new BadRequestException('结算合作方必须属于运单机构');
+    }
+    if (dto.carrierId && dto.carrierId !== waybill.carrierId) throw new BadRequestException('结算承运商必须与运单一致');
+    if (dto.customerId && dto.customerId !== waybill.order?.customerId) throw new BadRequestException('结算客户必须与运单订单一致');
     // FinanceRecord 的 organizationId 冗余存 waybill 的 organizationId，保持一致
     return this.recordsRepository.save(
       this.recordsRepository.create({

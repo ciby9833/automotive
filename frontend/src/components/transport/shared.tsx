@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Tag, Typography, message } from "antd";
 import dayjs from "dayjs";
 import { useTranslation } from "@/i18n/useTranslation";
-import { customersApi, type Customer, type CustomerAddress } from "@/lib/api/customers";
+import {
+  customersApi,
+  type Customer,
+  type CustomerAddress,
+} from "@/lib/api/customers";
 import { carriersApi, type Carrier } from "@/lib/api/carriers";
 import type { LineStatus, TripStatus } from "@/lib/api/transport";
 import { transportText, type TransportT } from "./copy";
@@ -15,7 +19,10 @@ export function useTransportText(): TransportT {
 }
 
 export function errorText(e: unknown): string {
-  const x = e as { message?: string; response?: { data?: { message?: string | string[] } } };
+  const x = e as {
+    message?: string;
+    response?: { data?: { message?: string | string[] } };
+  };
   const v = x.response?.data?.message || x.message || "Request failed";
   return Array.isArray(v) ? v.join("; ") : v;
 }
@@ -54,16 +61,26 @@ export function TripStatusTag({ status }: { status: TripStatus }) {
 
 export function OrderStatusTag({ status }: { status: string }) {
   const t = useTransportText();
-  const color = status === "OPEN" ? "blue" : status === "COMPLETED" ? "green" : "default";
+  const color =
+    status === "OPEN" ? "blue" : status === "COMPLETED" ? "green" : "default";
   return <Tag color={color}>{t(`O_${status}`)}</Tag>;
 }
 
-export function Place({ code, name }: { code: string | null | undefined; name: string | null | undefined }) {
+export function Place({
+  code,
+  name,
+}: {
+  code: string | null | undefined;
+  name: string | null | undefined;
+}) {
   return (
     <span>
       {name ?? "-"}
       {code ? (
-        <Typography.Text type="secondary" style={{ marginLeft: 4, fontSize: 12 }}>
+        <Typography.Text
+          type="secondary"
+          style={{ marginLeft: 4, fontSize: 12 }}
+        >
           {code}
         </Typography.Text>
       ) : null}
@@ -74,13 +91,18 @@ export function Place({ code, name }: { code: string | null | undefined; name: s
 export function Vin({ vin }: { vin: string | null }) {
   const t = useTransportText();
   return vin ? (
-    <Typography.Text style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>{vin}</Typography.Text>
+    <Typography.Text
+      style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}
+    >
+      {vin}
+    </Typography.Text>
   ) : (
     <Typography.Text type="warning">{t("noVin")}</Typography.Text>
   );
 }
 
-export const fmtTime = (v: string | null | undefined) => (v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "-");
+export const fmtTime = (v: string | null | undefined) =>
+  v ? dayjs(v).format("YYYY-MM-DD HH:mm") : "-";
 
 export function fmtMoney(amount: string | number, currency: string) {
   const digits = currency === "IDR" || currency === "VND" ? 0 : 2;
@@ -112,31 +134,39 @@ export function useCarriers(enabled: boolean) {
   return carriers;
 }
 
-/** 某客户的启用地点（门店 / 工厂 / 场地），按客户缓存 */
-const addressCache = new Map<string, CustomerAddress[]>();
+/** Page-local addresses: never reuse customer data across login/organization sessions. */
 export function useCustomerAddresses(customerId: string | undefined) {
-  const [addresses, setAddresses] = useState<CustomerAddress[]>(
-    customerId ? (addressCache.get(customerId) ?? []) : [],
-  );
-  const load = useCallback(async (id: string) => {
-    const detail = await customersApi.get(id);
-    const rows = (detail.addresses ?? []).filter((a) => a.isActive);
-    addressCache.set(id, rows);
-    return rows;
-  }, []);
+  const [result, setResult] = useState<{
+    customerId: string;
+    rows: CustomerAddress[];
+  } | null>(null);
   useEffect(() => {
-    if (!customerId) {
-      setAddresses([]);
-      return;
-    }
-    const cached = addressCache.get(customerId);
-    if (cached) setAddresses(cached);
-    else load(customerId).then(setAddresses).catch(notifyError);
-  }, [customerId, load]);
-  return addresses;
+    if (!customerId) return;
+    let cancelled = false;
+    customersApi
+      .get(customerId)
+      .then((detail) => {
+        if (!cancelled)
+          setResult({
+            customerId,
+            rows: (detail.addresses ?? []).filter((a) => a.isActive),
+          });
+      })
+      .catch((error) => {
+        if (!cancelled) notifyError(error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [customerId]);
+  return result?.customerId === customerId ? (result?.rows ?? []) : [];
 }
 
-export function addressOptions(addresses: CustomerAddress[], t: TransportT, kinds?: string[]) {
+export function addressOptions(
+  addresses: CustomerAddress[],
+  t: TransportT,
+  kinds?: string[],
+) {
   const kindLabel: Record<string, string> = {
     STORE: t("destinationStore"),
     FACTORY: "Factory",

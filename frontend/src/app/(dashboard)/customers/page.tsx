@@ -8,6 +8,7 @@ import { customersApi, Customer } from '@/lib/api/customers';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
 import { Role } from '@/lib/auth/role';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { useTranslation } from '@/i18n/useTranslation';
 import { localizedOrganizationName } from '@/i18n/organizationNames';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
@@ -28,7 +29,7 @@ export default function CustomersPage() {
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const organizations = useOrganizations();
   const role = useAuthStore((s) => s.user?.role);
-  const canCreate = role === Role.HQ_ADMIN || role === Role.ORG_ADMIN;
+  const canCreate = usePermission(Permission.PARTNER_CUSTOMER_CRUD);
   const canEdit = canCreate;
   const { t, locale } = useTranslation();
 

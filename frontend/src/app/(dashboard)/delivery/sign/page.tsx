@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   Alert,
   Button,
@@ -21,6 +22,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 // 流程：扫 VIN → 展示运单/目的经销店供人肉核对 → 拍签收单(可选) → 确认
 // 全部 VIN 签完 → Waybill.status = ARRIVED + isLocked (后端自动)
 export default function DeliverySignPage() {
+  const canScan = usePermission(Permission.WAYBILL_SCAN);
   const { t } = useTranslation();
   const [stage, setStage] = useState<'scan' | 'confirm' | 'done'>('scan');
   const [waybill, setWaybill] = useState<Waybill | null>(null);
@@ -171,6 +173,7 @@ export default function DeliverySignPage() {
                   block
                   icon={<CheckCircleOutlined />}
                   loading={submitting}
+                  disabled={!canScan}
                   onClick={confirm}
                 >
                   {t('delivery.sign.confirmSign')}

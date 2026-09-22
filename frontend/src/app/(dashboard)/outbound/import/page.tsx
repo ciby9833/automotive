@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
@@ -34,6 +35,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 // 2. 填订单头 (客户/客户单号/备注)
 // 3. 提交 → 后端匹配已入库 VIN，按 VIN 当前所在库位自动聚合始发仓
 export default function OutboundImportPage() {
+  const canImport = usePermission(Permission.OUTBOUND_IMPORT);
   const router = useRouter();
   const { t } = useTranslation();
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
@@ -396,7 +398,7 @@ export default function OutboundImportPage() {
           form={form}
           layout="vertical"
           onFinish={onSubmit}
-          disabled={rows.length === 0}
+          disabled={!canImport || rows.length === 0}
         >
           <Form.Item
             label={t('outbound.import.customer')}
@@ -431,7 +433,7 @@ export default function OutboundImportPage() {
               type="primary"
               htmlType="submit"
               loading={submitting}
-              disabled={rows.length === 0 || submitting}
+              disabled={!canImport || rows.length === 0 || submitting}
             >
               {t('outbound.import.submit', { n: rows.length })}
             </Button>

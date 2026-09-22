@@ -43,6 +43,7 @@ export interface CustomerAddressPayload {
 }
 
 export const customersApi = {
+  options: () => unwrap<Array<Pick<Customer, 'id' | 'name'>>>(apiClient.get('/customers/options')),
   list: (organizationId?: string) =>
     unwrap<Customer[]>(apiClient.get('/customers', { params: { organizationId } })),
   get: (id: string) => unwrap<Customer>(apiClient.get(`/customers/${id}`)),

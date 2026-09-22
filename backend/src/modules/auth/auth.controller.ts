@@ -9,12 +9,15 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AllowPreAuth } from '../../common/decorators/allow-preauth.decorator';
 import type { AuthenticatedUser } from './auth.types';
+import { Public, SessionOnly } from '../../common/decorators/public.decorator';
 
 @ApiTags('auth')
 @Controller('auth')
+@SessionOnly()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  @Public()
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto.username, dto.password);
@@ -37,12 +40,14 @@ export class AuthController {
     return this.authService.switchOrg(user.userId, dto.organizationId);
   }
 
+  @Public()
   @Post('forgot-password')
   async forgotPassword(@Body() dto: ForgotPasswordDto) {
     await this.authService.forgotPassword(dto.email);
     return { message: '如该邮箱已注册，我们已发送重置密码邮件' };
   }
 
+  @Public()
   @Post('reset-password')
   async resetPassword(@Body() dto: ResetPasswordDto) {
     await this.authService.resetPassword(dto.token, dto.newPassword);

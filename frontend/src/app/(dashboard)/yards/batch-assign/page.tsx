@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   Alert,
   Button,
@@ -35,6 +36,7 @@ import { useAuthStore } from '@/lib/auth/store';
 // 用场景：go-live 时物理车辆已在场地要一次性入库；日常也可当"批量移位"
 // 流程：选场地 → 下载模板 → 上传 Excel → 预览 → 提交 → 查看每行结果
 export default function YardBatchAssignPage() {
+  const canAssign = usePermission(Permission.YARD_MOVE_VEHICLE);
   const { t } = useTranslation();
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const [yards, setYards] = useState<Yard[]>([]);
@@ -264,7 +266,7 @@ export default function YardBatchAssignPage() {
             type="primary"
             icon={<UploadOutlined />}
             loading={submitting}
-            disabled={rows.length === 0 || !yardId}
+            disabled={!canAssign || rows.length === 0 || !yardId}
             onClick={submit}
           >
             {t('yards.batchAssign.submit', { n: rows.length })}

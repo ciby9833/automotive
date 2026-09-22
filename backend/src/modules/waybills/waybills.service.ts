@@ -32,6 +32,10 @@ import { EmailService } from '../email/email.service';
 import { EffectiveScope } from '../../common/scope/scope.types';
 import { ScopeService } from '../../common/scope/scope.service';
 import { Role } from '../../common/enums/role.enum';
+import { AuthenticatedUser } from '../auth/auth.types';
+import { Order } from '../orders/entities/order.entity';
+import { Yard } from '../yards/entities/yard.entity';
+import { CustomerAddress } from '../customers/entities/customer-address.entity';
 import {
   DEFAULT_PAGE_SIZE,
   EXPORT_MAX_ROWS,
@@ -275,15 +279,36 @@ export class WaybillsService {
 
   async create(dto: CreateWaybillDto, scope: EffectiveScope): Promise<Waybill> {
     this.scopeService.assertOrgWritable(scope, dto.organizationId);
+    if (dto.transportType === TransportType.DELIVERY)
+      throw new BadRequestException('出库派送必须通过出库订单开单');
+    const manager = this.dataSource.manager;
+    const order = dto.orderId ? await manager.findOneBy(Order, { id: dto.orderId }) : null;
+    if (!order || order.organizationId !== dto.organizationId)
+      throw new BadRequestException('必须关联当前机构的订单');
+    for (const yardId of [dto.originYardId, dto.destinationYardId].filter(Boolean)) {
+      const yard = await manager.findOneBy(Yard, { id: yardId!, organizationId: dto.organizationId, isActive: true });
+      if (!yard) throw new BadRequestException('场地必须属于当前机构且有效');
+    }
+    if (dto.destinationDealerId && !await manager.findOneBy(CustomerAddress, { id: dto.destinationDealerId, customerId: order.customerId }))
+      throw new BadRequestException('目的门店不属于订单客户');
+    for (const row of dto.vins) {
+      if (!await manager.findOneBy(OrderVin, { vin: row.vin, orderId: order.id }))
+        throw new BadRequestException('VIN 必须属于关联订单');
+    }
     if (dto.carrierId) {
       const carrier = await this.carriersRepository.findOne({
         where: { id: dto.carrierId },
       });
       if (!carrier) throw new NotFoundException('承运商不存在');
+      if (carrier.organizationId !== dto.organizationId) throw new ForbiddenException('承运商必须属于当前机构');
       if (carrier.status !== PartnerStatus.ACTIVE) {
         throw new BadRequestException('承运商当前未开放新增业务');
       }
     }
+    if (dto.driverId && (!dto.carrierId || !await manager.findOneBy(Driver, { id: dto.driverId, carrierId: dto.carrierId, isActive: true })))
+      throw new BadRequestException('司机未启用或不属于此承运商');
+    if (dto.vehicleId && (!dto.carrierId || !await manager.findOneBy(Vehicle, { id: dto.vehicleId, carrierId: dto.carrierId, isActive: true })))
+      throw new BadRequestException('车辆未启用或不属于此承运商');
     return this.dataSource
       .transaction(async (manager) => {
         const waybillCode = `WB${Date.now()}${randomUUID().slice(0, 4).toUpperCase()}`;
@@ -347,12 +372,7 @@ export class WaybillsService {
   // 中间任何一步失败留下脏数据
   async scan(
     dto: ScanDto,
-    operator?: {
-      userId?: string;
-      role?: Role;
-      carrierId?: string | null;
-      operatorYardId?: string | null;
-    },
+    operator: AuthenticatedUser,
   ) {
     const result = await this.dataSource.transaction(async (mgr) => {
       const waybillVinRepo = mgr.getRepository(WaybillVin);
@@ -372,6 +392,16 @@ export class WaybillsService {
         where: { id: waybillVin.waybillId },
       });
       if (!waybill) throw new NotFoundException('运单不存在');
+      const scope = await this.scopeService.resolve(operator);
+      await this.findOne(waybill.id, scope);
+      if (scope.type === 'ORG') {
+        this.scopeService.assertOrgWritable(scope, waybill.organizationId);
+        if (scope.role === Role.YARD_STAFF) {
+          const arrival = [ScanAction.INBOUND_ARRIVAL, ScanAction.REALLOCATION_ARRIVAL].includes(dto.action);
+          const yardId = arrival ? waybill.destinationYardId : waybill.originYardId;
+          if (yardId !== scope.scopeYardId) throw new ForbiddenException('仅当前业务场地可执行此扫码');
+        }
+      }
       if (
         (operator?.role === Role.CARRIER_DRIVER ||
           operator?.role === Role.CARRIER_STAFF) &&
@@ -520,7 +550,7 @@ export class WaybillsService {
         waybillId: result.waybill.id,
         vin: dto.vin,
         status: result.waybill.status,
-        yardId: dto.yardId ?? operator?.operatorYardId ?? null,
+        yardId: dto.yardId ?? operator.scopeYardId ?? null,
       });
       await this.queueService.notifyWaybillStatusChanged({
         waybillId: result.waybill.id,
@@ -533,7 +563,7 @@ export class WaybillsService {
   }
 
   // 供司机扫码前用：给一个 VIN，返回它当前挂在哪张 Waybill 上 + 是否已签收
-  async lookupVin(vin: string): Promise<{
+  async lookupVin(vin: string, scope: EffectiveScope): Promise<{
     vin: string;
     isSigned: boolean;
     waybill: Waybill;
@@ -543,7 +573,7 @@ export class WaybillsService {
       order: { createdAt: 'DESC' },
     });
     if (!waybillVin) throw new NotFoundException('未找到此 VIN 的运单');
-    const waybill = await this.findByIdUnscoped(waybillVin.waybillId);
+    const waybill = await this.findOne(waybillVin.waybillId, scope);
     if (!waybill) throw new NotFoundException('运单不存在');
     return { vin, isSigned: waybillVin.isSigned, waybill };
   }
@@ -624,16 +654,11 @@ export class WaybillsService {
     vin: string,
     photoKeys: string[],
     remark: string | undefined,
-    user: {
-      userId: string;
-      role: Role;
-      scopeYardId?: string | null;
-      carrierId?: string | null;
-    },
+    user: AuthenticatedUser,
   ): Promise<{ loadedAt: Date; loadedCount: number; totalCount: number }> {
     const waybill = await this.findByIdUnscoped(waybillId);
     if (!waybill) throw new NotFoundException('运单不存在');
-    this.assertCanLoad(waybill, user);
+    await this.assertCanLoad(waybill, user);
 
     const result = await this.dataSource.transaction(async (mgr) => {
       const waybillVinRepo = mgr.getRepository(WaybillVin);
@@ -671,16 +696,11 @@ export class WaybillsService {
   async unloadVin(
     waybillId: string,
     vin: string,
-    user: {
-      userId: string;
-      role: Role;
-      scopeYardId?: string | null;
-      carrierId?: string | null;
-    },
+    user: AuthenticatedUser,
   ): Promise<{ loadedCount: number; totalCount: number }> {
     const waybill = await this.findByIdUnscoped(waybillId);
     if (!waybill) throw new NotFoundException('运单不存在');
-    this.assertCanLoad(waybill, user);
+    await this.assertCanLoad(waybill, user);
 
     const result = await this.dataSource.transaction(async (mgr) => {
       const waybillVinRepo = mgr.getRepository(WaybillVin);
@@ -716,16 +736,11 @@ export class WaybillsService {
     waybillId: string,
     gatePhotoKeys: string[] | undefined,
     remark: string | undefined,
-    user: {
-      userId: string;
-      role: Role;
-      scopeYardId?: string | null;
-      carrierId?: string | null;
-    },
+    user: AuthenticatedUser,
   ): Promise<Waybill> {
     const waybill = await this.findByIdUnscoped(waybillId);
     if (!waybill) throw new NotFoundException('运单不存在');
-    this.assertCanLoad(waybill, user);
+    await this.assertCanLoad(waybill, user);
     if (waybill.status !== WaybillStatus.NOT_ARRIVED) {
       throw new BadRequestException(`运单已 ${waybill.status}，无法再次启运`);
     }
@@ -811,15 +826,13 @@ export class WaybillsService {
 
   // 装车/启运权限：ORG_ADMIN/HQ_ADMIN 全通；YARD_STAFF 仅本人所属场地=运单始发地；
   // 承运商账号仅可操作分派给自己承运商的运单。
-  private assertCanLoad(
+  private async assertCanLoad(
     waybill: Waybill,
-    user: {
-      role: Role;
-      scopeYardId?: string | null;
-      carrierId?: string | null;
-    },
-  ): void {
-    if (user.role === Role.HQ_ADMIN || user.role === Role.ORG_ADMIN) return;
+    user: AuthenticatedUser,
+  ): Promise<void> {
+    const scope = await this.scopeService.resolve(user);
+    if (scope.type === 'ORG') this.scopeService.assertOrgWritable(scope, waybill.organizationId);
+    if (scope.role === Role.ORG_ADMIN) return;
     if (user.role === Role.YARD_STAFF) {
       if (waybill.originYardId && user.scopeYardId === waybill.originYardId) {
         return;
@@ -911,6 +924,7 @@ export class WaybillsService {
     scope: EffectiveScope,
   ): void {
     if (scope.type === 'ORG') {
+      this.scopeService.assertOrgWritable(scope, waybill.organizationId);
       if (scope.role !== Role.HQ_ADMIN && scope.role !== Role.ORG_ADMIN) {
         throw new ForbiddenException('无权分派此运单');
       }

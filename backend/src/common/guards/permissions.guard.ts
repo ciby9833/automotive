@@ -8,27 +8,35 @@ import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { Permission } from '../enums/permission.enum';
-import { permissionsForRole } from '../rbac/role-permissions';
+import { PUBLIC_KEY, SESSION_ONLY_KEY } from '../decorators/public.decorator';
 import type { AuthenticatedUser } from '../../modules/auth/auth.types';
 
-// 全局注册后，只对声明了 @Permissions() 的端点做校验；未声明的透传。
-// 校验逻辑：根据当前 user.role 查 ROLE_PERMISSIONS，若与端点声明有交集则放行。
+// 全局默认拒绝；基于本次请求加载的有效许可检查，不信任前端或 JWT 内的角色声明。
 @Injectable()
 export class PermissionsGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    if (
+      [PUBLIC_KEY, SESSION_ONLY_KEY].some((key) =>
+        this.reflector.getAllAndOverride(key, [
+          context.getHandler(),
+          context.getClass(),
+        ]),
+      )
+    )
+      return true;
     const required = this.reflector.getAllAndOverride<Permission[]>(
       PERMISSIONS_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required || required.length === 0) return true;
+    if (!required?.length) throw new ForbiddenException('接口尚未声明功能权限');
 
     const req = context.switchToHttp().getRequest<Request>();
     const user = req.user as AuthenticatedUser | undefined;
-    if (!user) return true; // 未经 JwtAuthGuard 的路由；此 guard 不干预
+    if (!user || user.preAuth) throw new ForbiddenException('未完成身份授权');
 
-    const granted = new Set(permissionsForRole(user.role));
+    const granted = new Set(user.permissions ?? []);
     const hasAny = required.some((p) => granted.has(p));
     if (!hasAny) {
       throw new ForbiddenException({

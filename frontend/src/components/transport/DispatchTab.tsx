@@ -1,4 +1,5 @@
 "use client";
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, Form, Input, Modal, Radio, Select, Space, Typography, message } from "antd";
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export function DispatchTab({ internal, onOpenTrip }: Props) {
+  const canDispatch = usePermission(Permission.TRANSPORT_DISPATCH);
   const t = useTransportText();
   const ownCarrierId = useAuthStore((s) => s.externalContext?.carrierId ?? null);
   const customers = useCustomers(internal);
@@ -139,11 +141,11 @@ export function DispatchTab({ internal, onOpenTrip }: Props) {
       <Space wrap style={{ marginBottom: 12 }}>
         <Typography.Text>{t("selected", { n: selected.length })}</Typography.Text>
         {internal && (
-          <Button disabled={!allocatable} onClick={() => setAllocateOpen(true)}>
+          <Button disabled={!canDispatch || !allocatable} onClick={() => setAllocateOpen(true)}>
             {t("allocate")}
           </Button>
         )}
-        <Button type="primary" disabled={!dispatchable} onClick={() => setTripOpen(true)}>
+        <Button type="primary" disabled={!canDispatch || !dispatchable} onClick={() => setTripOpen(true)}>
           {t("createTrip")}
         </Button>
         {chosen.length > 0 && !dispatchable && chosen.every((l) => l.status === "ALLOCATED") && (

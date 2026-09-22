@@ -88,7 +88,7 @@ export class OutboundController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
-  @Permissions(Permission.OUTBOUND_PLAN)
+  @Permissions(Permission.OUTBOUND_VIEW)
   @Get('plan/pool')
   async listPlanPool(
     @CurrentUser() user: AuthenticatedUser,
@@ -115,7 +115,7 @@ export class OutboundController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
-  @Permissions(Permission.OUTBOUND_PLAN)
+  @Permissions(Permission.OUTBOUND_VIEW)
   @Get('plan/exceptions')
   async listPlanExceptions(
     @CurrentUser() user: AuthenticatedUser,

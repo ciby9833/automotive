@@ -1,3 +1,5 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import {
   Body,
   Controller,
@@ -6,6 +8,8 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  ParseUUIDPipe,
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -19,7 +23,10 @@ import { ScopeService } from '../../common/scope/scope.service';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { AddMembershipDto } from './dto/add-membership.dto';
+import {
+  AddMembershipDto,
+  UpdateMembershipDto,
+} from './dto/add-membership.dto';
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -32,6 +39,37 @@ export class UsersController {
   ) {}
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_CRUD, Permission.SETUP_USER_MEMBERSHIP)
+  @Get('assignment-yards')
+  async assignmentYards(
+    @Query('organizationId', ParseUUIDPipe) organizationId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.assignmentYards(
+      organizationId,
+      await this.scopeService.resolve(user),
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_MEMBERSHIP)
+  @Patch(':id/memberships/:membershipId')
+  async updateMembership(
+    @Param('id') id: string,
+    @Param('membershipId') membershipId: string,
+    @Body() dto: UpdateMembershipDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.usersService.updateMembership(
+      id,
+      membershipId,
+      dto,
+      await this.scopeService.resolve(user),
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_CRUD)
   @Post()
   async create(
     @Body() dto: CreateUserDto,
@@ -42,6 +80,7 @@ export class UsersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_VIEW)
   @Get()
   async findAll(@CurrentUser() user: AuthenticatedUser) {
     const scope = await this.scopeService.resolve(user);
@@ -49,6 +88,7 @@ export class UsersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_CRUD)
   @Patch(':id')
   async update(
     @Param('id') id: string,
@@ -60,6 +100,7 @@ export class UsersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_CRUD)
   @Patch(':id/deactivate')
   async deactivate(
     @Param('id') id: string,
@@ -70,6 +111,7 @@ export class UsersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_CRUD)
   @Patch(':id/reactivate')
   async reactivate(
     @Param('id') id: string,
@@ -80,6 +122,7 @@ export class UsersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_MEMBERSHIP)
   @Get(':id/memberships')
   async listMemberships(
     @Param('id') id: string,
@@ -90,6 +133,7 @@ export class UsersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_MEMBERSHIP)
   @Post(':id/memberships')
   async addMembership(
     @Param('id') id: string,
@@ -101,6 +145,7 @@ export class UsersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.SETUP_USER_MEMBERSHIP)
   @Delete(':id/memberships/:membershipId')
   async removeMembership(
     @Param('id') id: string,

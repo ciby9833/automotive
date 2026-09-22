@@ -114,6 +114,8 @@ data class ExceptionRequest(val type: String, val vin: String? = null, val note:
 data class DepartResult(val ok: Boolean, val returned: Int = 0)
 
 class TransportRepository(private val api: ApiClient) {
+    suspend fun documentUrl(key: String): String = api.signedFileUrl(key)
+
     suspend fun trips(status: String, search: String, page: Int): TransportTripPage =
         api.get("/transport/trips?status=${enc(status)}&search=${enc(search)}&page=$page&pageSize=50")
 

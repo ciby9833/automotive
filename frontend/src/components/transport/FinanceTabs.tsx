@@ -1,4 +1,5 @@
 "use client";
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -38,6 +39,7 @@ import {
 
 // ------------------------------------------------------------------ 报价
 export function TariffsTab() {
+  const canWrite = usePermission(Permission.TRANSPORT_FINANCE);
   const t = useTransportText();
   const customers = useCustomers(true);
   const [side, setSide] = useState<string>("");
@@ -85,7 +87,7 @@ export function TariffsTab() {
           onChange={setCustomerId}
           options={customers.map((c) => ({ value: c.id, label: c.name }))}
         />
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
+        <Button disabled={!canWrite} type="primary" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
           {t("newTariff")}
         </Button>
       </Space>
@@ -133,7 +135,7 @@ export function TariffsTab() {
             width: 130,
             render: (_, r) => (
               <Space size={0}>
-                <Button type="link" size="small" onClick={() => setEditing(r)}>
+                <Button disabled={!canWrite} type="link" size="small" onClick={() => setEditing(r)}>
                   {t("edit")}
                 </Button>
                 <Popconfirm
@@ -147,7 +149,7 @@ export function TariffsTab() {
                     }
                   }}
                 >
-                  <Button type="link" size="small" danger>
+                  <Button disabled={!canWrite} type="link" size="small" danger>
                     {t("delete")}
                   </Button>
                 </Popconfirm>
@@ -334,6 +336,7 @@ function TariffModal({
 
 // ------------------------------------------------------------------ 费用
 export function ChargesTab({ onOpenTrip }: { onOpenTrip: (id: string) => void }) {
+  const canWrite = usePermission(Permission.TRANSPORT_FINANCE);
   const t = useTransportText();
   const customers = useCustomers(true);
   const carriers = useCarriers(true);
@@ -450,7 +453,7 @@ export function ChargesTab({ onOpenTrip }: { onOpenTrip: (id: string) => void })
       </Space>
       <Space style={{ marginBottom: 12 }}>
         <Button
-          disabled={!selected.length}
+          disabled={!canWrite || !selected.length}
           onClick={async () => {
             try {
               const r = await transportApi.confirmCharges(selected);
@@ -463,7 +466,7 @@ export function ChargesTab({ onOpenTrip }: { onOpenTrip: (id: string) => void })
         >
           {t("confirmSelected")} {selected.length ? `(${selected.length})` : ""}
         </Button>
-        <Button onClick={() => setRecalcOpen(true)}>{t("recalculate")}</Button>
+        <Button disabled={!canWrite} onClick={() => setRecalcOpen(true)}>{t("recalculate")}</Button>
       </Space>
       <Table<Charge>
         rowKey="id"
@@ -521,7 +524,7 @@ export function ChargesTab({ onOpenTrip }: { onOpenTrip: (id: string) => void })
             width: 150,
             render: (_, c) =>
               c.status === "PENDING" ? (
-                <Button size="small" type="link" onClick={() => setAdjusting(c)}>
+                <Button disabled={!canWrite} size="small" type="link" onClick={() => setAdjusting(c)}>
                   {t("adjust")}
                 </Button>
               ) : (

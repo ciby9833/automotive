@@ -49,7 +49,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import com.automotive.alms.BuildConfig
 import com.automotive.alms.R
 import com.automotive.alms.core.auth.SessionStore
 import com.automotive.alms.core.evidence.EvidencePhoto
@@ -357,10 +356,10 @@ fun TransportScreen(repository: TransportRepository, sessionStore: SessionStore,
                                 podLauncher.launch(arrayOf("application/pdf", "image/jpeg"))
                             },
                             onOpen = { doc ->
-                                runCatching {
-                                    val url = "${BuildConfig.API_BASE_URL.trimEnd('/')}/storage/preview/${Uri.encode(doc.fileKey)}"
+                                tasks.launch {
+                                    val url = repository.documentUrl(doc.fileKey)
                                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                                }.onFailure { feedback.show(it.localizedMessage ?: doc.fileName) }
+                                }
                             },
                         )
                     }

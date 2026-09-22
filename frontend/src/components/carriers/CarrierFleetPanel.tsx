@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import { carriersApi, type Driver, type Vehicle } from '@/lib/api/carriers';
 import { useTranslation } from '@/i18n/useTranslation';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 interface Props {
   carrierId: string;
@@ -66,6 +67,7 @@ export function CarrierFleetPanel({ carrierId, carrierName }: Props) {
 
 function DriversTab({ carrierId, carrierName }: Props) {
   const { t } = useTranslation();
+  const canManage = usePermission(Permission.PARTNER_CARRIER_CRUD);
   const [rows, setRows] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(false);
   const [stateFilter, setStateFilter] = useState<
@@ -195,7 +197,7 @@ function DriversTab({ carrierId, carrierName }: Props) {
           />
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} disabled={!canManage}>
           {t('carrierFleet.addDriver')}
         </Button>
       </Space>
@@ -239,7 +241,7 @@ function DriversTab({ carrierId, carrierName }: Props) {
           {
             title: '',
             width: 240,
-            render: (_: unknown, d: Driver) => (
+            render: (_: unknown, d: Driver) => canManage && (
               <Space size={4}>
                 <Button
                   type="link"
@@ -339,6 +341,7 @@ function DriversTab({ carrierId, carrierName }: Props) {
 
 function VehiclesTab({ carrierId, carrierName }: Props) {
   const { t } = useTranslation();
+  const canManage = usePermission(Permission.PARTNER_CARRIER_CRUD);
   const [rows, setRows] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(false);
   const [stateFilter, setStateFilter] = useState<
@@ -463,7 +466,7 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
           />
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} disabled={!canManage}>
           {t('carrierFleet.addVehicle')}
         </Button>
       </Space>
@@ -503,7 +506,7 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
           {
             title: '',
             width: 240,
-            render: (_: unknown, v: Vehicle) => (
+            render: (_: unknown, v: Vehicle) => canManage && (
               <Space size={4}>
                 <Button
                   type="link"

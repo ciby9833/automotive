@@ -23,6 +23,7 @@ import { waybillsApi, Waybill, WaybillStatus } from '@/lib/api/waybills';
 import { yardsApi, Yard } from '@/lib/api/yards';
 import { carriersApi, Carrier } from '@/lib/api/carriers';
 import { useAuthStore } from '@/lib/auth/store';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
 import { useTranslation } from '@/i18n/useTranslation';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
@@ -71,6 +72,8 @@ export default function WaybillsPage() {
   const [assignTarget, setAssignTarget] = useState<Waybill | null>(null);
   const activeOrgId = useAuthStore((s) => s.activeOrgId);
   const userRole = useAuthStore((s) => s.user?.role);
+  const permissions = useAuthStore((s) => s.permissions);
+  const canManage = usePermission(Permission.WAYBILL_CREATE);
   const userCarrierId = useAuthStore((s) => s.externalContext?.carrierId);
   const organizations = useOrganizations();
   const { t, locale } = useTranslation();
@@ -564,8 +567,9 @@ export default function WaybillsPage() {
             title: '',
             width: 260,
             render: (_: unknown, r: Waybill) => {
-              const canCancel = r.status === 'NOT_ARRIVED' && !r.isLocked;
+              const canCancel = canManage && r.status === 'NOT_ARRIVED' && !r.isLocked;
               const canAssign = canAssignWaybill(r, {
+                permissions,
                 role: userRole,
                 carrierId: userCarrierId ?? null,
               });

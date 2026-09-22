@@ -6,7 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuthStore } from '@/lib/auth/store';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useLayoutStore } from './layoutStore';
-import { getNavForRole, getNavIcon } from './navModel';
+import { getNavGroups, getNavIcon } from './navModel';
 
 // 左侧菜单：不管布局、不管 tabs、不管滚动
 // 点击菜单 → openTab(via layoutStore) + router.push
@@ -14,6 +14,8 @@ export function AppSidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
+  const permissions = useAuthStore((s) => s.permissions);
+  const navigation = useAuthStore((s) => s.navigation);
   const { t } = useTranslation();
   const collapsed = useLayoutStore((s) => s.sidebarCollapsed);
   const openKeys = useLayoutStore((s) => s.openKeys);
@@ -23,8 +25,8 @@ export function AppSidebar() {
   const activeTabPath = useLayoutStore((s) => s.activeTabPath);
 
   const navGroups = useMemo(
-    () => (user ? getNavForRole(user.role) : []),
-    [user],
+    () => (user ? getNavGroups(navigation, permissions) : []),
+    [user, permissions, navigation],
   );
 
   const selectedKey = useMemo(() => {

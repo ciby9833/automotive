@@ -1,10 +1,14 @@
 import { apiClient, unwrap } from './client';
 import { Role } from '@/lib/auth/role';
+import { AccessRole } from './roles';
 
 export interface UserMembership {
   id: string;
   organizationId: string;
   role: Role;
+  accessRoles: AccessRole[];
+  scopeYardId: string | null;
+  isActive: boolean;
   organization?: {
     id: string;
     code: string;
@@ -17,7 +21,6 @@ export interface User {
   username: string;
   displayName: string;
   role: Role;
-  scopeYardId: string | null;
   carrierId: string | null;
   customerId: string | null;
   email: string | null;
@@ -26,6 +29,7 @@ export interface User {
 }
 
 export interface CreateUserPayload {
+  roleIds?: string[];
   username: string;
   password: string;
   displayName: string;
@@ -37,7 +41,6 @@ export interface CreateUserPayload {
 
 export interface UpdateUserPayload {
   displayName?: string;
-  scopeYardId?: string | null;
   email?: string;
   isActive?: boolean;
 }
@@ -45,9 +48,21 @@ export interface UpdateUserPayload {
 export interface AddMembershipPayload {
   organizationId: string;
   role: Role;
+  scopeYardId?: string | null;
+  roleIds?: string[];
+}
+
+export interface MembershipGrant {
+  role: Role;
+  roleIds: string[];
+  scopeYardId?: string | null;
+  isActive: boolean;
 }
 
 export const usersApi = {
+  assignmentYards: (organizationId: string) => unwrap<Array<{id: string; name: string; code: string}>>(apiClient.get('/users/assignment-yards', { params: { organizationId } })),
+  updateMembership: (id: string, membershipId: string, dto: MembershipGrant) =>
+    unwrap<UserMembership>(apiClient.patch(`/users/${id}/memberships/${membershipId}`, dto)),
   list: () => unwrap<User[]>(apiClient.get('/users')),
   create: (dto: CreateUserPayload) => unwrap<User>(apiClient.post('/users', dto)),
   update: (id: string, dto: UpdateUserPayload) =>

@@ -1,3 +1,6 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
+import { Public } from '../../common/decorators/public.decorator';
 import {
   Body,
   Controller,
@@ -32,6 +35,7 @@ export class AppReleasesController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.HQ_ADMIN)
   @ApiConsumes('multipart/form-data')
+  @Permissions(Permission.APP_RELEASE_MANAGE)
   @Post()
   @UseInterceptors(FileInterceptor('file'))
   publish(
@@ -45,6 +49,7 @@ export class AppReleasesController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.APP_RELEASE_VIEW)
   @Get()
   list() {
     return this.service.list();
@@ -53,6 +58,7 @@ export class AppReleasesController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.APP_RELEASE_MANAGE)
   @Post(':id/invalidate')
   invalidate(
     @Param('id', ParseUUIDPipe) id: string,
@@ -61,12 +67,14 @@ export class AppReleasesController {
     return this.service.invalidate(id, user.userId);
   }
 
+  @Public()
   @Get('public/latest')
   @Header('Cache-Control', 'no-store')
   latest() {
     return this.service.latest();
   }
 
+  @Public()
   @Get(':id/download')
   async download(
     @Param('id', ParseUUIDPipe) id: string,

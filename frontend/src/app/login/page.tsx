@@ -8,6 +8,7 @@ import { useAuthStore } from "@/lib/auth/store";
 import { useTranslation } from "@/i18n/useTranslation";
 import { LanguageSwitcher } from "@/components/layout/LanguageSwitcher";
 import { MobileOutlined } from "@ant-design/icons";
+import { landingPath } from '@/components/layout/navModel';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,8 +44,9 @@ export default function LoginPage() {
         externalContext: res.externalContext ?? null,
         accountUnit: res.accountUnit ?? null,
         permissions: res.permissions ?? [],
+        navigation: res.navigation,
       });
-      router.replace("/dashboard");
+      router.replace(landingPath(res.navigation, res.permissions));
     } catch {
       message.error(t("auth.loginFailed"));
     } finally {

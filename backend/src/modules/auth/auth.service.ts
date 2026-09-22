@@ -13,11 +13,12 @@ import { UserOrganizationMembership } from '../users/entities/user-organization-
 import { Organization } from '../organizations/entities/organization.entity';
 import { Carrier } from '../carriers/entities/carrier.entity';
 import { Customer } from '../customers/entities/customer.entity';
-import { JwtPayload } from './auth.types';
+import { AuthenticatedUser, JwtPayload } from './auth.types';
+import { ScopeService } from '../../common/scope/scope.service';
 import { ErrorCode } from '../../common/constants/error-codes';
 import { Role } from '../../common/enums/role.enum';
-import { Permission } from '../../common/enums/permission.enum';
 import { permissionsForRole } from '../../common/rbac/role-permissions';
+import { MENUS, MenuDefinition } from '../../common/rbac/permission-catalog';
 
 // 登录返回三种模式，前端据此决定后续动作：
 //  - EXTERNAL: 外部账号，直接给完整 token 进业务
@@ -57,7 +58,8 @@ export interface LoginResult {
   // 内部账号随 activeOrgId 变化；外部账号指承运商/客户主数据。
   accountUnit?: AccountUnit | null;
   // 当前角色的功能权限清单；前端据此驱动按钮可见性
-  permissions: Permission[];
+  permissions: string[];
+  navigation: MenuDefinition[];
 }
 
 export interface AccountUnit {
@@ -87,6 +89,7 @@ export class AuthService {
     private readonly carrierRepo: Repository<Carrier>,
     @InjectRepository(Customer)
     private readonly customerRepo: Repository<Customer>,
+    private readonly scopes: ScopeService,
   ) {}
 
   async login(username: string, password: string): Promise<LoginResult> {
@@ -155,6 +158,7 @@ export class AuthService {
         },
         accountUnit,
         permissions: permissionsForRole(user.role),
+        navigation: MENUS.filter((m) => m.types.includes(user.role)),
       };
     }
 
@@ -168,31 +172,7 @@ export class AuthService {
     }
 
     if (memberships.length === 1) {
-      const only = memberships[0];
-      const token = this.signToken({
-        sub: user.id,
-        username: user.username,
-        role: user.role,
-        preAuth: false,
-        activeOrgId: only.organizationId,
-        scopeYardId: user.scopeYardId,
-        carrierId: null,
-        customerId: null,
-      });
-      return {
-        mode: 'SINGLE_ORG',
-        accessToken: token,
-        user: publicUser,
-        memberships,
-        activeOrgId: only.organizationId,
-        accountUnit: {
-          type: 'ORG',
-          id: only.organizationId,
-          code: only.organizationCode,
-          name: only.organizationName,
-        },
-        permissions: permissionsForRole(user.role),
-      };
+      return this.selectOrg(user.id, memberships[0].organizationId);
     }
 
     // 多 membership：下发预授权 token，前端弹选择器
@@ -202,7 +182,7 @@ export class AuthService {
       role: user.role,
       preAuth: true,
       activeOrgId: null,
-      scopeYardId: user.scopeYardId,
+      scopeYardId: null,
       carrierId: null,
       customerId: null,
     });
@@ -213,8 +193,8 @@ export class AuthService {
       memberships,
       activeOrgId: null,
       accountUnit: null,
-      // NEEDS_SELECTION 时权限清单也一起返回，选完机构不用二次请求
-      permissions: permissionsForRole(user.role),
+      permissions: [],
+      navigation: [],
     };
   }
 
@@ -231,23 +211,28 @@ export class AuthService {
       throw new ForbiddenException('外部账号无需选择机构');
     }
     const membership = await this.memRepo.findOne({
-      where: { userId, organizationId },
+      where: { userId, organizationId, isActive: true },
     });
     if (!membership) {
       throw new ForbiddenException('无权访问此机构');
     }
     const memberships = await this.getMembershipSummaries(userId);
-    const selected = memberships.find((m) => m.organizationId === organizationId);
-    const token = this.signToken({
+    const selected = memberships.find(
+      (m) => m.organizationId === organizationId,
+    );
+    if (!selected) throw new ForbiddenException('机构已停用');
+    const payload: JwtPayload = {
       sub: user.id,
       username: user.username,
-      role: user.role,
+      role: membership.role,
       preAuth: false,
       activeOrgId: organizationId,
-      scopeYardId: user.scopeYardId,
+      scopeYardId: membership.scopeYardId,
       carrierId: null,
       customerId: null,
-    });
+    };
+    const authorized = await this.scopes.authenticate(payload);
+    const token = this.signToken(payload);
     return {
       mode: 'SINGLE_ORG',
       accessToken: token,
@@ -255,7 +240,7 @@ export class AuthService {
         id: user.id,
         username: user.username,
         displayName: user.displayName,
-        role: user.role,
+        role: authorized.role,
         email: user.email,
       },
       memberships,
@@ -268,7 +253,8 @@ export class AuthService {
             name: selected.organizationName,
           }
         : null,
-      permissions: permissionsForRole(user.role),
+      permissions: authorized.permissions ?? [],
+      navigation: MENUS.filter((m) => m.types.includes(authorized.role)),
     };
   }
 
@@ -288,7 +274,7 @@ export class AuthService {
     userId: string,
   ): Promise<MembershipSummary[]> {
     const rows = await this.memRepo.find({
-      where: { userId },
+      where: { userId, isActive: true, organization: { isActive: true } },
       relations: { organization: true },
       order: { createdAt: 'ASC' },
     });
@@ -305,7 +291,9 @@ export class AuthService {
     customerId: string | null,
   ): Promise<AccountUnit | null> {
     if (carrierId) {
-      const carrier = await this.carrierRepo.findOne({ where: { id: carrierId } });
+      const carrier = await this.carrierRepo.findOne({
+        where: { id: carrierId },
+      });
       return carrier
         ? {
             type: 'CARRIER',
@@ -316,7 +304,9 @@ export class AuthService {
         : null;
     }
     if (customerId) {
-      const customer = await this.customerRepo.findOne({ where: { id: customerId } });
+      const customer = await this.customerRepo.findOne({
+        where: { id: customerId },
+      });
       return customer
         ? {
             type: 'CUSTOMER',
@@ -329,16 +319,7 @@ export class AuthService {
     return null;
   }
 
-  async getCurrentSession(user: {
-    userId: string;
-    username: string;
-    role: Role;
-    preAuth: boolean;
-    activeOrgId: string | null;
-    scopeYardId: string | null;
-    carrierId: string | null;
-    customerId: string | null;
-  }) {
+  async getCurrentSession(user: AuthenticatedUser) {
     const account = await this.usersService.findById(user.userId);
     if (!account || !account.isActive) {
       throw new UnauthorizedException('账号不存在或已停用');
@@ -346,7 +327,9 @@ export class AuthService {
     let accountUnit: AccountUnit | null = null;
 
     if (!user.preAuth && user.activeOrgId) {
-      const org = await this.orgRepo.findOne({ where: { id: user.activeOrgId } });
+      const org = await this.orgRepo.findOne({
+        where: { id: user.activeOrgId },
+      });
       accountUnit = org
         ? { type: 'ORG', id: org.id, code: org.code, name: org.name }
         : null;
@@ -358,11 +341,24 @@ export class AuthService {
     }
 
     return {
-      ...user,
+      userId: user.userId,
+      username: user.username,
+      role: user.role,
+      preAuth: user.preAuth,
+      activeOrgId: user.activeOrgId,
+      scopeYardId: user.scopeYardId,
+      carrierId: user.carrierId,
+      customerId: user.customerId,
       displayName: account?.displayName ?? null,
       email: account?.email ?? null,
       accountUnit,
-      permissions: permissionsForRole(user.role),
+      memberships: EXTERNAL_ROLES.has(user.role)
+        ? []
+        : await this.getMembershipSummaries(user.userId),
+      permissions: user.permissions ?? [],
+      navigation: user.preAuth
+        ? []
+        : MENUS.filter((m) => m.types.includes(user.role)),
     };
   }
 

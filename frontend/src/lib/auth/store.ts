@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { Role } from './role';
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { Role, NavigationMenu } from "./role";
 
 export interface AuthUser {
   id: string;
@@ -27,13 +27,13 @@ export interface ExternalContext {
 }
 
 export interface AccountUnit {
-  type: 'ORG' | 'CARRIER' | 'CUSTOMER';
+  type: "ORG" | "CARRIER" | "CUSTOMER";
   id: string;
   code: string | null;
   name: string;
 }
 
-export type LoginMode = 'EXTERNAL' | 'SINGLE_ORG' | 'NEEDS_SELECTION';
+export type LoginMode = "EXTERNAL" | "SINGLE_ORG" | "NEEDS_SELECTION";
 
 interface AuthState {
   token: string | null;
@@ -45,7 +45,9 @@ interface AuthState {
   accountUnit: AccountUnit | null;
   // 后端下发的功能权限清单；前端按钮可见性完全据此驱动，不再直接检查 role
   permissions: string[];
+  navigation: NavigationMenu[];
   hasHydrated: boolean;
+  isSwitchingOrg: boolean;
   // 完整登录成功（外部账号或单机构直登）
   setAuth: (payload: {
     token: string;
@@ -56,8 +58,9 @@ interface AuthState {
     externalContext: ExternalContext | null;
     accountUnit?: AccountUnit | null;
     permissions: string[];
+    navigation: NavigationMenu[];
   }) => void;
-  // 多机构场景：先存预授权 token + 待选 memberships + 权限清单（选完机构不重拉）
+  // 多机构预授权不携带业务许可；选定机构后使用该机构返回的全新许可。
   setPreAuth: (payload: {
     token: string;
     user: AuthUser;
@@ -82,7 +85,9 @@ export const useAuthStore = create<AuthState>()(
       externalContext: null,
       accountUnit: null,
       permissions: [],
+      navigation: [],
       hasHydrated: false,
+      isSwitchingOrg: false,
       setAuth: ({
         token,
         user,
@@ -92,6 +97,7 @@ export const useAuthStore = create<AuthState>()(
         externalContext,
         accountUnit,
         permissions,
+        navigation,
       }) =>
         set({
           token,
@@ -102,17 +108,21 @@ export const useAuthStore = create<AuthState>()(
           externalContext,
           accountUnit: accountUnit ?? null,
           permissions,
+          navigation,
+          isSwitchingOrg: false,
         }),
-      setPreAuth: ({ token, user, memberships, permissions }) =>
+      setPreAuth: ({ token, user, memberships }) =>
         set({
           token,
           user,
-          mode: 'NEEDS_SELECTION',
+          mode: "NEEDS_SELECTION",
+          navigation: [],
           activeOrgId: null,
           memberships,
           externalContext: null,
           accountUnit: null,
-          permissions,
+          permissions: [],
+          isSwitchingOrg: false,
         }),
       logout: () =>
         set({
@@ -124,11 +134,13 @@ export const useAuthStore = create<AuthState>()(
           externalContext: null,
           accountUnit: null,
           permissions: [],
+          navigation: [],
+          isSwitchingOrg: false,
         }),
       setHasHydrated: (value) => set({ hasHydrated: value }),
     }),
     {
-      name: 'tms-auth',
+      name: "tms-auth",
       partialize: (state) => ({
         token: state.token,
         user: state.user,
@@ -138,6 +150,7 @@ export const useAuthStore = create<AuthState>()(
         externalContext: state.externalContext,
         accountUnit: state.accountUnit,
         permissions: state.permissions,
+        navigation: state.navigation,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

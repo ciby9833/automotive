@@ -195,7 +195,7 @@ export class InboundController {
 
   // 扫码前预查(不改状态)：帮司机确认这个 VIN 能不能提
   @Roles(Role.CARRIER_DRIVER, Role.CARRIER_STAFF)
-  @Permissions(Permission.PICKUP_SCAN)
+  @Permissions(Permission.PICKUP_VIEW)
   @Get('pickup/lookup/:vin')
   pickupLookup(
     @Param('vin') vin: string,

@@ -86,6 +86,7 @@ export class InboundService {
     this.scopeService.assertOrgWritable(scope, yard.organizationId);
     const customer = await this.customersRepo.findOne({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('客户不存在');
+    if (customer.organizationId !== yard.organizationId) throw new ForbiddenException('客户与目的场地必须属于同一机构');
     if (customer.status !== PartnerStatus.ACTIVE) {
       throw new BadRequestException('客户当前未开放新增业务');
     }
@@ -445,6 +446,8 @@ export class InboundService {
       relations: { order: true },
     });
     if (!vin) throw new NotFoundException('系统里未找到此 VIN，请确认是否已导入订单');
+    if (vin.order?.pickupCarrierId !== user.carrierId || vin.order.status === OrderStatus.CANCELLED)
+      throw new ForbiddenException('此 VIN 未分派给您的承运商或订单已取消');
     if (vin.pickedUpAt) {
       throw new BadRequestException(
         `此 VIN 已于 ${vin.pickedUpAt.toISOString()} 被提货过`,
@@ -714,6 +717,9 @@ export class InboundService {
     this.scopeService.assertOrgWritable(scope, yard.organizationId);
 
     // 找/建散车订单
+    if (customer.organizationId !== yard.organizationId) throw new ForbiddenException('客户与目的场地必须属于同一机构');
+    if (scope.role === Role.YARD_STAFF && scope.scopeYardId !== yardId)
+      throw new ForbiddenException('仅可在当前绑定场地入库');
     const strayOrderCode = `INBOUND-STRAY-${dto.customerId.slice(0, 8)}-${yardId.slice(0, 8)}`;
     let strayOrder = await this.ordersRepo.findOne({
       where: {
@@ -882,6 +888,9 @@ export class InboundService {
       .orderBy('batch.arrivedDate', 'DESC')
       .addOrderBy('batch.createdAt', 'DESC');
     this.scopeService.applyScopeToQuery(qb, 'batch', scope);
+    if (scope.type === 'ORG' && scope.role === Role.YARD_STAFF) {
+      qb.andWhere('batch.yardId = :boundYard', { boundYard: scope.scopeYardId });
+    }
     if (yardId) {
       qb.andWhere('batch.yardId = :yardId', { yardId });
     }
@@ -925,6 +934,8 @@ export class InboundService {
       relations: { order: { customer: true } },
     });
     if (!found) throw new NotFoundException('系统里未找到此 VIN');
+    if (found.order?.pickupCarrierId !== user.carrierId || found.order.status === OrderStatus.CANCELLED)
+      throw new NotFoundException('未找到分派给您的提货车辆');
     if (found.pickedUpAt) {
       return {
         vin: found,
@@ -1198,6 +1209,7 @@ export class InboundService {
         where: { id: dto.pickupCarrierId },
       });
       if (!carrier) throw new NotFoundException('承运商不存在');
+      if (carrier.organizationId !== order.organizationId) throw new ForbiddenException('承运商与订单必须属于同一机构');
       if (carrier.status !== PartnerStatus.ACTIVE) {
         throw new BadRequestException('承运商当前未开放新增业务，无法分派');
       }
@@ -1207,6 +1219,9 @@ export class InboundService {
         .getRepository(User)
         .findOne({ where: { id: dto.pickupDriverUserId } });
       if (!driverUser) throw new NotFoundException('司机账号不存在');
+      if (!driverUser.isActive || driverUser.role !== Role.CARRIER_DRIVER ||
+        driverUser.carrierId !== (dto.pickupCarrierId ?? order.pickupCarrierId))
+        throw new BadRequestException('司机账号未启用或不属于此承运商');
     }
 
     const before = {

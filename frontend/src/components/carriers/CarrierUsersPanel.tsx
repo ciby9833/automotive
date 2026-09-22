@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import { carriersApi, type CarrierUser, type Driver } from '@/lib/api/carriers';
 import { useTranslation } from '@/i18n/useTranslation';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 interface Props {
   carrierId: string;
@@ -40,6 +41,7 @@ interface Props {
 // 两处 UI 完全一致，仅调用方传不同 carrierId
 export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props) {
   const { t } = useTranslation();
+  const canManage = usePermission(Permission.CARRIER_USER_MANAGE);
   const [users, setUsers] = useState<CarrierUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -245,6 +247,7 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => setCreateOpen(true)}
+          disabled={!canManage}
         >
           {t('carrierUsers.addUser')}
         </Button>
@@ -303,7 +306,7 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
           {
             title: '',
             width: 260,
-            render: (_: unknown, u: CarrierUser) => (
+            render: (_: unknown, u: CarrierUser) => canManage && (
               <Space size={4}>
                 <Button
                   type="link"

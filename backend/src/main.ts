@@ -7,6 +7,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { PreAuthBlockGuard } from './common/guards/preauth-block.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
+import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -31,8 +32,9 @@ async function bootstrap() {
     new TransformInterceptor(),
   );
   // 预授权 token 除非目标端点显式 @AllowPreAuth() 否则一律 401
-  // PermissionsGuard 只对显式 @Permissions() 的端点生效，未声明的透传
+  // 所有业务入口默认拒绝，必须显式声明功能权限；公开/会话入口有独立标记。
   app.useGlobalGuards(
+    app.get(JwtAuthGuard),
     new PreAuthBlockGuard(app.get(Reflector)),
     new PermissionsGuard(app.get(Reflector)),
   );

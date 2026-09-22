@@ -5,6 +5,7 @@ import { Button, Form, Input, Modal, Select, Space, Typography, message } from '
 import { CopyOutlined, LinkOutlined } from '@ant-design/icons';
 import { invitationsApi, InvitationTargetType } from '@/lib/api/invitations';
 import { Role } from '@/lib/auth/role';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { useTranslation } from '@/i18n/useTranslation';
 
 // 复用组件：Carrier/Customer 详情行都能挂一个"生成邀请码"按钮
@@ -26,6 +27,7 @@ export function GenerateInviteButton({ targetType, targetId, size = 'small' }: P
   const [submitting, setSubmitting] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const { t } = useTranslation();
+  const canInvite = usePermission(Permission.PARTNER_INVITE);
 
   const onSubmit = async (values: { inviteeRole: Role; ttlDays?: number }) => {
     setSubmitting(true);
@@ -56,6 +58,7 @@ export function GenerateInviteButton({ targetType, targetId, size = 'small' }: P
     }
   };
 
+  if (!canInvite) return null;
   return (
     <>
       <Button size={size} icon={<LinkOutlined />} onClick={() => setOpen(true)}>

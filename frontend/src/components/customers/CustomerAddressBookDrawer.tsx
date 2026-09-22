@@ -35,6 +35,7 @@ import {
 import { parseDealerExcel } from '@/lib/customers/parse-dealer-excel';
 import { downloadCustomerAddressTemplate } from '@/lib/customers/generate-address-template';
 import { useTranslation } from '@/i18n/useTranslation';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 interface Props {
   customerId: string | null;
@@ -52,6 +53,7 @@ export function CustomerAddressBookDrawer({
   onChanged,
 }: Props) {
   const { t } = useTranslation();
+  const canManage = usePermission(Permission.PARTNER_CUSTOMER_CRUD);
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<CustomerAddress | null>(null);
@@ -194,8 +196,8 @@ export function CustomerAddressBookDrawer({
       destroyOnClose
     >
       <Space style={{ marginBottom: 12 }}>
-        <Upload {...uploadProps}>
-          <Button icon={<UploadOutlined />}>
+        <Upload {...uploadProps} disabled={!canManage}>
+          <Button icon={<UploadOutlined />} disabled={!canManage}>
             {t('customers.addressBook.import')}
           </Button>
         </Upload>
@@ -205,7 +207,7 @@ export function CustomerAddressBookDrawer({
         >
           {t('customers.addressBook.downloadTemplate')}
         </Button>
-        <Button icon={<PlusOutlined />} onClick={openAddModal}>
+        <Button icon={<PlusOutlined />} onClick={openAddModal} disabled={!canManage}>
           {t('customers.addressBook.add')}
         </Button>
         <span style={{ fontSize: 12, color: '#94a3b8' }}>
@@ -316,7 +318,7 @@ export function CustomerAddressBookDrawer({
           {
             title: '',
             width: 100,
-            render: (_, row: CustomerAddress) => (
+            render: (_, row: CustomerAddress) => canManage && (
               <Space size={4}>
                 <Button
                   type="link"

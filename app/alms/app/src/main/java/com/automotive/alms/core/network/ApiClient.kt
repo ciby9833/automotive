@@ -45,6 +45,12 @@ class ApiClient(
         return execute(request)
     }
 
+    /** 业务附件不可由文件 key 拼接裸链接；每次打开先校验当前账号和业务归属。 */
+    suspend fun signedFileUrl(key: String): String {
+        val urls: Map<String, String> = post("/storage/signed-urls", mapOf("keys" to listOf(key)))
+        return baseUrl.trimEnd('/') + requireNotNull(urls[key]) { "Attachment access unavailable" }
+    }
+
     suspend inline fun <reified T> uploadFile(
         path: String,
         fileName: String,

@@ -1,9 +1,13 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
+import { Public, SessionOnly } from '../../common/decorators/public.decorator';
 import {
   Body,
   Controller,
   Get,
   Param,
   Post,
+  Query,
   Res,
   UploadedFile,
   UseGuards,
@@ -15,6 +19,8 @@ import { ArrayMaxSize, IsArray, IsString } from 'class-validator';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { StorageService } from './storage.service';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/auth.types';
 
 class SignedUrlsDto {
   @IsArray()
@@ -32,35 +38,37 @@ export class StorageController {
 
   @UseGuards(JwtAuthGuard)
   @ApiConsumes('multipart/form-data')
+  @Permissions(Permission.FILE_UPLOAD)
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
-  upload(@UploadedFile() file: Express.Multer.File) {
+  upload(@UploadedFile() file: Express.Multer.File, @CurrentUser() user: AuthenticatedUser) {
     return this.storageService.upload(
       file.buffer,
       file.originalname,
       file.mimetype,
+      user,
     );
   }
 
   // 批量换取图片 URL（返回后端相对路径 /storage/preview/xxx；前端拼 baseURL 使用）
   @UseGuards(JwtAuthGuard)
+  @SessionOnly()
   @Post('signed-urls')
-  signedUrls(@Body() dto: SignedUrlsDto): Record<string, string> {
-    const entries = dto.keys.map(
-      (key) => [key, this.storageService.getUrl(key)] as const,
-    );
-    return Object.fromEntries(entries);
+  signedUrls(@Body() dto: SignedUrlsDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.storageService.signedUrls(dto.keys, user);
   }
 
-  // 流转发图片内容：不带认证，key 是 UUID（128 位随机，无法枚举）
+  // 流转发图片内容：校验短期附件令牌，并重新检查账号及业务归属。
   // 生产环境 MinIO 只对本机开放，浏览器通过后端 → nginx 拿图
+  @Public()
   @Get('preview/:key')
-  async preview(@Param('key') key: string, @Res() res: Response): Promise<void> {
+  async preview(@Param('key') key: string, @Query('token') token: string | undefined, @Res() res: Response): Promise<void> {
+    await this.storageService.authorizePreview(key, token);
     const { stream, size, contentType } =
       await this.storageService.getObjectStream(key);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Content-Length', String(size));
-    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.setHeader('Cache-Control', 'private, no-store');
     stream.pipe(res);
   }
 }

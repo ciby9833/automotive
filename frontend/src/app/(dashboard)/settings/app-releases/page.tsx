@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   AndroidOutlined,
   CheckCircleOutlined,
@@ -54,6 +55,7 @@ function formatBytes(bytes: number): string {
 }
 
 export default function AppReleasesPage() {
+  const canManage = usePermission(Permission.APP_RELEASE_MANAGE);
   const { t, locale } = useTranslation();
   const isHeadquarters = useAuthStore(
     (state) => state.user?.role === Role.HQ_ADMIN,
@@ -216,6 +218,7 @@ export default function AppReleasesPage() {
             className={styles.hint}
           />
           <Form
+            disabled={!canManage}
             form={form}
             layout="vertical"
             initialValues={{ forceUpdate: false }}
@@ -317,7 +320,7 @@ export default function AppReleasesPage() {
               htmlType="submit"
               icon={<UploadOutlined />}
               loading={publishing}
-              disabled={!apkMetadata || inspecting}
+              disabled={!canManage || !apkMetadata || inspecting}
               className={styles.publishButton}
             >
               {t("appReleases.publish")}
@@ -444,7 +447,7 @@ export default function AppReleasesPage() {
               width: 160,
               render: (_, row) => (
                 <Space>
-                  {row.status !== "INVALIDATED" && (
+                  {canManage && row.status !== "INVALIDATED" && (
                     <>
                       <Button size="small" href={getAppDownloadUrl(row)}>
                         {t("appReleases.download")}
@@ -456,7 +459,7 @@ export default function AppReleasesPage() {
                       />
                     </>
                   )}
-                  {row.status !== "INVALIDATED" && (
+                  {canManage && row.status !== "INVALIDATED" && (
                     <Popconfirm
                       title={t("appReleases.invalidateConfirm")}
                       description={t("appReleases.invalidateDescription")}

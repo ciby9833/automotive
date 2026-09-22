@@ -1,4 +1,5 @@
 'use client';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 
 import { useEffect, useState } from 'react';
 import { Button, Select, Space, Table, Tag, message } from 'antd';
@@ -28,7 +29,8 @@ export default function FinancePage() {
   const { t, locale } = useTranslation();
 
   // 只有内部管理员能向客户发送账单
-  const canSendBill = role === Role.HQ_ADMIN || role === Role.ORG_ADMIN;
+  const canSendBill = usePermission(Permission.FINANCE_SEND_BILL);
+  const canConfirm = usePermission(Permission.FINANCE_CONFIRM);
 
   // finance 记录里带 waybill.organization，用它来渲染所属机构（客户账号 useOrganizations() 为空也能显示）
   const financeRecordOrgProxy = (r: FinanceRecord) => ({
@@ -134,7 +136,7 @@ export default function FinancePage() {
           {
             title: t('finance.action'),
             render: (_: unknown, record: FinanceRecord) =>
-              record.status === 'PENDING' ? (
+              canConfirm && record.status === 'PENDING' ? (
                 <Button
                   size="small"
                   onClick={async () => {

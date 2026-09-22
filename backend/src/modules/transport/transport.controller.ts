@@ -62,7 +62,6 @@ function paging(page?: string, pageSize?: string, max = 200) {
 @Controller('transport')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_DRIVER, Role.CARRIER_STAFF, Role.CUSTOMER)
-@Permissions(Permission.TRANSPORT_VIEW)
 export class TransportController {
   constructor(
     private readonly access: TransportAccess,
@@ -73,6 +72,7 @@ export class TransportController {
   ) {}
 
   // ---------------------------------------------------------------- 需求单
+  @Permissions(Permission.TRANSPORT_VIEW)
   @Get('orders')
   async listOrders(
     @CurrentUser() u: AuthenticatedUser,
@@ -90,21 +90,25 @@ export class TransportController {
     });
   }
 
+  @Permissions(Permission.TRANSPORT_VIEW)
   @Get('orders/:id')
   async order(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: AuthenticatedUser) {
     return this.orders.detail(await this.access.actor(u), id);
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Post('orders')
   async createOrder(@Body() d: CreateTransportOrderDto, @CurrentUser() u: AuthenticatedUser) {
     return this.orders.create(await this.access.actor(u), d);
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Post('orders/import')
   async importOrders(@Body() d: ImportTransportDto, @CurrentUser() u: AuthenticatedUser) {
     return this.orders.import(await this.access.actor(u), d);
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Post('orders/:id/vins')
   async supplement(
     @Param('id', ParseUUIDPipe) id: string,
@@ -114,6 +118,7 @@ export class TransportController {
     return this.orders.supplementVins(await this.access.actor(u), id, d);
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Post('orders/:id/cancel')
   async cancelOrder(
     @Param('id', ParseUUIDPipe) id: string,
@@ -124,6 +129,7 @@ export class TransportController {
   }
 
   // ---------------------------------------------------------------- 明细
+  @Permissions(Permission.TRANSPORT_VIEW)
   @Get('lines')
   async lines(
     @CurrentUser() u: AuthenticatedUser,
@@ -151,6 +157,7 @@ export class TransportController {
     });
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Patch('lines/:id')
   async updateLine(
     @Param('id', ParseUUIDPipe) id: string,
@@ -160,16 +167,19 @@ export class TransportController {
     return this.orders.updateLine(await this.access.actor(u), id, d);
   }
 
+  @Permissions(Permission.TRANSPORT_DISPATCH)
   @Post('lines/allocate')
   async allocate(@Body() d: AllocateLinesDto, @CurrentUser() u: AuthenticatedUser) {
     return this.orders.allocate(await this.access.actor(u), d);
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Post('lines/cancel')
   async cancelLines(@Body() d: CancelLinesDto, @CurrentUser() u: AuthenticatedUser) {
     return this.orders.cancelLines(await this.access.actor(u), d);
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Post('lines/:id/close')
   async closeLine(
     @Param('id', ParseUUIDPipe) id: string,
@@ -179,12 +189,14 @@ export class TransportController {
     return this.trips.closeLine(await this.access.actor(u), id, d.reason);
   }
 
+  @Permissions(Permission.TRANSPORT_VIEW)
   @Get('vins/:vin/history')
   async vinHistory(@Param('vin') vin: string, @CurrentUser() u: AuthenticatedUser) {
     return this.orders.vinHistory(await this.access.actor(u), vin);
   }
 
   // ---------------------------------------------------------------- 趟次
+  @Permissions(Permission.TRANSPORT_VIEW)
   @Get('trips')
   async listTrips(
     @CurrentUser() u: AuthenticatedUser,
@@ -196,16 +208,19 @@ export class TransportController {
     return this.trips.list(await this.access.actor(u), { status, search, ...paging(page, pageSize) });
   }
 
+  @Permissions(Permission.TRANSPORT_VIEW)
   @Get('trips/:id')
   async trip(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: AuthenticatedUser) {
     return this.trips.detail(await this.access.actor(u), id);
   }
 
+  @Permissions(Permission.TRANSPORT_DISPATCH)
   @Post('trips')
   async createTrip(@Body() d: CreateTripDto, @CurrentUser() u: AuthenticatedUser) {
     return this.trips.create(await this.access.actor(u), d);
   }
 
+  @Permissions(Permission.TRANSPORT_DISPATCH)
   @Post('trips/:id/lines')
   async addTripLines(
     @Param('id', ParseUUIDPipe) id: string,
@@ -215,6 +230,7 @@ export class TransportController {
     return this.trips.addLines(await this.access.actor(u), id, d.lineIds);
   }
 
+  @Permissions(Permission.TRANSPORT_DISPATCH)
   @Post('trips/:id/lines/remove')
   async removeTripLines(
     @Param('id', ParseUUIDPipe) id: string,
@@ -224,6 +240,7 @@ export class TransportController {
     return this.trips.removeLines(await this.access.actor(u), id, d);
   }
 
+  @Permissions(Permission.TRANSPORT_DISPATCH)
   @Post('trips/:id/cancel')
   async cancelTrip(
     @Param('id', ParseUUIDPipe) id: string,
@@ -233,6 +250,7 @@ export class TransportController {
     return this.trips.cancel(await this.access.actor(u), id, d.reason);
   }
 
+  @Permissions(Permission.TRANSPORT_EXECUTE)
   @Post('trips/:id/pickup')
   async pickup(
     @Param('id', ParseUUIDPipe) id: string,
@@ -242,11 +260,13 @@ export class TransportController {
     return this.trips.pickup(await this.access.actor(u), id, d);
   }
 
+  @Permissions(Permission.TRANSPORT_EXECUTE)
   @Post('trips/:id/depart')
   async depart(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: AuthenticatedUser) {
     return this.trips.depart(await this.access.actor(u), id);
   }
 
+  @Permissions(Permission.TRANSPORT_EXECUTE)
   @Post('trips/:id/sign')
   async sign(
     @Param('id', ParseUUIDPipe) id: string,
@@ -256,6 +276,7 @@ export class TransportController {
     return this.trips.sign(await this.access.actor(u), id, d);
   }
 
+  @Permissions(Permission.TRANSPORT_EXECUTE)
   @Post('trips/:id/exceptions')
   async recordException(
     @Param('id', ParseUUIDPipe) id: string,
@@ -266,6 +287,7 @@ export class TransportController {
   }
 
   /** POD：按段（起点→终点）上传，PDF 或 JPG，单个最大 20 MB。 */
+  @Permissions(Permission.TRANSPORT_EXECUTE)
   @Post('trips/:id/documents')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 20 * 1024 * 1024 } }))
   async upload(
@@ -281,7 +303,7 @@ export class TransportController {
     const jpg = file?.buffer[0] === 0xff && file?.buffer[1] === 0xd8 && file?.buffer[2] === 0xff;
     if (!file || !((file.mimetype === 'application/pdf' && pdf) || (file.mimetype === 'image/jpeg' && jpg)))
       throw new BadRequestException('请上传 20 MB 以内的 PDF 或 JPG');
-    const uploaded = await this.storage.upload(file.buffer, file.originalname, file.mimetype);
+    const uploaded = await this.storage.upload(file.buffer, file.originalname, file.mimetype, u);
     try {
       return await this.trips.addDocument(actor, id, originId, destinationId, {
         key: uploaded.key,
@@ -294,6 +316,7 @@ export class TransportController {
     }
   }
 
+  @Permissions(Permission.TRANSPORT_VIEW)
   @Get('exceptions')
   async exceptions(
     @CurrentUser() u: AuthenticatedUser,
@@ -304,6 +327,7 @@ export class TransportController {
     return this.trips.exceptions(await this.access.actor(u), { status, ...paging(page, pageSize) });
   }
 
+  @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
   @Post('exceptions/:id/resolve')
   async resolve(
     @Param('id', ParseUUIDPipe) id: string,
@@ -314,6 +338,7 @@ export class TransportController {
   }
 
   // ---------------------------------------------------------------- 报价与费用
+  @Permissions(Permission.TRANSPORT_FINANCE_VIEW)
   @Get('tariffs')
   async tariffs(
     @CurrentUser() u: AuthenticatedUser,
@@ -326,11 +351,13 @@ export class TransportController {
     return this.finance.tariffs(await this.access.actor(u), { side, customerId, carrierId, originId, activeOn });
   }
 
+  @Permissions(Permission.TRANSPORT_FINANCE)
   @Post('tariffs')
   async createTariff(@Body() d: TariffDto, @CurrentUser() u: AuthenticatedUser) {
     return this.finance.saveTariff(await this.access.actor(u), d);
   }
 
+  @Permissions(Permission.TRANSPORT_FINANCE)
   @Patch('tariffs/:id')
   async updateTariff(
     @Param('id', ParseUUIDPipe) id: string,
@@ -340,11 +367,13 @@ export class TransportController {
     return this.finance.saveTariff(await this.access.actor(u), d, id);
   }
 
+  @Permissions(Permission.TRANSPORT_FINANCE)
   @Delete('tariffs/:id')
   async deleteTariff(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: AuthenticatedUser) {
     return this.finance.deleteTariff(await this.access.actor(u), id);
   }
 
+  @Permissions(Permission.TRANSPORT_FINANCE_VIEW)
   @Get('charges')
   async charges(
     @CurrentUser() u: AuthenticatedUser,
@@ -374,6 +403,7 @@ export class TransportController {
     });
   }
 
+  @Permissions(Permission.TRANSPORT_FINANCE)
   @Patch('charges/:id')
   async adjust(
     @Param('id', ParseUUIDPipe) id: string,
@@ -383,11 +413,13 @@ export class TransportController {
     return this.finance.adjust(await this.access.actor(u), id, d);
   }
 
+  @Permissions(Permission.TRANSPORT_FINANCE)
   @Post('charges/confirm')
   async confirm(@Body() d: ChargeIdsDto, @CurrentUser() u: AuthenticatedUser) {
     return this.finance.confirm(await this.access.actor(u), d);
   }
 
+  @Permissions(Permission.TRANSPORT_FINANCE)
   @Post('charges/recalculate')
   async recalculate(@Body() d: RecalculateDto, @CurrentUser() u: AuthenticatedUser) {
     return this.finance.recalculate(await this.access.actor(u), d);

@@ -49,10 +49,10 @@ export class ZonesService {
     private readonly audit: AuditService,
   ) {}
 
-  private async assertYardWritable(yardId: string, scope: EffectiveScope): Promise<Yard> {
+  private async assertYardAccessible(yardId: string, scope: EffectiveScope): Promise<Yard> {
     const yard = await this.yardsRepository.findOne({ where: { id: yardId } });
     if (!yard) throw new NotFoundException('场地不存在');
-    this.scopeService.assertOrgWritable(scope, yard.organizationId);
+    this.scopeService.assertOrgReadable(scope, yard.organizationId);
     if (
       scope.type === 'ORG' &&
       scope.role === Role.YARD_STAFF &&
@@ -65,7 +65,7 @@ export class ZonesService {
   }
 
   async list(yardId: string, scope: EffectiveScope): Promise<ZoneSummary[]> {
-    await this.assertYardWritable(yardId, scope);
+    await this.assertYardAccessible(yardId, scope);
     const zones = await this.zonesRepository.find({
       where: { yardId },
       order: { code: 'ASC' },
@@ -113,7 +113,7 @@ export class ZonesService {
     scope: EffectiveScope,
     operatorUserId?: string,
   ): Promise<YardZone> {
-    await this.assertYardWritable(yardId, scope);
+    await this.assertYardAccessible(yardId, scope);
     const code = dto.code.trim().toUpperCase();
     const existing = await this.zonesRepository.findOne({
       where: { yardId, code },
@@ -149,7 +149,7 @@ export class ZonesService {
     scope: EffectiveScope,
     operatorUserId?: string,
   ): Promise<YardZone> {
-    await this.assertYardWritable(yardId, scope);
+    await this.assertYardAccessible(yardId, scope);
     const zone = await this.zonesRepository.findOne({
       where: { id: zoneId, yardId },
     });
@@ -216,7 +216,7 @@ export class ZonesService {
     scope: EffectiveScope,
     operatorUserId?: string,
   ): Promise<{ ok: true; deletedSlots: number }> {
-    await this.assertYardWritable(yardId, scope);
+    await this.assertYardAccessible(yardId, scope);
     const zone = await this.zonesRepository.findOne({
       where: { id: zoneId, yardId },
     });
@@ -258,7 +258,7 @@ export class ZonesService {
     scope: EffectiveScope,
     operatorUserId?: string,
   ): Promise<{ created: number; skipped: number }> {
-    await this.assertYardWritable(yardId, scope);
+    await this.assertYardAccessible(yardId, scope);
     const zone = await this.zonesRepository.findOne({
       where: { id: zoneId, yardId },
     });
@@ -322,7 +322,7 @@ export class ZonesService {
   async listActiveForYard(yardId: string, scope: EffectiveScope): Promise<
     Array<{ id: string; code: string; name: string | null; lineCount: number; rowCount: number }>
   > {
-    await this.assertYardWritable(yardId, scope);
+    await this.assertYardAccessible(yardId, scope);
     const zones = await this.zonesRepository.find({
       where: { yardId, isActive: true },
       order: { code: 'ASC' },

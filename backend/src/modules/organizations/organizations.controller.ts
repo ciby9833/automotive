@@ -1,3 +1,5 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import {
   Body,
   Controller,
@@ -35,6 +37,7 @@ export class OrganizationsController {
   ) {}
 
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.ORG_CRUD)
   @Post()
   async create(
     @Body() dto: CreateOrganizationDto,
@@ -44,6 +47,7 @@ export class OrganizationsController {
     return this.organizationsService.create(dto, scope);
   }
 
+  @Permissions(Permission.ORG_VIEW)
   @Get()
   async findAll(@CurrentUser() user: AuthenticatedUser) {
     const scope = await this.scopeService.resolve(user);
@@ -51,6 +55,7 @@ export class OrganizationsController {
   }
 
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.ORG_VIEW)
   @Get('management')
   async management(@CurrentUser() user: AuthenticatedUser) {
     return this.organizationsService.listManagement(
@@ -59,6 +64,7 @@ export class OrganizationsController {
   }
 
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.ORG_CRUD)
   @Patch(':id')
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -73,6 +79,7 @@ export class OrganizationsController {
   }
 
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.ORG_CRUD)
   @Patch(':id/status')
   async status(
     @Param('id', ParseUUIDPipe) id: string,
@@ -87,6 +94,7 @@ export class OrganizationsController {
   }
 
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.ORG_CRUD)
   @Patch(':id/operating-policy')
   async updateOperatingPolicy(
     @Param('id', ParseUUIDPipe) id: string,

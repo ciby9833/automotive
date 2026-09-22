@@ -32,7 +32,8 @@ import {
   type TransportTrip,
   type TripDetail,
 } from "@/lib/api/transport";
-import { getStorageUrl } from "@/lib/api/client";
+import { AttachmentLink } from '@/components/evidence/SignedAttachments';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { LineTable, ReasonModal } from "./OrdersTab";
 import { ResolveModal } from "./ExceptionsTab";
 import { Place, TripStatusTag, Vin, fmtTime, notifyError, useTransportText } from "./shared";
@@ -164,7 +165,7 @@ export function TripsTab({ onOpenTrip }: Props) {
 export function TripDrawer({
   tripId,
   internal,
-  canManage,
+  canManage: requestedManage,
   onClose,
   onChanged,
 }: {
@@ -176,6 +177,10 @@ export function TripDrawer({
 }) {
   const t = useTransportText();
   const [detail, setDetail] = useState<TripDetail | null>(null);
+  const canExecute = usePermission(Permission.TRANSPORT_EXECUTE);
+  const canDispatch = usePermission(Permission.TRANSPORT_DISPATCH);
+  const canManage = requestedManage && canDispatch;
+  const canResolve = usePermission(Permission.TRANSPORT_ORDER_MANAGE);
   const [vin, setVin] = useState("");
   const [busy, setBusy] = useState(false);
   const [choice, setChoice] = useState<{ vin: string; options: TransportLine[] } | null>(null);
@@ -287,7 +292,7 @@ export function TripDrawer({
             )}
           </Descriptions>
 
-          {(loadable || signing) && (
+          {(loadable || signing) && (canExecute || canManage) && (
             <Card size="small">
               <Space wrap>
                 <Input
@@ -296,11 +301,12 @@ export function TripDrawer({
                   placeholder={t("vinPlaceholder")}
                   value={vin}
                   disabled={busy}
+                  hidden={!canExecute}
                   onChange={(e) => setVin(e.target.value.toUpperCase())}
                   onPressEnter={() => void scan(vin)}
                   addonBefore={signing ? t("scanSign") : t("scanPickup")}
                 />
-                {loadable && (
+                {loadable && canExecute && (
                   <Popconfirm
                     title={t("departConfirm", { n: notLoaded })}
                     onConfirm={depart}
@@ -321,7 +327,7 @@ export function TripDrawer({
                     </Button>
                   </>
                 )}
-                <Button onClick={() => setExceptionOpen(true)}>{t("recordException")}</Button>
+                {canExecute && <Button onClick={() => setExceptionOpen(true)}>{t("recordException")}</Button>}
               </Space>
             </Card>
           )}
@@ -334,7 +340,7 @@ export function TripDrawer({
                 renderItem={(e) => (
                   <List.Item
                     actions={
-                      internal
+                      canResolve
                         ? [
                             <Button key="r" size="small" type="primary" onClick={() => setResolving(e)}>
                               {t("resolve")}
@@ -367,11 +373,11 @@ export function TripDrawer({
                       </Typography.Text>
                       <Space wrap>
                         {leg.documents.map((d) => (
-                          <a key={d.id} href={getStorageUrl(d.file_key)} target="_blank" rel="noreferrer">
+                          <AttachmentLink key={d.id} fileKey={d.file_key}>
                             {d.file_name}
-                          </a>
+                          </AttachmentLink>
                         ))}
-                        {trip.status !== "CANCELLED" && leg.loaded > 0 && (
+                        {canExecute && trip.status !== "CANCELLED" && leg.loaded > 0 && (
                           <Upload
                             accept="application/pdf,image/jpeg"
                             showUploadList={false}
@@ -412,7 +418,7 @@ export function TripDrawer({
                     }
                     extraColumns={[
                       { title: t("customer"), dataIndex: "customer_name", width: 130 },
-                      ...(internal && signing
+                      ...(canResolve && signing
                         ? [
                             {
                               title: "",

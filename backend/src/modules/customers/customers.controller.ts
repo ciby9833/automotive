@@ -39,6 +39,7 @@ export class CustomersController {
   ) {}
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_CUSTOMER_CRUD)
   @Post()
   async create(
     @Body() dto: CreateCustomerDto,
@@ -49,6 +50,7 @@ export class CustomersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Permissions(Permission.PARTNER_CUSTOMER_VIEW)
   @Get()
   async findAll(
     @CurrentUser() user: AuthenticatedUser,
@@ -58,7 +60,16 @@ export class CustomersController {
     return this.customersService.findAll(scope, organizationId);
   }
 
+  // 扫描登记只需要客户名称选项，不授予完整客户主数据查询权。
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.PARTNER_CUSTOMER_VIEW, Permission.INBOUND_SCAN)
+  @Get('options')
+  async options(@CurrentUser() user: AuthenticatedUser) {
+    return this.customersService.options(await this.scopeService.resolve(user));
+  }
+
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Permissions(Permission.PARTNER_CUSTOMER_VIEW)
   @Get(':id')
   async findOne(
     @Param('id') id: string,
@@ -93,6 +104,7 @@ export class CustomersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Permissions(Permission.PARTNER_CUSTOMER_CRUD)
   @Post(':id/addresses')
   async addAddress(
     @Param('id') id: string,
@@ -105,6 +117,7 @@ export class CustomersController {
 
   // 批量导入 BYD 门店 Excel: 一次可导入几百条，code 相同自动 update
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Permissions(Permission.PARTNER_CUSTOMER_CRUD)
   @Post(':id/addresses/import')
   async importAddresses(
     @Param('id') id: string,
@@ -116,6 +129,7 @@ export class CustomersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CUSTOMER)
+  @Permissions(Permission.PARTNER_CUSTOMER_CRUD)
   @Patch('addresses/:addressId')
   async updateAddress(
     @Param('addressId', ParseUUIDPipe) addressId: string,
@@ -127,6 +141,7 @@ export class CustomersController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.PARTNER_CUSTOMER_CRUD)
   @Delete('addresses/:addressId')
   async deleteAddress(
     @Param('addressId', ParseUUIDPipe) addressId: string,

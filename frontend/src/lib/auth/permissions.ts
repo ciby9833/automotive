@@ -4,6 +4,21 @@ import { useAuthStore } from './store';
 
 // 与后端 src/common/enums/permission.enum.ts 保持一致
 export enum Permission {
+  SETUP_ROLE_VIEW = 'setup:role-view',
+  SETUP_ROLE_MANAGE = 'setup:role-manage',
+  SETUP_USER_VIEW = 'setup:user-view',
+  TRANSPORT_VIEW = 'transport:view',
+  TRANSPORT_ORDER_MANAGE = 'transport:order-manage',
+  TRANSPORT_DISPATCH = 'transport:dispatch',
+  TRANSPORT_EXECUTE = 'transport:execute',
+  TRANSPORT_FINANCE_VIEW = 'transport:finance-view',
+  TRANSPORT_FINANCE = 'transport:finance',
+  APP_RELEASE_VIEW = 'system:app-release-view',
+  APP_RELEASE_MANAGE = 'system:app-release-manage',
+  SNAPSHOT_MANAGE = 'system:snapshot-manage',
+  FILE_UPLOAD = 'file:upload',
+  CARRIER_USER_VIEW = 'carrier:user-view',
+  CARRIER_USER_MANAGE = 'carrier:user-manage',
   YARD_VIEW_BOARD = 'yard:view-board',
   YARD_ASSIGN_SLOT = 'yard:assign-slot',
   YARD_RELEASE_SLOT = 'yard:release-slot',

@@ -1,3 +1,5 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import {
   Body,
   Controller,
@@ -38,6 +40,7 @@ export class WaybillsController {
   ) {}
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.WAYBILL_CREATE)
   @Post()
   async create(
     @Body() dto: CreateWaybillDto,
@@ -55,6 +58,7 @@ export class WaybillsController {
     Role.CARRIER_STAFF,
     Role.CUSTOMER,
   )
+  @Permissions(Permission.WAYBILL_VIEW)
   @Get()
   async findAll(
     @CurrentUser() user: AuthenticatedUser,
@@ -98,9 +102,10 @@ export class WaybillsController {
 
   // 司机扫码前预查：给出 vin 所在运单 + 是否已签收；不改状态
   @Roles(Role.CARRIER_DRIVER, Role.CARRIER_STAFF, Role.YARD_STAFF, Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.WAYBILL_VIEW)
   @Get('lookup/:vin')
-  lookupVin(@Param('vin') vin: string) {
-    return this.waybillsService.lookupVin(vin);
+  async lookupVin(@Param('vin') vin: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.waybillsService.lookupVin(vin, await this.scopeService.resolve(user));
   }
 
   @Roles(
@@ -111,6 +116,7 @@ export class WaybillsController {
     Role.CARRIER_STAFF,
     Role.CUSTOMER,
   )
+  @Permissions(Permission.WAYBILL_VIEW)
   @Get(':id')
   async findOne(
     @Param('id') id: string,
@@ -127,16 +133,10 @@ export class WaybillsController {
     Role.CARRIER_DRIVER,
     Role.CARRIER_STAFF,
   )
+  @Permissions(Permission.WAYBILL_SCAN)
   @Post('scan')
   scan(@Body() dto: ScanDto, @CurrentUser() user: AuthenticatedUser) {
-    const operatorYardId =
-      user.role === Role.YARD_STAFF ? user.scopeYardId : null;
-    return this.waybillsService.scan(dto, {
-      userId: user.userId,
-      role: user.role,
-      carrierId: user.carrierId,
-      operatorYardId,
-    });
+    return this.waybillsService.scan(dto, user);
   }
 
   // 单台 VIN 装车 (逐台扫码+拍照，不改运单状态)
@@ -147,6 +147,7 @@ export class WaybillsController {
     Role.CARRIER_DRIVER,
     Role.CARRIER_STAFF,
   )
+  @Permissions(Permission.WAYBILL_SCAN)
   @Post(':id/vins/:vin/load')
   async loadVin(
     @Param('id', ParseUUIDPipe) id: string,
@@ -154,28 +155,19 @@ export class WaybillsController {
     @Body() dto: LoadVinDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.waybillsService.loadVin(id, vin, dto.photoKeys, dto.remark, {
-      userId: user.userId,
-      role: user.role,
-      scopeYardId: user.scopeYardId,
-      carrierId: user.carrierId,
-    });
+    return this.waybillsService.loadVin(id, vin, dto.photoKeys, dto.remark, user);
   }
 
   // 撤销单台 VIN 装车 (扫错车/换车位时用)
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF, Role.CARRIER_STAFF)
+  @Permissions(Permission.WAYBILL_SCAN)
   @Delete(':id/vins/:vin/load')
   async unloadVin(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('vin') vin: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.waybillsService.unloadVin(id, vin, {
-      userId: user.userId,
-      role: user.role,
-      scopeYardId: user.scopeYardId,
-      carrierId: user.carrierId,
-    });
+    return this.waybillsService.unloadVin(id, vin, user);
   }
 
   // 整单启运出闸：全部装完后一次性触发状态翻转 + slot 释放
@@ -186,22 +178,19 @@ export class WaybillsController {
     Role.CARRIER_DRIVER,
     Role.CARRIER_STAFF,
   )
+  @Permissions(Permission.WAYBILL_SCAN)
   @Post(':id/depart')
   async depart(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DepartWaybillDto,
     @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.waybillsService.departWaybill(id, dto.gatePhotoKeys, dto.remark, {
-      userId: user.userId,
-      role: user.role,
-      scopeYardId: user.scopeYardId,
-      carrierId: user.carrierId,
-    });
+    return this.waybillsService.departWaybill(id, dto.gatePhotoKeys, dto.remark, user);
   }
 
   // 撤销未启运的运单：释放 VIN.isAllocated 让业务员能重开
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.WAYBILL_CREATE)
   @Delete(':id')
   async cancel(
     @Param('id', ParseUUIDPipe) id: string,
@@ -214,6 +203,7 @@ export class WaybillsController {
 
   // 分派司机 / 拖车 (承运商开单后补录，或极兔直接指派)
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF)
+  @Permissions(Permission.WAYBILL_CREATE, Permission.WAYBILL_SCAN)
   @Patch(':id/assignment')
   async assign(
     @Param('id', ParseUUIDPipe) id: string,

@@ -34,7 +34,8 @@ import {
   type TransportLine,
   type TransportOrder,
 } from "@/lib/api/transport";
-import { getStorageUrl } from "@/lib/api/client";
+import { AttachmentLink } from '@/components/evidence/SignedAttachments';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   LineStatusTag,
   OrderStatusTag,
@@ -58,6 +59,7 @@ interface Props {
 }
 
 export function OrdersTab({ internal, onOpenTrip }: Props) {
+  const canWrite = usePermission(Permission.TRANSPORT_ORDER_MANAGE);
   const t = useTransportText();
   const customers = useCustomers(internal);
   const [search, setSearch] = useState("");
@@ -133,7 +135,7 @@ export function OrdersTab({ internal, onOpenTrip }: Props) {
             options={customers.map((c) => ({ value: c.id, label: c.name }))}
           />
         )}
-        {internal && (
+        {canWrite && (
           <>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>
               {t("newOrder")}
@@ -513,6 +515,7 @@ function OrderDrawer({
 }) {
   const t = useTransportText();
   const [detail, setDetail] = useState<OrderDetail | null>(null);
+  const canWrite = usePermission(Permission.TRANSPORT_ORDER_MANAGE);
   const [selected, setSelected] = useState<string[]>([]);
   const [supplementOpen, setSupplementOpen] = useState(false);
   const [reasonAction, setReasonAction] = useState<"order" | "lines" | null>(null);
@@ -561,7 +564,7 @@ function OrderDrawer({
               </Descriptions.Item>
             )}
           </Descriptions>
-          {internal && o.status === "OPEN" && (
+          {canWrite && o.status === "OPEN" && (
             <Space wrap>
               <Button disabled={!emptyLines.length} onClick={() => setSupplementOpen(true)}>
                 {t("supplementVin")} {emptyLines.length ? `(${emptyLines.length})` : ""}
@@ -584,7 +587,7 @@ function OrderDrawer({
                     lines={detail.lines}
                     onOpenTrip={onOpenTrip}
                     selection={
-                      internal && o.status === "OPEN"
+                      canWrite && o.status === "OPEN"
                         ? {
                             selectedRowKeys: selected,
                             onChange: (keys) => setSelected(keys as string[]),
@@ -610,9 +613,9 @@ function OrderDrawer({
                         title: t("documents"),
                         dataIndex: "file_name",
                         render: (v, d) => (
-                          <a href={getStorageUrl(d.file_key)} target="_blank" rel="noreferrer">
+                          <AttachmentLink fileKey={d.file_key}>
                             {v}
-                          </a>
+                          </AttachmentLink>
                         ),
                       },
                       { title: t("time"), dataIndex: "created_at", render: fmtTime },

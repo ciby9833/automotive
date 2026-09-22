@@ -1,3 +1,5 @@
+import { Permissions } from '../../common/decorators/permissions.decorator';
+import { Permission } from '../../common/enums/permission.enum';
 import { Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -22,6 +24,7 @@ export class DashboardController {
   ) {}
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_VIEW_BOARD)
   @Get()
   async getDashboard(
     @CurrentUser() user: AuthenticatedUser,
@@ -38,6 +41,7 @@ export class DashboardController {
   }
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Permissions(Permission.YARD_VIEW_BOARD)
   @Get('snapshots/status')
   async snapshotStatus(@CurrentUser() user: AuthenticatedUser) {
     const scope = await this.scopeService.resolve(user);
@@ -45,6 +49,7 @@ export class DashboardController {
   }
 
   @Roles(Role.HQ_ADMIN)
+  @Permissions(Permission.SNAPSHOT_MANAGE)
   @Post('snapshots/run-due')
   async runDueSnapshots() {
     await this.dailySnapshotService.captureAllDue();

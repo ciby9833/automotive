@@ -8,6 +8,7 @@ import { useAuthStore } from '@/lib/auth/store';
 import { useTranslation } from '@/i18n/useTranslation';
 import { localizedOrganizationName } from '@/i18n/organizationNames';
 import { LanguageSwitcher } from '@/components/layout/LanguageSwitcher';
+import { landingPath } from '@/components/layout/navModel';
 
 // 多 membership 场景专用：登录后前端拿到预授权 token，用户在这里挑一个 org 才能进入业务页
 // 页面级守卫：如果没有预授权 token 或已经是完整授权，直接跳走；不允许通过手输 URL 停留在这
@@ -27,7 +28,8 @@ export default function SelectOrgPage() {
       router.replace('/login');
     } else if (mode !== 'NEEDS_SELECTION') {
       // 已经是完整授权（外部/单机构），机构已定，去 dashboard
-      router.replace('/dashboard');
+      const state = useAuthStore.getState();
+      router.replace(state.user ? landingPath(state.navigation, state.permissions) : '/login');
     }
   }, [hasHydrated, token, mode, router]);
 
@@ -44,12 +46,13 @@ export default function SelectOrgPage() {
         externalContext: res.externalContext ?? null,
         accountUnit: res.accountUnit ?? null,
         permissions: res.permissions ?? [],
+        navigation: res.navigation,
       });
       // 记住上次选择，下次同一账号登录时可以做默认高亮
       if (typeof window !== 'undefined' && res.user?.id) {
         localStorage.setItem(`tms-last-org-${res.user.id}`, orgId);
       }
-      router.replace('/dashboard');
+      router.replace(landingPath(res.navigation, res.permissions));
     } catch {
       message.error(t('auth.selectOrgFailed'));
     } finally {

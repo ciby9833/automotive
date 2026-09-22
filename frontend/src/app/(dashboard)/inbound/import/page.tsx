@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Alert,
@@ -33,6 +34,7 @@ import { orgNameFromRecord } from '@/lib/organization/nameFrom';
 // 2. 填订单头 (客户/目的仓/起点/预计到货日/客户单号/备注)
 // 3. 提交 → 后端一次事务创建订单 + N 条 VIN
 export default function InboundImportPage() {
+  const canImport = usePermission(Permission.INBOUND_IMPORT);
   const router = useRouter();
   const searchParams = useSearchParams();
   const reactivateOrderId = searchParams.get('reactivateOrderId') ?? undefined;
@@ -306,7 +308,7 @@ export default function InboundImportPage() {
           form={form}
           layout="vertical"
           onFinish={onSubmit}
-          disabled={rows.length === 0}
+          disabled={!canImport || rows.length === 0}
         >
           <Form.Item
             label={t('inbound.import.customer')}
@@ -364,7 +366,7 @@ export default function InboundImportPage() {
               type="primary"
               htmlType="submit"
               loading={submitting}
-              disabled={rows.length === 0}
+              disabled={!canImport || rows.length === 0}
             >
               {t('inbound.import.submit', { n: rows.length })}
             </Button>

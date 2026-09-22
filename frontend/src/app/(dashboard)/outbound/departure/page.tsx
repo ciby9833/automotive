@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   Alert,
   Button,
@@ -34,6 +35,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 // 阶段 1 装车：作业员对拖车上的每台车逐一扫 VIN + 拍装车照 (只写 WaybillVin.loadedAt)
 // 阶段 2 出闸：全部装完后一次性"确认启运" → 释放 slot + waybill.status=IN_TRANSIT
 export default function OutboundDeparturePage() {
+  const canScan = usePermission(Permission.WAYBILL_SCAN);
   const { t } = useTranslation();
 
   // 列表状态
@@ -433,7 +435,7 @@ export default function OutboundDeparturePage() {
                   type="primary"
                   block
                   loading={scanBusy}
-                  disabled={scanPhotos.length === 0}
+                  disabled={!canScan || scanPhotos.length === 0}
                   onClick={submitLoad}
                   style={{ marginTop: 12 }}
                 >
@@ -477,7 +479,7 @@ export default function OutboundDeparturePage() {
                   title: '',
                   width: 140,
                   render: (_, r) => {
-                    if (drawerWaybill.status !== 'NOT_ARRIVED') return null;
+                    if (!canScan || drawerWaybill.status !== 'NOT_ARRIVED') return null;
                     if (r.loadedAt) {
                       return (
                         <Popconfirm
@@ -539,7 +541,7 @@ export default function OutboundDeparturePage() {
                   okText={t('outbound.departure.departOk')}
                   okButtonProps={{ danger: false }}
                   disabled={
-                    loadedCount(drawerWaybill) !== drawerWaybill.vins.length
+                    !canScan || loadedCount(drawerWaybill) !== drawerWaybill.vins.length
                   }
                 >
                   <Button
@@ -549,7 +551,7 @@ export default function OutboundDeparturePage() {
                     block
                     loading={departBusy}
                     disabled={
-                      loadedCount(drawerWaybill) !== drawerWaybill.vins.length
+                      !canScan || loadedCount(drawerWaybill) !== drawerWaybill.vins.length
                     }
                     style={{ marginTop: 12 }}
                   >

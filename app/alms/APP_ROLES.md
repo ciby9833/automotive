@@ -51,15 +51,22 @@ Debug/QA 排"到底连的哪个后端"时一眼看到。
 
 ## Flavor 打包
 
+完整签名、版本号、Java 环境和报错排查见 [打包教程](README.md)。
+
+生产打包最简单只执行一行：`bash "/Users/ellis/Documents/automotive_alms/app/打包生产.command"`。
+
 ```bash
+cd /Users/ellis/Documents/automotive_alms/app/alms
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+
 # 开发环境（本地 backend）
-./gradlew assembleDevDebug
+./gradlew :app:assembleDevDebug
 
 # 预发
-./gradlew assembleStagingDebug
+./gradlew :app:assembleStagingDebug
 
 # 生产
-./gradlew assembleProdRelease
+./gradlew :app:assembleProdRelease :app:lintProdRelease
 ```
 
 `local.properties` 里的 `API_BASE_URL_DEV` 可覆盖 dev flavor 的 URL（比如

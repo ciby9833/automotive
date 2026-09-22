@@ -33,7 +33,7 @@ fun Project.releaseStoreFile(path: String): File {
     val raw = File(path)
     return if (raw.isAbsolute) raw else rootProject.file("../$path")
 }
-
+// 生产打包需要更新
 android {
     namespace = "com.automotive.alms"
     compileSdk = 36
@@ -42,8 +42,8 @@ android {
         applicationId = "com.automotive.alms"
         minSdk = 26
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 4
+        versionName = "1.3"
     }
 
     buildFeatures {

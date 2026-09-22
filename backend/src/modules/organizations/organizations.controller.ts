@@ -19,6 +19,10 @@ import { ScopeService } from '../../common/scope/scope.service';
 import { OrganizationsService } from './organizations.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOperatingPolicyDto } from './dto/update-operating-policy.dto';
+import {
+  UpdateOrganizationDto,
+  UpdateOrganizationStatusDto,
+} from './dto/update-organization.dto';
 
 @ApiTags('organizations')
 @ApiBearerAuth()
@@ -30,8 +34,7 @@ export class OrganizationsController {
     private readonly scopeService: ScopeService,
   ) {}
 
-  // HQ_ADMIN 或 ORG_ADMIN 都可创建子机构，但只能创建在自己 scope 内的父节点下
-  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Roles(Role.HQ_ADMIN)
   @Post()
   async create(
     @Body() dto: CreateOrganizationDto,
@@ -47,7 +50,43 @@ export class OrganizationsController {
     return this.organizationsService.findAll(scope);
   }
 
-  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)
+  @Roles(Role.HQ_ADMIN)
+  @Get('management')
+  async management(@CurrentUser() user: AuthenticatedUser) {
+    return this.organizationsService.listManagement(
+      await this.scopeService.resolve(user),
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN)
+  @Patch(':id')
+  async update(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOrganizationDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.organizationsService.update(
+      id,
+      dto,
+      await this.scopeService.resolve(user),
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN)
+  @Patch(':id/status')
+  async status(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOrganizationStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.organizationsService.setActive(
+      id,
+      dto.isActive,
+      await this.scopeService.resolve(user),
+    );
+  }
+
+  @Roles(Role.HQ_ADMIN)
   @Patch(':id/operating-policy')
   async updateOperatingPolicy(
     @Param('id', ParseUUIDPipe) id: string,

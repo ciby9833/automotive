@@ -66,6 +66,7 @@ export class ScopeService {
     }
 
     const orgIds = await this.getDescendantOrgIds(user.activeOrgId);
+    if (!orgIds.length) throw new ForbiddenException('当前机构不存在或已停用');
 
     return {
       type: 'ORG',
@@ -77,18 +78,22 @@ export class ScopeService {
   }
 
   // 返回 rootId 自身 + 所有子孙节点 id（含自己），用递归 CTE 一次查完。
-  async getDescendantOrgIds(rootId: string): Promise<string[]> {
+  async getDescendantOrgIds(
+    rootId: string,
+    includeInactive = false,
+  ): Promise<string[]> {
     const rows: Array<{ id: string }> = await this.orgRepo.query(
       `
       WITH RECURSIVE org_tree AS (
-        SELECT id FROM organizations WHERE id = $1
+        SELECT id FROM organizations WHERE id = $1 AND ($2 OR "isActive" = true)
         UNION ALL
         SELECT o.id FROM organizations o
           JOIN org_tree t ON o.parent_id = t.id
+          WHERE $2 OR o."isActive" = true
       )
       SELECT id FROM org_tree
     `,
-      [rootId],
+      [rootId, includeInactive],
     );
     return rows.map((r) => r.id);
   }

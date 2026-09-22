@@ -141,6 +141,7 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
       key: "setup",
       i18nKey: "nav.group.setup",
       items: [
+        { key: "setup-organizations", i18nKey: "orgManagement.title", path: "/settings/organizations" },
         {
           key: "setup-yards",
           i18nKey: "nav.setupYards",

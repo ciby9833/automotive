@@ -106,6 +106,7 @@ export class DailySnapshotService
         expected_arrival_warning_hours
       FROM organization_operating_policies
       WHERE snapshot_enabled = true
+        AND organization_id IN (SELECT id FROM organizations WHERE "isActive" = true)
       ORDER BY organization_id
     `);
     for (const policy of policies) {

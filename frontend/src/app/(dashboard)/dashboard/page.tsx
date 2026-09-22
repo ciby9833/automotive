@@ -2,6 +2,7 @@
 import { Alert, Space, Tag } from "antd";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLiveYardData } from "@/lib/live/use-live-yard-data";
 import {
   AlertOutlined,
   AppstoreOutlined,
@@ -30,12 +31,10 @@ import {
 import {
   dashboardApi,
   DashboardAlert,
-  DashboardData,
   DashboardMetric,
   DashboardSlot,
 } from "@/lib/api/dashboard";
 import { formatSlotCode } from "@/lib/slots";
-import { useAuthStore } from "@/lib/auth/store";
 import { useTranslation } from "@/i18n/useTranslation";
 import styles from "./dashboard.module.css";
 
@@ -109,9 +108,6 @@ function MetricCard({
 
 export default function DashboardPage() {
   const { t, locale } = useTranslation();
-  const activeOrgId = useAuthStore((state) => state.activeOrgId);
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [organizationId, setOrganizationId] = useState<string>();
   const [yardId, setYardId] = useState<string>();
   const [selectedSlot, setSelectedSlot] = useState<DashboardSlot | null>(null);
@@ -119,34 +115,28 @@ export default function DashboardPage() {
     null,
   );
 
-  const load = useCallback(
-    async (silent = false) => {
-      if (!silent) setLoading(true);
-      try {
-        const response = await dashboardApi.get({
+  const readDashboard = useCallback(
+    (signal: AbortSignal) =>
+      dashboardApi.get(
+        {
           organizationId,
           yardId,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        });
-        setData(response);
-      } catch {
-        message.error(t("dashboard.loadFailed"));
-      } finally {
-        if (!silent) setLoading(false);
-      }
-    },
-    [organizationId, yardId, t],
+        },
+        signal,
+      ),
+    [organizationId, yardId],
   );
-
+  const { data, loading, error, refresh } = useLiveYardData({
+    pagePath: "/dashboard",
+    view: "dashboard",
+    organizationId,
+    yardId,
+    read: readDashboard,
+  });
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load, activeOrgId]);
-
-  useEffect(() => {
-    const timer = window.setInterval(() => void load(true), 60_000);
-    return () => window.clearInterval(timer);
-  }, [load]);
+    if (error) message.error(t("dashboard.loadFailed"));
+  }, [error, t]);
 
   const zones = useMemo(() => {
     const map = new Map<string, DashboardSlot[]>();
@@ -216,7 +206,7 @@ export default function DashboardPage() {
           <Button
             icon={<ReloadOutlined />}
             loading={loading}
-            onClick={() => void load()}
+            onClick={() => refresh()}
           >
             {t("dashboard.refresh")}
           </Button>

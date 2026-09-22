@@ -1,3 +1,5 @@
+import { OperationalUpdatesService } from '../operational-updates/operational-updates.service';
+import { ReadCache } from '../operational-updates/read-cache';
 import { yardCapacity } from '../yards/yard-capacity';
 import { YardZone } from '../yards/entities/yard-zone.entity';
 import { YardInventory } from '../inventory/entities/yard-inventory.entity';
@@ -53,12 +55,37 @@ type DataQualitySlot = {
 
 @Injectable()
 export class DashboardService {
+  private readonly readCache = new ReadCache<Record<string, unknown>>();
+  private readonly invalidate = () => this.readCache.clear();
+  onModuleDestroy() {
+    this.updates.events.off('change', this.invalidate);
+    this.updates.events.off('reset', this.invalidate);
+  }
   constructor(
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
-  ) {}
+    private readonly updates: OperationalUpdatesService,
+  ) {
+    updates.events.on('change', this.invalidate);
+    updates.events.on('reset', this.invalidate);
+  }
 
-  async getDashboard(
+  getDashboard(
+    scope: EffectiveScope,
+    query: DashboardQuery,
+  ): Promise<Record<string, unknown>> {
+    if (scope.type !== 'ORG') return this.readDashboard(scope, query);
+    // Scope is freshly resolved by the HTTP guard/controller. Never share across grants or filters.
+    const key = JSON.stringify([
+      [...scope.orgIds].sort(),
+      scope.role,
+      scope.scopeYardId,
+      query,
+    ]);
+    return this.readCache.get(key, () => this.readDashboard(scope, query));
+  }
+
+  private async readDashboard(
     scope: EffectiveScope,
     query: DashboardQuery,
   ): Promise<Record<string, unknown>> {

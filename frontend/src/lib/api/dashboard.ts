@@ -146,9 +146,12 @@ export interface DashboardData {
 }
 
 export const dashboardApi = {
-  get: (params?: {
-    organizationId?: string;
-    yardId?: string;
-    timezone?: string;
-  }) => unwrap<DashboardData>(apiClient.get('/dashboard', { params })),
+  get: (
+    params?: {
+      organizationId?: string;
+      yardId?: string;
+      timezone?: string;
+    },
+    signal?: AbortSignal,
+  ) => unwrap<DashboardData>(apiClient.get('/dashboard', { params, signal })),
 };

@@ -44,87 +44,72 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
     it('rejects ambiguous stock, preserves arrival dates, converts already-loaded vehicles and creates only opening balances', async () => {
       const migrations = db.migrations;
       db.migrations = migrations.filter(
-        (m) => m.name !== 'InventoryLedger1790300000000',
+        (m) =>
+          Number((m.name ?? m.constructor.name).slice(-13)) < 1790300000000,
       );
       await db.runMigrations({ transaction: 'each' });
       db.migrations = migrations;
-      const org = await db
-        .getRepository(Organization)
-        .save({
-          code: 'MIGRATION',
-          name: 'Migration fixture',
-          defaultCurrency: Currency.IDR,
-        });
-      const yard = await db
-        .getRepository(Yard)
-        .save({
-          organizationId: org.id,
-          code: 'MIGRATION',
-          name: 'Migration yard',
-        });
+      const org = await db.getRepository(Organization).save({
+        code: 'MIGRATION',
+        name: 'Migration fixture',
+        defaultCurrency: Currency.IDR,
+      });
+      const yard = await db.getRepository(Yard).save({
+        organizationId: org.id,
+        code: 'MIGRATION',
+        name: 'Migration yard',
+      });
       const [zone] = await db.query(
         "INSERT INTO yard_zones(yard_id,code,line_count,row_count) VALUES($1,'P',1,2) RETURNING id",
         [yard.id],
       );
-      const slots = await db
-        .getRepository(YardSlot)
-        .save(
-          [1, 2].map((row) => ({
-            yardId: yard.id,
-            zoneId: zone.id,
-            line: 1,
-            row,
-          })),
-        );
+      const slots = await db.getRepository(YardSlot).save(
+        [1, 2].map((row) => ({
+          yardId: yard.id,
+          zoneId: zone.id,
+          line: 1,
+          row,
+        })),
+      );
       const customer = await db
         .getRepository(Customer)
         .save({ organizationId: org.id, name: 'Customer' });
-      const order = await db
-        .getRepository(Order)
-        .save({
-          organizationId: org.id,
-          orderCode: 'MIGRATION',
-          customerId: customer.id,
-          destinationYardId: yard.id,
-          transportType: TransportType.TRANSFER,
-        });
+      const order = await db.getRepository(Order).save({
+        organizationId: org.id,
+        orderCode: 'MIGRATION',
+        customerId: customer.id,
+        destinationYardId: yard.id,
+        transportType: TransportType.TRANSFER,
+      });
       const entered = new Date('2026-08-01T00:00:00Z');
-      const vins = await db
-        .getRepository(OrderVin)
-        .save(
-          slots.map((s, i) => ({
-            orderId: order.id,
-            vin: `MIGRATION0000000${i}`,
-            slotId: i ? null : s.id,
-            arrivedAt: entered,
-            arrivalStatus: OrderVinArrivalStatus.ARRIVED,
-          })),
-        );
-      for (let i = 0; i < 2; i++)
-        await db
-          .getRepository(YardSlot)
-          .update(slots[i].id, {
-            status: YardSlotStatus.OCCUPIED,
-            currentVin: vins[i].vin,
-            assignedAt: new Date(),
-          });
-      const waybill = await db
-        .getRepository(Waybill)
-        .save({
-          organizationId: org.id,
-          waybillCode: 'MIGRATION',
-          originYardId: yard.id,
-          transportType: TransportType.DELIVERY,
+      const vins = await db.getRepository(OrderVin).save(
+        slots.map((s, i) => ({
           orderId: order.id,
+          vin: `MIGRATION0000000${i}`,
+          slotId: i ? null : s.id,
+          arrivedAt: entered,
+          arrivalStatus: OrderVinArrivalStatus.ARRIVED,
+        })),
+      );
+      for (let i = 0; i < 2; i++)
+        await db.getRepository(YardSlot).update(slots[i].id, {
+          status: YardSlotStatus.OCCUPIED,
+          currentVin: vins[i].vin,
+          assignedAt: new Date(),
         });
-      await db
-        .getRepository(WaybillVin)
-        .save({
-          waybillId: waybill.id,
-          vin: vins[0].vin,
-          loadedAt: new Date(),
-          loadPhotoKeys: ['loaded.jpg'],
-        });
+      const waybill = await db.getRepository(Waybill).save({
+        organizationId: org.id,
+        waybillCode: 'MIGRATION',
+        originYardId: yard.id,
+        transportType: TransportType.DELIVERY,
+        orderId: order.id,
+      });
+      await db.getRepository(WaybillVin).save({
+        waybillId: waybill.id,
+        vin: vins[0].vin,
+        loadedAt: new Date(),
+        loadPhotoKeys: ['loaded.jpg'],
+      });
       await expect(db.runMigrations({ transaction: 'each' })).rejects.toThrow(
         'reconcile occupied slots',
       );

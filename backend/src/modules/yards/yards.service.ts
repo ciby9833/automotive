@@ -1,4 +1,5 @@
-import { yardCapacity } from './yard-capacity';
+import { OperationalUpdatesService } from '../operational-updates/operational-updates.service';
+import { YardBoardCache } from './yard-board-cache';
 import { YardInventory } from '../inventory/entities/yard-inventory.entity';
 import { Order } from '../orders/entities/order.entity';
 import { InventoryAdjustmentDto } from './dto/inventory-adjustment.dto';
@@ -10,7 +11,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import {
   DEFAULT_PAGE_SIZE,
   EXPORT_MAX_ROWS,
@@ -93,14 +94,19 @@ function slotToView(slot: YardSlot): SlotView {
 
 @Injectable()
 export class YardsService {
+  private readonly boardCache = new YardBoardCache();
+  private readonly invalidateBoard = this.boardCache.invalidate;
+  private readonly resetBoard = this.boardCache.reset;
+  onModuleDestroy() {
+    this.updates.events.off('change', this.invalidateBoard);
+    this.updates.events.off('reset', this.resetBoard);
+  }
   constructor(
     private readonly inventory: InventoryService,
     @InjectRepository(Yard)
     private readonly yardsRepository: Repository<Yard>,
     @InjectRepository(YardSlot)
     private readonly slotsRepository: Repository<YardSlot>,
-    @InjectRepository(YardZone)
-    private readonly zonesRepository: Repository<YardZone>,
     @InjectRepository(OrderVin)
     private readonly orderVinsRepository: Repository<OrderVin>,
     @InjectRepository(WaybillVin)
@@ -109,7 +115,11 @@ export class YardsService {
     private readonly statusLogsRepository: Repository<WaybillStatusLog>,
     private readonly dataSource: DataSource,
     private readonly scopeService: ScopeService,
-  ) {}
+    private readonly updates: OperationalUpdatesService,
+  ) {
+    updates.events.on('change', this.invalidateBoard);
+    updates.events.on('reset', this.resetBoard);
+  }
 
   findAll(scope: EffectiveScope, narrowToOrgId?: string): Promise<Yard[]> {
     const qb = this.yardsRepository
@@ -143,9 +153,15 @@ export class YardsService {
 
   // 场地下所有库位（联 zone）；按 zone.code, line, row 排序，前端表格易读
   async findSlots(yardId: string, scope: EffectiveScope): Promise<SlotView[]> {
-    const yard = await this.findOne(yardId, scope);
-    const slots = await this.slotsRepository.find({
-      where: { yardId },
+    return this.readSlots(await this.findOne(yardId, scope));
+  }
+
+  private async readSlots(
+    yard: Yard,
+    manager = this.dataSource.manager,
+  ): Promise<SlotView[]> {
+    const slots = await manager.getRepository(YardSlot).find({
+      where: { yardId: yard.id },
       relations: { zone: true },
       order: {},
     });
@@ -163,35 +179,63 @@ export class YardsService {
       }));
   }
 
-  async yardStats(yardId: string, scope: EffectiveScope) {
+  async board(yardId: string, scope: EffectiveScope, since?: string) {
     const yard = await this.findOne(yardId, scope);
-    const [slots, zones, stock, policies] = await Promise.all([
-      this.slotsRepository.find({
-        where: { yardId },
-        relations: { zone: true },
-      }),
-      this.zonesRepository.findBy({ yardId }),
-      this.dataSource
-        .getRepository(YardInventory)
-        .findBy({ yardId, closedAt: IsNull() }),
-      this.dataSource.query(
-        'SELECT p.long_stay_days FROM organization_operating_policies p JOIN yards y ON y.organization_id=p.organization_id WHERE y.id=$1',
-        [yardId],
-      ),
-    ]);
-    const capacity = yardCapacity(slots, zones, yard.isActive);
-    return {
-      total: slots.length,
-      occupied: slots.filter((s) => s.status === YardSlotStatus.OCCUPIED)
-        .length,
-      vacant: capacity.availableCapacity,
-      ...capacity,
-      longStayDays: policies[0]?.long_stay_days ?? null,
-      onSite: stock.length,
-      parking: stock.filter((s) => s.position === 'PARKING').length,
-      staging: stock.filter((s) => s.position === 'STAGING').length,
-      loaded: stock.filter((s) => s.position === 'LOADED').length,
-    };
+    // Authorization precedes shared data lookup; the cache never contains permission decisions.
+    return this.boardCache.get(
+      yardId,
+      () =>
+        this.dataSource.transaction('REPEATABLE READ', async (manager) => {
+          const snapshotYard = await manager.findOneByOrFail(Yard, {
+            id: yard.id,
+            organizationId: yard.organizationId,
+          });
+          const [slots, stats] = await Promise.all([
+            this.readSlots(snapshotYard, manager),
+            this.readStats(snapshotYard, manager),
+          ]);
+          return { slots, stats };
+        }),
+      since,
+    );
+  }
+
+  async yardStats(yardId: string, scope: EffectiveScope) {
+    return this.readStats(await this.findOne(yardId, scope));
+  }
+
+  private async readStats(
+    yard: Yard,
+    manager = this.dataSource.manager,
+  ): Promise<Record<string, number | null>> {
+    // Count in PostgreSQL, not by hydrating every slot, zone and vehicle into Node.js.
+    const [stats] = await manager.query(
+      `
+      WITH capacity AS (
+        SELECT count(*)::int AS total,
+          count(*) FILTER(WHERE s.status='OCCUPIED')::int AS occupied,
+          count(*) FILTER(WHERE $2 AND z.is_active)::int AS "enabledCapacity",
+          count(*) FILTER(WHERE $2 AND z.is_active AND NOT s.is_locked AND s.status='VACANT')::int AS "availableCapacity",
+          count(*) FILTER(WHERE $2 AND z.is_active AND s.is_locked)::int AS "frozenCapacity",
+          count(*) FILTER(WHERE NOT $2 OR NOT z.is_active)::int AS "disabledCapacity",
+          count(*) FILTER(WHERE $2 AND z.is_active AND NOT s.is_locked)::int AS "usableCapacity",
+          count(*) FILTER(WHERE $2 AND z.is_active AND NOT s.is_locked AND s.status='OCCUPIED')::int AS "occupiedUsable",
+          count(*) FILTER(WHERE $2 AND z.is_active AND NOT s.is_locked AND z.purpose='PARKING')::int AS "parkingCapacity",
+          count(*) FILTER(WHERE $2 AND z.is_active AND NOT s.is_locked AND z.purpose='STAGING')::int AS "stagingCapacity"
+        FROM yard_slots s JOIN yard_zones z ON z.id=s.zone_id WHERE s.yard_id=$1
+      ), stock AS (
+        SELECT count(*)::int AS "onSite",count(*) FILTER(WHERE position='PARKING')::int AS parking,
+          count(*) FILTER(WHERE position='STAGING')::int AS staging,count(*) FILTER(WHERE position='LOADED')::int AS loaded
+        FROM yard_inventory WHERE yard_id=$1 AND closed_at IS NULL
+      ), design AS (
+        SELECT COALESCE(sum(line_count*row_count),0)::int AS "designCapacity" FROM yard_zones WHERE yard_id=$1
+      )
+      SELECT c.*,s.*,d.*,c."availableCapacity" AS vacant,d."designCapacity"-c.total AS "ungeneratedCapacity",
+        (SELECT long_stay_days FROM organization_operating_policies WHERE organization_id=$3) AS "longStayDays"
+      FROM capacity c CROSS JOIN stock s CROSS JOIN design d`,
+      [yard.id, yard.isActive, yard.organizationId],
+    );
+    return stats;
   }
 
   async undoInbound(

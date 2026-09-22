@@ -97,6 +97,21 @@ export class YardsController {
     return this.yardsService.yardStats(id, scope);
   }
 
+  @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN, Role.YARD_STAFF)
+  @Permissions(Permission.YARD_VIEW_BOARD)
+  @Get(':id/board')
+  async board(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('since') since?: string,
+  ) {
+    return this.yardsService.board(
+      id,
+      await this.scopeService.resolve(user),
+      since,
+    );
+  }
+
   // ========== 场地下的 Zone 配置 ==========
 
   @Roles(Role.HQ_ADMIN, Role.ORG_ADMIN)

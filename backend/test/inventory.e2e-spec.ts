@@ -1,3 +1,5 @@
+import { OperationalUpdatesService } from '../src/modules/operational-updates/operational-updates.service';
+import { once } from 'node:events';
 import { OutboundService } from '../src/modules/outbound/outbound.service';
 import { CustomerAddress } from '../src/modules/customers/entities/customer-address.entity';
 import { OperationType } from '../src/common/enums/operation-type.enum';
@@ -11,7 +13,7 @@ import { ZonesService } from '../src/modules/yards/zones.service';
 import { JwtAuthGuard } from '../src/common/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../src/common/guards/permissions.guard';
 import { Permission } from '../src/common/enums/permission.enum';
-import { DataSource, IsNull } from 'typeorm';
+import { DataSource, IsNull, Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { AppDataSource } from '../src/database/data-source';
 import { YardInventory } from '../src/modules/inventory/entities/yard-inventory.entity';
@@ -135,12 +137,12 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
         inventory,
         repo(Yard),
         repo(YardSlot),
-        repo(YardZone),
         repo(OrderVin),
         repo(WaybillVin),
         repo(WaybillStatusLog),
         db,
         access,
+        new OperationalUpdatesService(db),
       );
       waybills = new WaybillsService(
         inventory,
@@ -155,7 +157,11 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
         access,
         audit,
       );
-      dashboard = new DashboardService(db, access);
+      dashboard = new DashboardService(
+        db,
+        access,
+        new OperationalUpdatesService(db),
+      );
       const module = await Test.createTestingModule({
         controllers: [YardsController, WaybillsController],
         providers: [
@@ -393,12 +399,10 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
         user.userId,
       );
       expect(
-        await db
-          .getRepository(OperationLog)
-          .countBy({
-            yardId: yard.id,
-            operationType: 'YARD_ZONE_CREATE' as never,
-          }),
+        await db.getRepository(OperationLog).countBy({
+          yardId: yard.id,
+          operationType: 'YARD_ZONE_CREATE' as never,
+        }),
       ).toBe(1);
     });
     it('rolls back unexpected receipt, stray order and evidence together', async () => {
@@ -593,28 +597,22 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
       const v = await makeVin();
       await receive(v);
       const fixture = await makeWaybill([]);
-      const outOrder = await db
-        .getRepository(Order)
-        .save({
-          organizationId: scope.activeOrgId,
-          orderCode: randomUUID(),
-          customerId: order.customerId,
-          transportType: TransportType.DELIVERY,
-        });
-      const dealer = await db
-        .getRepository(CustomerAddress)
-        .save({
-          customerId: order.customerId!,
-          code: 'STORE',
-          dealerName: 'Test store',
-          address: 'Test address',
-        });
-      await db
-        .getRepository(OrderVin)
-        .update(v.id, {
-          outboundOrderId: outOrder.id,
-          dealerCode: dealer.code,
-        });
+      const outOrder = await db.getRepository(Order).save({
+        organizationId: scope.activeOrgId,
+        orderCode: randomUUID(),
+        customerId: order.customerId,
+        transportType: TransportType.DELIVERY,
+      });
+      const dealer = await db.getRepository(CustomerAddress).save({
+        customerId: order.customerId!,
+        code: 'STORE',
+        dealerName: 'Test store',
+        address: 'Test address',
+      });
+      await db.getRepository(OrderVin).update(v.id, {
+        outboundOrderId: outOrder.id,
+        dealerCode: dealer.code,
+      });
       const dto = {
         outboundOrderId: outOrder.id,
         orderVinIds: [v.id],
@@ -639,12 +637,10 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
       failure.mockRestore();
       const planned = await outbound.planWaybill(dto, scope, user.userId);
       expect(
-        await db
-          .getRepository(OperationLog)
-          .countBy({
-            waybillId: planned.id,
-            operationType: OperationType.WAYBILL_PLAN,
-          }),
+        await db.getRepository(OperationLog).countBy({
+          waybillId: planned.id,
+          operationType: OperationType.WAYBILL_PLAN,
+        }),
       ).toBe(1);
     });
     it('rolls back assignments and cancellations without audit, and retains the deleted waybill evidence', async () => {
@@ -679,21 +675,17 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
         user.userId,
       );
       expect(
-        await db
-          .getRepository(OperationLog)
-          .countBy({
-            waybillId: w.id,
-            operationType: OperationType.WAYBILL_ASSIGN,
-          }),
+        await db.getRepository(OperationLog).countBy({
+          waybillId: w.id,
+          operationType: OperationType.WAYBILL_ASSIGN,
+        }),
       ).toBe(1);
       await waybills.cancelWaybill(w.id, scope, user.userId);
       expect(await db.getRepository(Waybill).countBy({ id: w.id })).toBe(0);
-      const evidence = await db
-        .getRepository(OperationLog)
-        .findOneByOrFail({
-          vin: v.vin,
-          operationType: OperationType.WAYBILL_CANCEL,
-        });
+      const evidence = await db.getRepository(OperationLog).findOneByOrFail({
+        vin: v.vin,
+        operationType: OperationType.WAYBILL_CANCEL,
+      });
       expect(evidence.waybillId).toBeNull();
       expect(evidence.payload).toMatchObject({
         waybillId: w.id,
@@ -781,6 +773,140 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
           .getRepository(InventoryMovement)
           .countBy({ waybillId: w.id, kind: 'DEPARTURE' }),
       ).toBe(0);
+    });
+    it('coalesces concurrent board reads and checks authorization before sharing cached data', async () => {
+      const reads = jest.spyOn(Repository.prototype, 'find');
+      const results = await Promise.all(
+        Array.from({ length: 100 }, () => yards.board(yard.id, scope)),
+      );
+      expect(reads).toHaveBeenCalledTimes(1);
+      expect(results[0].slots).toHaveLength(6);
+      expect(results[0].stats).toEqual(await yards.yardStats(yard.id, scope));
+      await expect(
+        yards.board(yard.id, { ...scope, orgIds: [randomUUID()] }),
+      ).rejects.toThrow('场地不存在');
+    });
+    it('reads yard activation together with slots and counts in the board snapshot', async () => {
+      const findOne = yards.findOne.bind(yards);
+      jest.spyOn(yards, 'findOne').mockImplementationOnce(async (...args) => {
+        const authorized = await findOne(...args);
+        await db.getRepository(Yard).update(yard.id, { isActive: false });
+        return authorized;
+      });
+      const board = await yards.board(yard.id, scope);
+      expect(board.stats).toMatchObject({
+        availableCapacity: 0,
+        disabledCapacity: 6,
+      });
+      expect(board.slots.every((slot) => !slot.zoneIsActive)).toBe(true);
+    });
+    it('publishes committed changes for actual receipt, movement, loading, departure, undo and stocktake entry points', async () => {
+      const v = await makeVin(),
+        undo = await makeVin(),
+        count = await makeVin();
+      const w = await makeWaybill([v]);
+      const listener = new OperationalUpdatesService(db);
+      const ready = once(listener.events, 'reset');
+      listener.onModuleInit();
+      await ready;
+      const check = async (
+        action: () => PromiseLike<unknown>,
+        stats: Record<string, number>,
+      ) => {
+        const changed = once(listener.events, 'change', {
+          signal: AbortSignal.timeout(2000),
+        });
+        await action();
+        const [changes] = await changed;
+        expect(changes).toContainEqual({
+          organizationId: scope.activeOrgId,
+          yardId: yard.id,
+          kind: 'yard',
+        });
+        expect(await yards.yardStats(yard.id, scope)).toMatchObject(stats);
+      };
+      try {
+        await check(
+          () =>
+            request(app.getHttpServer())
+              .patch(`/yards/slots/${slots[0].id}/assign`)
+              .send({ vin: v.vin, photoUrls: ['arrival.jpg'] })
+              .expect(200),
+          { onSite: 1, parking: 1 },
+        );
+        await check(
+          () => yards.moveSlot(slots[0].id, slots[1].id, scope, user.userId),
+          { onSite: 1 },
+        );
+        await check(
+          () =>
+            yards.batchAssignSlots(
+              yard.id,
+              [{ vin: v.vin, slotCode: 'S-01-01' }],
+              scope,
+              user.userId,
+            ),
+          { onSite: 1, staging: 1 },
+        );
+        await check(
+          () => waybills.loadVin(w.id, v.vin, ['load.jpg'], undefined, user),
+          { onSite: 1, loaded: 1, occupied: 0 },
+        );
+        await check(() => waybills.unloadVin(w.id, v.vin, user, slots[1].id), {
+          onSite: 1,
+          loaded: 0,
+          parking: 1,
+        });
+        await check(
+          () => waybills.loadVin(w.id, v.vin, ['load.jpg'], undefined, user),
+          { loaded: 1 },
+        );
+        await check(() => waybills.departWaybill(w.id, [], undefined, user), {
+          onSite: 0,
+          loaded: 0,
+        });
+        await check(() => receive(undo), { onSite: 1 });
+        await check(
+          () =>
+            yards.undoInbound(undo.vin, 'wrong receipt', scope, user.userId),
+          { onSite: 0 },
+        );
+        await check(
+          () =>
+            yards.adjustInventory(
+              {
+                yardId: yard.id,
+                vin: count.vin,
+                direction: 'IN',
+                slotId: slots[0].id,
+                enteredAt: '2026-01-01T00:00:00Z',
+                photoUrls: ['count.jpg'],
+                reference: 'COUNT',
+                reason: 'verified',
+              },
+              scope,
+              user.userId,
+            ),
+          { onSite: 1 },
+        );
+        await check(
+          () =>
+            yards.adjustInventory(
+              {
+                yardId: yard.id,
+                vin: count.vin,
+                direction: 'OUT',
+                reference: 'COUNT',
+                reason: 'verified',
+              },
+              scope,
+              user.userId,
+            ),
+          { onSite: 0 },
+        );
+      } finally {
+        await listener.onModuleDestroy();
+      }
     });
     it('reports assignable rather than nominal empty space and uses the organization threshold', async () => {
       await db.getRepository(YardSlot).update(slots[0].id, { isLocked: true });

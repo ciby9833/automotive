@@ -128,6 +128,17 @@ export interface VinInventoryRow {
   orderCode: string | null;
 }
 
+export interface YardBoardData {
+  version: string;
+  slots: YardSlot[];
+  stats: YardStats;
+}
+export interface YardBoardResponse extends YardBoardData {
+  full: boolean;
+  baseVersion: string | null;
+  removedSlotIds: string[];
+}
+
 export const yardsApi = {
   list: (organizationId?: string) =>
     unwrap<Yard[]>(apiClient.get('/yards', { params: { organizationId } })),
@@ -139,6 +150,10 @@ export const yardsApi = {
   }) => unwrap<Yard>(apiClient.post('/yards', dto)),
   slots: (yardId: string) =>
     unwrap<YardSlot[]>(apiClient.get(`/yards/${yardId}/slots`)),
+  board: (yardId: string, signal?: AbortSignal, since?: string) =>
+    unwrap<YardBoardResponse>(
+      apiClient.get(`/yards/${yardId}/board`, { signal, params: { since } }),
+    ),
   stats: (yardId: string) =>
     unwrap<YardStats>(apiClient.get(`/yards/${yardId}/stats`)),
 

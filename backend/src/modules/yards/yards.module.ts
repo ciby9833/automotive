@@ -1,3 +1,4 @@
+import { OperationalUpdatesModule } from '../operational-updates/operational-updates.module';
 import { InboundModule } from '../inbound/inbound.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { Module } from '@nestjs/common';
@@ -17,6 +18,7 @@ import { TrackingModule } from '../tracking/tracking.module';
 // 都用 mgr.getRepository 走同实体，不额外注入 repo
 @Module({
   imports: [
+    OperationalUpdatesModule,
     InventoryModule,
     InboundModule,
     TypeOrmModule.forFeature([

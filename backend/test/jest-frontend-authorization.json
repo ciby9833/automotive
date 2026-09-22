@@ -1,13 +1,24 @@
 {
   "rootDir": "../..",
-  "roots": ["<rootDir>/backend/test", "<rootDir>/frontend/src"],
+  "roots": [
+    "<rootDir>/backend/test",
+    "<rootDir>/frontend/src"
+  ],
   "testEnvironment": "node",
-  "testMatch": ["<rootDir>/backend/test/frontend-authorization.spec.ts"],
-  "moduleNameMapper": { "^@/(.*)$": "<rootDir>/frontend/src/$1" },
+  "testMatch": [
+    "<rootDir>/backend/test/frontend-authorization.spec.ts",
+    "<rootDir>/backend/test/frontend-live-refresh.spec.ts",
+    "<rootDir>/backend/test/frontend-live-hook.spec.ts"
+  ],
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/frontend/src/$1"
+  },
   "transform": {
     "^.+\\.tsx?$": [
       "<rootDir>/backend/node_modules/ts-jest",
-      { "tsconfig": "<rootDir>/backend/tsconfig.json" }
+      {
+        "tsconfig": "<rootDir>/backend/tsconfig.json"
+      }
     ]
   }
 }

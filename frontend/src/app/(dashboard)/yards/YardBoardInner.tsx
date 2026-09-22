@@ -1,6 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLiveYardData } from '@/lib/live/use-live-yard-data';
+import { applyBoardUpdate } from '@/lib/live/yard-board-snapshot';
+import type { YardBoardData } from '@/lib/api/yards';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Alert,
@@ -25,7 +28,7 @@ import {
   ReloadOutlined,
   SwapOutlined,
 } from '@ant-design/icons';
-import { yardsApi, Yard, YardSlot, YardStats } from '@/lib/api/yards';
+import { yardsApi, Yard, YardSlot } from '@/lib/api/yards';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -60,6 +63,8 @@ function slotCellColor(
   return '#2563eb'; // blue-600 正常占用
 }
 
+const EMPTY_SLOTS: YardSlot[] = [];
+
 export default function YardBoardInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -71,9 +76,6 @@ export default function YardBoardInner() {
   const [selectedYardId, setSelectedYardId] = useState<string | null>(
     initialYardId,
   );
-  const [slots, setSlots] = useState<YardSlot[]>([]);
-  const [stats, setStats] = useState<YardStats | null>(null);
-  const [slotsLoading, setSlotsLoading] = useState(false);
   const [vinFilter, setVinFilter] = useState(initialHighlightVin);
   const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
 
@@ -105,65 +107,71 @@ export default function YardBoardInner() {
   const canRelease = usePermission(Permission.YARD_RELEASE_SLOT);
   const canMove = usePermission(Permission.YARD_MOVE_VEHICLE);
 
-  // 车龄基线：只在 slots 刷新时冻结一次"当前时间"，避免每次 render 都 Date.now() 触发 React 19 纯性检查
-  const nowRef = useMemo(() => Date.now(), [slots]);
+  const snapshotRef = useRef<{ yardId: string; data: YardBoardData } | null>(
+    null,
+  );
+  const readBoard = useCallback(
+    async (signal: AbortSignal) => {
+      const current =
+        snapshotRef.current?.yardId === selectedYardId
+          ? snapshotRef.current.data
+          : null;
+      const update = await yardsApi.board(
+        selectedYardId!,
+        signal,
+        current?.version,
+      );
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      const next = applyBoardUpdate(current, update);
+      snapshotRef.current = { yardId: selectedYardId!, data: next };
+      return next;
+    },
+    [selectedYardId],
+  );
+  const {
+    data: board,
+    loading: slotsLoading,
+    error,
+    refresh,
+    active,
+    updatedAt: nowRef,
+  } = useLiveYardData({
+    pagePath: '/yards',
+    view: 'board',
+    yardId: selectedYardId,
+    enabled: !!selectedYardId,
+    read: readBoard,
+  });
+  const slots = board?.slots ?? EMPTY_SLOTS;
+  const stats = board?.stats ?? null;
+  useEffect(() => {
+    if (error) message.error(t('yards.slotsLoadFailed'));
+  }, [error, t]);
 
   const selectedYard = yards.find((y) => y.id === selectedYardId) ?? null;
   const selectedSlot = slots.find((s) => s.id === selectedSlotId) ?? null;
 
-  const loadYards = async () => {
-    try {
-      const list = await yardsApi.list(orgFilter);
-      setYards(list);
-      if (list.length > 0 && !list.some((y) => y.id === selectedYardId)) {
-        setSelectedYardId(list[0].id);
-      } else if (list.length === 0) {
-        setSelectedYardId(null);
-      }
-    } catch {
-      message.error(t('yards.loadFailed'));
-    }
-  };
-
-  const loadSlots = async (yardId: string) => {
-    setSlotsLoading(true);
-    try {
-      const [s, st] = await Promise.all([
-        yardsApi.slots(yardId),
-        yardsApi.stats(yardId),
-      ]);
-      setSlots(s);
-      setStats(st);
-    } catch {
-      message.error(t('yards.slotsLoadFailed'));
-    } finally {
-      setSlotsLoading(false);
-    }
-  };
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    void yardsApi
+      .list(orgFilter)
+      .then((list) => {
+        if (cancelled) return;
+        setYards(list);
+        setSelectedYardId((current) =>
+          list.some((y) => y.id === current) ? current : (list[0]?.id ?? null),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) message.error(t('yards.loadFailed'));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, activeOrgId, orgFilter, t]);
 
   useEffect(() => {
-    loadYards();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeOrgId, orgFilter]);
-
-  // 30 秒自动 poll slots：避免"页面开一小时看到过时的 slot"
-  // 只在有场地选中 + 没进移位模式时 poll，防抖动
-  useEffect(() => {
-    if (!selectedYardId) return;
-    const timer = setInterval(() => {
-      if (!moveMode) loadSlots(selectedYardId);
-    }, 30_000);
-    return () => clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedYardId, moveMode]);
-
-  useEffect(() => {
-    if (!selectedYardId) {
-      setSlots([]);
-      setStats(null);
-      return;
-    }
-    loadSlots(selectedYardId);
     setSelectedSlotId(null);
     setMoveMode(false);
     setMoveFromSlotId(null);
@@ -195,7 +203,7 @@ export default function YardBoardInner() {
       message.success(t('yards.slotAssignSuccess'));
       setAssignOpen(false);
       assignForm.resetFields();
-      if (selectedYardId) loadSlots(selectedYardId);
+      if (selectedYardId) refresh();
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
@@ -232,7 +240,7 @@ export default function YardBoardInner() {
       message.success(t('yardOps.correctionSaved'));
       setCorrection(null);
       correctionForm.resetFields();
-      await loadSlots(selectedYardId);
+      await refresh();
     } catch (error) {
       message.error(
         (error as { response?: { data?: { message?: string } } }).response?.data
@@ -269,7 +277,7 @@ export default function YardBoardInner() {
       setMoveMode(false);
       setMoveFromSlotId(null);
       setSelectedSlotId(toSlot.id);
-      if (selectedYardId) loadSlots(selectedYardId);
+      if (selectedYardId) refresh();
     } catch (err) {
       const msg = (err as { response?: { data?: { message?: string } } })
         .response?.data?.message;
@@ -382,7 +390,7 @@ export default function YardBoardInner() {
             icon={<ReloadOutlined />}
             loading={slotsLoading}
             disabled={!selectedYardId}
-            onClick={() => selectedYardId && loadSlots(selectedYardId)}
+            onClick={() => selectedYardId && refresh()}
           >
             {t('yards.refresh')}
           </Button>

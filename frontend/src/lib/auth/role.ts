@@ -120,7 +120,14 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
     {
       key: "finance",
       i18nKey: "nav.group.finance",
-      items: [{ key: "finance", i18nKey: "nav.finance", path: "/finance" }],
+      items: [
+        { key: "finance", i18nKey: "nav.finance", path: "/finance" },
+        {
+          key: "transport-finance",
+          i18nKey: "nav.transportFinance",
+          path: "/finance/transport",
+        },
+      ],
     },
     {
       key: "partners",
@@ -238,7 +245,14 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
     {
       key: "finance",
       i18nKey: "nav.group.finance",
-      items: [{ key: "finance", i18nKey: "nav.finance", path: "/finance" }],
+      items: [
+        { key: "finance", i18nKey: "nav.finance", path: "/finance" },
+        {
+          key: "transport-finance",
+          i18nKey: "nav.transportFinance",
+          path: "/finance/transport",
+        },
+      ],
     },
     {
       key: "partners",
@@ -465,3 +479,10 @@ export const NAV_GROUPS_BY_ROLE: Record<Role, NavGroup[]> = {
     },
   ],
 };
+
+for (const role of [Role.HQ_ADMIN, Role.ORG_ADMIN, Role.CARRIER_STAFF, Role.CARRIER_DRIVER, Role.CUSTOMER]) {
+  NAV_GROUPS_BY_ROLE[role].splice(1, 0, {
+    key: 'transport', i18nKey: 'nav.transport',
+    items: [{key:'transport',i18nKey:'nav.transport',path:'/transport'}],
+  });
+}

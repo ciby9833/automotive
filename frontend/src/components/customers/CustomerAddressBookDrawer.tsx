@@ -10,6 +10,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Switch,
   Table,
@@ -287,6 +288,16 @@ export function CustomerAddressBookDrawer({
             ellipsis: true,
           },
           {
+            title: t('customers.addressBook.kind'),
+            dataIndex: 'kind',
+            width: 100,
+            render: (v: string) => (
+              <Tag color={v === 'STORE' ? 'default' : 'purple'}>
+                {t(`customers.addressBook.kind${v ?? 'STORE'}`)}
+              </Tag>
+            ),
+          },
+          {
             title: t('customers.addressBook.region'),
             dataIndex: 'region',
             render: (v) =>
@@ -361,6 +372,18 @@ export function CustomerAddressBookDrawer({
             rules={[{ required: true }]}
           >
             <Input.TextArea rows={2} />
+          </Form.Item>
+          <Form.Item
+            label={t('customers.addressBook.kind')}
+            name="kind"
+            initialValue="STORE"
+          >
+            <Select
+              options={(['STORE', 'FACTORY', 'YARD'] as const).map((k) => ({
+                value: k,
+                label: t(`customers.addressBook.kind${k}`),
+              }))}
+            />
           </Form.Item>
           <Form.Item label={t('customers.addressBook.region')} name="region">
             <Input placeholder="GREATER JAKARTA" />

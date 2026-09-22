@@ -10,21 +10,21 @@ import androidx.navigation.compose.rememberNavController
 import com.automotive.alms.core.config.AppContainer
 import com.automotive.alms.core.model.LoginMode
 import com.automotive.alms.core.network.ApiException
-import kotlinx.coroutines.launch
 import com.automotive.alms.feature.auth.presentation.LoginScreen
 import com.automotive.alms.feature.auth.presentation.OrgSelectScreen
 import com.automotive.alms.feature.home.presentation.HomeScreen
 import com.automotive.alms.feature.inbound.presentation.InboundScanScreen
-import com.automotive.alms.feature.outbound.presentation.OutboundOrdersScreen
 import com.automotive.alms.feature.pickup.presentation.PickupScanScreen
+import com.automotive.alms.feature.transport.TransportScreen
 import com.automotive.alms.feature.waybill.presentation.LoadScanScreen
 import com.automotive.alms.feature.waybill.presentation.WaybillListScreen
-import com.automotive.alms.feature.yard.presentation.YardInventoryScreen
+import kotlinx.coroutines.launch
 
 @Composable
 fun AlmsApp(container: AppContainer) {
     val navController = rememberNavController()
     val session by container.sessionStore.state.collectAsState()
+    val back: () -> Unit = { navController.popBackStack() }
 
     val startRoute = when {
         session.loginResult?.mode == LoginMode.NEEDS_SELECTION -> AppRoute.OrgSelect
@@ -83,12 +83,7 @@ fun AlmsApp(container: AppContainer) {
             HomeScreen(
                 sessionStore = container.sessionStore,
                 permissionManager = container.permissionManager,
-                onOpenPickup = { navController.navigate(AppRoute.PickupScan.path) },
-                onOpenInbound = { navController.navigate(AppRoute.InboundScan.path) },
-                onOpenLoadScan = { navController.navigate(AppRoute.LoadScan.path) },
-                onOpenWaybills = { navController.navigate(AppRoute.WaybillList.path) },
-                onOpenInventory = { navController.navigate(AppRoute.YardInventory.path) },
-                onOpenOutbound = { navController.navigate(AppRoute.OutboundOrders.path) },
+                onOpen = { route -> navController.navigate(route.path) { launchSingleTop = true } },
                 onLogout = {
                     container.authRepository.logoutLocal()
                     navController.navigate(AppRoute.Login.path) {
@@ -101,27 +96,36 @@ fun AlmsApp(container: AppContainer) {
             InboundScanScreen(
                 repository = container.inboundRepository,
                 loginResult = session.loginResult,
+                onBack = back,
             )
         }
         composable(AppRoute.PickupScan.path) {
             PickupScanScreen(
                 repository = container.pickupRepository,
                 loginResult = session.loginResult,
+                onBack = back,
             )
         }
         composable(AppRoute.LoadScan.path) {
             LoadScanScreen(
                 repository = container.waybillRepository,
                 loginResult = session.loginResult,
+                onBack = back,
             )
         }
         composable(AppRoute.WaybillList.path) {
             WaybillListScreen(
                 repository = container.waybillRepository,
                 loginResult = session.loginResult,
+                onBack = back,
             )
         }
-        composable(AppRoute.YardInventory.path) { YardInventoryScreen() }
-        composable(AppRoute.OutboundOrders.path) { OutboundOrdersScreen() }
+        composable(AppRoute.Transport.path) {
+            TransportScreen(
+                repository = container.transportRepository,
+                sessionStore = container.sessionStore,
+                onBack = back,
+            )
+        }
     }
 }

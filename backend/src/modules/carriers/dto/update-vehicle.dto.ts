@@ -1,7 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEnum,
+  IsInt,
   IsOptional,
+  Max,
+  Min,
   IsString,
   MaxLength,
 } from 'class-validator';
@@ -18,4 +21,11 @@ export class UpdateVehicleDto {
   @IsOptional()
   @IsEnum(VehicleTowType)
   towType?: VehicleTowType | null;
+
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(20)
+  capacity?: number | null;
 }

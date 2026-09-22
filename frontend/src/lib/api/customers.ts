@@ -12,8 +12,11 @@ export interface CustomerAddress {
   contactName: string | null;
   contactPhone: string | null;
   isActive: boolean;
+  kind: CustomerAddressKind;
   createdAt: string;
 }
+
+export type CustomerAddressKind = 'STORE' | 'FACTORY' | 'YARD';
 
 export interface Customer {
   id: string;
@@ -36,6 +39,7 @@ export interface CustomerAddressPayload {
   contactName?: string;
   contactPhone?: string;
   isActive?: boolean;
+  kind?: CustomerAddressKind;
 }
 
 export const customersApi = {

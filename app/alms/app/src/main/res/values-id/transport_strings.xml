@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="transport_title">Transportasi</string>
+    <string name="transport_search">Cari trip / plat / VIN</string>
+    <string name="transport_empty">Belum ada trip</string>
+    <string name="transport_filter_active">Berjalan</string>
+    <string name="transport_filter_done">Selesai</string>
+    <string name="transport_prev_page">Sebelumnya</string>
+    <string name="transport_next_page">Berikutnya</string>
+    <string name="transport_planned">Menunggu ambil</string>
+    <string name="transport_loading">Memuat</string>
+    <string name="transport_transit">Dalam perjalanan</string>
+    <string name="transport_completed">Selesai</string>
+    <string name="transport_cancelled">Dibatalkan</string>
+    <string name="transport_line_to_pick">Belum diambil</string>
+    <string name="transport_line_loaded">Dimuat</string>
+    <string name="transport_line_transit">Di jalan</string>
+    <string name="transport_line_delivered">Diterima</string>
+    <string name="transport_line_closed">Ditutup</string>
+    <string name="transport_loaded_progress">Dimuat %1$d / %2$d</string>
+    <string name="transport_signed_progress">Diterima %1$d / %2$d</string>
+    <string name="transport_leg_counts">%1$d unit · dimuat %2$d · diterima %3$d</string>
+    <string name="transport_pending_vin">Pindai untuk isi</string>
+    <string name="transport_photo">Foto (opsional)</string>
+    <string name="transport_pickup">Konfirmasi ambil</string>
+    <string name="transport_sign">Konfirmasi terima</string>
+    <string name="transport_pickup_done">%1$s sudah diambil</string>
+    <string name="transport_sign_done">%1$s sudah diterima</string>
+    <string name="transport_unplanned">%1$s di luar rencana; dikirim untuk ditinjau</string>
+    <string name="transport_choose_line">Unit ini untuk dealer mana?</string>
+    <string name="transport_blocked">%1$d unit di luar rencana menunggu tinjauan sebelum berangkat</string>
+    <string name="transport_depart">Berangkat</string>
+    <string name="transport_depart_confirm">%1$d unit yang belum dimuat kembali ke antrean. Berangkat sekarang?</string>
+    <string name="transport_departed">Sudah berangkat</string>
+    <string name="transport_confirm">Konfirmasi</string>
+    <string name="transport_pod">Unggah POD</string>
+    <string name="transport_pod_invalid">Pilih PDF atau JPG maks 20 MB</string>
+    <string name="transport_saved">Terunggah</string>
+    <string name="transport_record">Catat kerusakan / penolakan</string>
+    <string name="transport_damage">Kerusakan</string>
+    <string name="transport_refused">Ditolak</string>
+    <string name="transport_other">Lainnya</string>
+    <string name="transport_note">Keterangan</string>
+    <string name="transport_recorded">Tercatat</string>
+</resources>

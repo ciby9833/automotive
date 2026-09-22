@@ -17,26 +17,29 @@ import android.os.Bundle
 import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,7 +48,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -55,7 +61,9 @@ import androidx.core.content.FileProvider
 import com.automotive.alms.BuildConfig
 import com.automotive.alms.R
 import com.automotive.alms.core.model.LoginResult
-import com.automotive.alms.core.ui.Dimens
+import com.automotive.alms.core.ui.StatusBadge
+import com.automotive.alms.core.ui.SupportingText
+import com.automotive.alms.core.ui.Tone
 import com.automotive.alms.core.upload.UploadedFile
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -69,6 +77,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
+private val PHOTO_TILE = 88.dp
 private val WATERMARK_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
 
 data class EvidencePhoto(
@@ -100,6 +109,7 @@ fun EvidencePhotoCapture(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     title: String? = null,
+    required: Boolean = true,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -215,49 +225,85 @@ fun EvidencePhotoCapture(
         launchCameraAfterLocation()
     }
 
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = if (photos.isEmpty()) {
-                stringResource(R.string.evidence_title_required, resolvedTitle)
-            } else {
-                stringResource(R.string.evidence_title_count, resolvedTitle, photos.size)
-            },
-            style = MaterialTheme.typography.titleSmall,
-        )
-        if (busy) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = resolvedTitle,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            when {
+                photos.isNotEmpty() -> StatusBadge(stringResource(R.string.evidence_count, photos.size), Tone.Success)
+                required -> StatusBadge(stringResource(R.string.evidence_required), Tone.Warning)
+            }
+        }
+        error?.let { SupportingText(text = it, tone = Tone.Danger) }
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             photos.forEach { photo ->
-                Box {
+                Box(modifier = Modifier.size(PHOTO_TILE)) {
                     Image(
                         bitmap = photo.bitmap.asImageBitmap(),
                         contentDescription = null,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .size(86.dp)
-                            .clickable(enabled = enabled && !busy) { previewPhoto = photo },
+                            .matchParentSize()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { previewPhoto = photo },
                     )
-                    IconButton(
-                        onClick = { onPhotosChange(photos.filterNot { it.uploadedFile.key == photo.uploadedFile.key }) },
-                        enabled = enabled && !busy,
-                    ) {
-                        Icon(Icons.Filled.Delete, contentDescription = null)
+                    if (enabled && !busy) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(4.dp)
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(ComposeColor.Black.copy(alpha = 0.55f))
+                                .clickable {
+                                    onPhotosChange(photos.filterNot { it.uploadedFile.key == photo.uploadedFile.key })
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = null,
+                                tint = ComposeColor.White,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
                     }
                 }
             }
-            OutlinedButton(
+            Surface(
                 onClick = { requestCapture() },
                 enabled = enabled && !busy && subject.isNotBlank(),
-                modifier = Modifier.size(86.dp),
-                shape = RoundedCornerShape(Dimens.CardRadius),
+                modifier = Modifier.size(PHOTO_TILE),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
-                Icon(
-                    imageVector = if (busy) Icons.Filled.PhotoCamera else Icons.Filled.Add,
-                    contentDescription = null,
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    if (busy) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            Icons.Filled.PhotoCamera,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Text(
+                            text = stringResource(R.string.evidence_add),
+                            modifier = Modifier.padding(top = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
         }
     }

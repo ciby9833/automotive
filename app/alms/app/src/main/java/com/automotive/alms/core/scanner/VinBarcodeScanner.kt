@@ -95,6 +95,7 @@ fun VinBarcodeScannerScreen(
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) permissionLauncher.launch(Manifest.permission.CAMERA)
     }
+    androidx.activity.compose.BackHandler(onBack = onClose)
 
     Scaffold(
         topBar = {

@@ -4,10 +4,9 @@ sealed class AppRoute(val path: String) {
     data object Login : AppRoute("login")
     data object OrgSelect : AppRoute("org-select")
     data object Home : AppRoute("home")
+    data object Transport : AppRoute("transport")
     data object InboundScan : AppRoute("inbound-scan")
     data object PickupScan : AppRoute("pickup-scan")
     data object LoadScan : AppRoute("load-scan")
     data object WaybillList : AppRoute("waybills")
-    data object YardInventory : AppRoute("yard-inventory")
-    data object OutboundOrders : AppRoute("outbound-orders")
 }

@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="transport_title">Transport</string>
+    <string name="transport_search">Search trip / plate / VIN</string>
+    <string name="transport_empty">No trips</string>
+    <string name="transport_filter_active">Active</string>
+    <string name="transport_filter_done">Completed</string>
+    <string name="transport_prev_page">Previous</string>
+    <string name="transport_next_page">Next</string>
+    <string name="transport_planned">To pick up</string>
+    <string name="transport_loading">Loading</string>
+    <string name="transport_transit">In transit</string>
+    <string name="transport_completed">Completed</string>
+    <string name="transport_cancelled">Cancelled</string>
+    <string name="transport_line_to_pick">To pick up</string>
+    <string name="transport_line_loaded">Loaded</string>
+    <string name="transport_line_transit">On the way</string>
+    <string name="transport_line_delivered">Delivered</string>
+    <string name="transport_line_closed">Closed</string>
+    <string name="transport_loaded_progress">Loaded %1$d / %2$d</string>
+    <string name="transport_signed_progress">Delivered %1$d / %2$d</string>
+    <string name="transport_leg_counts">%1$d cars · loaded %2$d · delivered %3$d</string>
+    <string name="transport_pending_vin">Scan to assign</string>
+    <string name="transport_photo">Photos (optional)</string>
+    <string name="transport_pickup">Confirm pickup</string>
+    <string name="transport_sign">Confirm delivery</string>
+    <string name="transport_pickup_done">%1$s picked up</string>
+    <string name="transport_sign_done">%1$s delivered</string>
+    <string name="transport_unplanned">%1$s is not planned; sent for review</string>
+    <string name="transport_choose_line">Which store is this car for?</string>
+    <string name="transport_blocked">%1$d unplanned cars await review before departure</string>
+    <string name="transport_depart">Depart</string>
+    <string name="transport_depart_confirm">%1$d cars not loaded go back to the pool. Depart now?</string>
+    <string name="transport_departed">Departed</string>
+    <string name="transport_confirm">Confirm</string>
+    <string name="transport_pod">Upload POD</string>
+    <string name="transport_pod_invalid">Choose a PDF or JPG up to 20 MB</string>
+    <string name="transport_saved">Uploaded</string>
+    <string name="transport_record">Record damage / refusal</string>
+    <string name="transport_damage">Damage</string>
+    <string name="transport_refused">Refused</string>
+    <string name="transport_other">Other</string>
+    <string name="transport_note">Note</string>
+    <string name="transport_recorded">Recorded</string>
+</resources>

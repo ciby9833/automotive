@@ -3,77 +3,71 @@ package com.automotive.alms.feature.pickup.presentation
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontFamily
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.automotive.alms.R
 import com.automotive.alms.core.evidence.EvidencePhoto
 import com.automotive.alms.core.evidence.EvidencePhotoCapture
 import com.automotive.alms.core.evidence.accountUnitName
 import com.automotive.alms.core.evidence.operatorName
 import com.automotive.alms.core.model.LoginResult
-import com.automotive.alms.core.network.ApiException
 import com.automotive.alms.core.scanner.VinBarcodeScannerScreen
+import com.automotive.alms.core.ui.BottomActionBar
+import com.automotive.alms.core.ui.ContentCard
 import com.automotive.alms.core.ui.Dimens
+import com.automotive.alms.core.ui.EmptyState
+import com.automotive.alms.core.ui.FilterTabs
+import com.automotive.alms.core.ui.FormField
+import com.automotive.alms.core.ui.ListCard
+import com.automotive.alms.core.ui.ListRow
+import com.automotive.alms.core.ui.PrimaryAction
+import com.automotive.alms.core.ui.ProgressSummary
 import com.automotive.alms.core.ui.ScreenScaffold
-import com.automotive.alms.core.ui.StatusPill
-import com.automotive.alms.core.upload.UploadedFile
+import com.automotive.alms.core.ui.SectionHeader
+import com.automotive.alms.core.ui.StatusBadge
+import com.automotive.alms.core.ui.SupportingText
+import com.automotive.alms.core.ui.Tone
+import com.automotive.alms.core.ui.VinInput
+import com.automotive.alms.core.ui.joinRoute
+import com.automotive.alms.core.ui.rememberFeedback
+import com.automotive.alms.core.ui.rememberTaskRunner
 import com.automotive.alms.feature.pickup.data.PickupRepository
 import com.automotive.alms.feature.pickup.model.PickupOrderDetail
 import com.automotive.alms.feature.pickup.model.PickupOrderScanRequest
-import com.automotive.alms.feature.pickup.model.PickupOrderScanResult
 import com.automotive.alms.feature.pickup.model.PickupOrderSummary
 import com.automotive.alms.feature.pickup.model.PickupVin
 import com.automotive.alms.feature.tracking.service.DriverLocationService
-import kotlinx.coroutines.launch
 
 private const val STATUS_PENDING = "PENDING"
 private const val STATUS_IN_PROGRESS = "IN_PROGRESS"
@@ -83,686 +77,376 @@ private const val STATUS_COMPLETED = "COMPLETED"
 fun PickupScanScreen(
     repository: PickupRepository,
     loginResult: LoginResult?,
+    onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var orders by remember { mutableStateOf<List<PickupOrderSummary>>(emptyList()) }
+    val feedback = rememberFeedback()
+    val tasks = rememberTaskRunner(feedback)
+
+    var orders by remember { mutableStateOf<List<PickupOrderSummary>?>(null) }
+    var status by rememberSaveable { mutableStateOf(STATUS_PENDING) }
     var selectedOrderId by rememberSaveable { mutableStateOf<String?>(null) }
     var detail by remember { mutableStateOf<PickupOrderDetail?>(null) }
-    var loading by remember { mutableStateOf(false) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var selectedStatus by rememberSaveable { mutableStateOf(STATUS_PENDING) }
-    var outOfOrderVin by remember { mutableStateOf<String?>(null) }
-    val successText = stringResource(R.string.pickup_success)
-    val outOfOrderText = stringResource(R.string.pickup_out_of_order)
+    var evidenceVin by rememberSaveable { mutableStateOf<String?>(null) }
+    var vinInput by rememberSaveable { mutableStateOf("") }
+    var remark by rememberSaveable { mutableStateOf("") }
+    var photos by remember { mutableStateOf<List<EvidencePhoto>>(emptyList()) }
+    var scannerOpen by remember { mutableStateOf(false) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {}
 
     fun loadOrders() {
-        loading = true
-        message = null
-        scope.launch {
-            runCatching { repository.pickupOrders(includeCompleted = true) }
-                .onSuccess { orders = it }
-                .onFailure { message = errorMessage(it) }
-            loading = false
+        tasks.launch { orders = repository.pickupOrders(includeCompleted = true) }
+    }
+
+    fun openEvidence(vin: String) {
+        if (vin != evidenceVin) {
+            photos = emptyList()
+            remark = ""
+        }
+        evidenceVin = vin
+    }
+
+    fun closeEvidence() {
+        evidenceVin = null
+        photos = emptyList()
+        remark = ""
+    }
+
+    fun closeOrder() {
+        closeEvidence()
+        selectedOrderId = null
+        detail = null
+        vinInput = ""
+        loadOrders()
+    }
+
+    fun back() {
+        when {
+            evidenceVin != null -> closeEvidence()
+            selectedOrderId != null -> closeOrder()
+            else -> onBack()
         }
     }
 
-    fun loadDetail(orderId: String) {
-        loading = true
-        message = null
-        scope.launch {
-            runCatching { repository.pickupOrderDetail(orderId) }
-                .onSuccess {
-                    selectedOrderId = orderId
-                    detail = it
-                }
-                .onFailure { message = errorMessage(it) }
-            loading = false
+    fun submit(order: PickupOrderDetail, vin: String) {
+        tasks.launch {
+            val result = repository.scanOrder(
+                orderId = order.order.id,
+                request = PickupOrderScanRequest(
+                    vin = vin,
+                    allowOutOfOrder = true,
+                    location = order.order.originText?.ifBlank { null },
+                    pickupLatitude = photos.lastOrNull()?.latitude,
+                    pickupLongitude = photos.lastOrNull()?.longitude,
+                    photoUrls = photos.map { it.uploadedFile.key }.ifEmpty { null },
+                    remark = remark.ifBlank { null },
+                ),
+            )
+            closeEvidence()
+            vinInput = ""
+            feedback.show(
+                context.getString(
+                    if (result.outOfOrder) R.string.pickup_out_of_order else R.string.pickup_success,
+                    result.vin.vin,
+                ),
+            )
+            detail = repository.pickupOrderDetail(order.order.id)
         }
     }
 
     LaunchedEffect(Unit) {
-        loadOrders()
         if (!context.hasAnyLocationPermission()) {
             locationPermissionLauncher.launch(
-                arrayOf(
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                ),
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
             )
         }
+    }
+
+    LaunchedEffect(selectedOrderId) {
+        val orderId = selectedOrderId ?: return@LaunchedEffect
+        if (detail?.order?.id == orderId) return@LaunchedEffect
+        detail = null
+        val ok = tasks.execute { detail = repository.pickupOrderDetail(orderId) }
+        if (!ok) selectedOrderId = null
     }
 
     DisposableEffect(detail?.order?.id) {
         val orderId = detail?.order?.id
-        if (orderId != null) {
-            DriverLocationService.start(context, waybillId = null, orderId = orderId)
-        }
+        if (orderId != null) DriverLocationService.start(context, waybillId = null, orderId = orderId)
         onDispose {
-            if (orderId != null) {
-                DriverLocationService.stop(context)
-            }
+            if (orderId != null) DriverLocationService.stop(context)
         }
     }
 
-    // 页面每次进入 RESUMED (前后台切回 / 从详情页返回) 自动刷新任务池，
-    // 解决"App 一直开着看不到新分派的订单"痛点。
-    // 只在列表视图 (selectedOrderId==null) 时触发，避免用户在扫码流程中被打断。
+    // 回到前台或从详情返回时刷新任务池；扫码流程中不打断。
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        if (selectedOrderId == null && !loading) {
-            loadOrders()
-        }
+        if (selectedOrderId == null && !tasks.busy) loadOrders()
     }
 
-    ScreenScaffold(
-        title = detail?.order?.orderCode ?: stringResource(R.string.pickup_tasks),
-        actions = {
-            IconButton(
-                onClick = {
-                    if (selectedOrderId == null) {
-                        loadOrders()
-                    } else {
-                        selectedOrderId = null
-                        detail = null
-                        loadOrders()
-                    }
-                },
-                enabled = !loading,
-            ) {
-                Icon(
-                    imageVector = if (selectedOrderId == null) {
-                        Icons.Filled.Refresh
-                    } else {
-                        Icons.AutoMirrored.Filled.ArrowBack
-                    },
-                    contentDescription = null,
-                )
-            }
-        },
-    ) { padding ->
-        if (selectedOrderId == null) {
-            PickupOrderList(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = Dimens.PagePadding),
-                orders = orders.filter { it.pickupStatus == selectedStatus },
-                loading = loading,
-                message = message,
-                selectedStatus = selectedStatus,
-                onStatusSelected = { selectedStatus = it },
-                onOpenOrder = { loadDetail(it.id) },
-            )
-        } else {
-            PickupOrderDetailContent(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = Dimens.PagePadding),
-                detail = detail,
-                loading = loading,
-                message = message,
-                onBack = {
-                    selectedOrderId = null
-                    detail = null
-                    loadOrders()
-                },
-                onUploadPhoto = { bytes ->
-                    repository.uploadPhoto(
-                        fileName = "pickup-${System.currentTimeMillis()}.jpg",
-                        bytes = bytes,
-                    )
-                },
-                operatorName = loginResult.operatorName(),
-                accountUnitName = loginResult.accountUnitName(),
-                onSubmitScan = { vin, location, remark, photos ->
-                    val orderId = selectedOrderId ?: kotlin.error("Missing order")
-                    repository.scanOrder(
-                        orderId = orderId,
-                        request = PickupOrderScanRequest(
-                            vin = vin,
-                            allowOutOfOrder = true,
-                            location = location.ifBlank { null },
-                            pickupLatitude = photos.lastOrNull()?.latitude,
-                            pickupLongitude = photos.lastOrNull()?.longitude,
-                            photoUrls = photos.map { it.uploadedFile.key }.ifEmpty { null },
-                            remark = remark.ifBlank { null },
-                        ),
-                    )
-                },
-                onSubmitted = { result ->
-                    message = if (result.outOfOrder) {
-                        outOfOrderVin = result.vin.vin
-                        "${result.vin.vin} $outOfOrderText"
-                    } else {
-                        "${result.vin.vin} $successText"
-                    }
-                    selectedOrderId?.let { loadDetail(it) }
-                },
-            )
-        }
-    }
+    BackHandler(enabled = selectedOrderId != null) { back() }
 
-    outOfOrderVin?.let { vinCode ->
-        AlertDialog(
-            onDismissRequest = { outOfOrderVin = null },
-            title = { Text(stringResource(R.string.pickup_out_of_order_title)) },
-            text = { Text(stringResource(R.string.pickup_out_of_order_dialog, vinCode)) },
-            confirmButton = {
-                TextButton(onClick = { outOfOrderVin = null }) {
-                    Text(stringResource(R.string.pickup_out_of_order_confirm))
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun PickupOrderList(
-    modifier: Modifier,
-    orders: List<PickupOrderSummary>,
-    loading: Boolean,
-    message: String?,
-    selectedStatus: String,
-    onStatusSelected: (String) -> Unit,
-    onOpenOrder: (PickupOrderSummary) -> Unit,
-) {
-    LazyColumn(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Column(
-                modifier = Modifier.padding(top = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                StatusTabs(selectedStatus = selectedStatus, onStatusSelected = onStatusSelected)
-                if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                message?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
-            }
-        }
-
-        if (!loading && orders.isEmpty()) {
-            item {
-                Text(
-                    text = stringResource(R.string.pickup_no_tasks),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        items(orders, key = { it.id }) { order ->
-            PickupOrderCard(order = order, onClick = { onOpenOrder(order) })
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun StatusTabs(selectedStatus: String, onStatusSelected: (String) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        listOf(STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_COMPLETED).forEach { status ->
-            FilterChip(
-                selected = selectedStatus == status,
-                onClick = { onStatusSelected(status) },
-                label = { Text(statusLabel(status)) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun PickupOrderCard(order: PickupOrderSummary, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(Dimens.CardRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(order.orderCode, style = MaterialTheme.typography.titleLarge)
-                Text(order.customerName, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                RouteLine(origin = order.originText, destination = order.destinationYardName)
-                order.plannedPickupDate?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                StatusPill(text = statusLabel(order.pickupStatus))
-                Text(
-                    text = "${order.total}",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PickupOrderDetailContent(
-    modifier: Modifier,
-    detail: PickupOrderDetail?,
-    loading: Boolean,
-    message: String?,
-    onBack: () -> Unit,
-    onUploadPhoto: suspend (ByteArray) -> UploadedFile,
-    onSubmitScan: suspend (
-        vin: String,
-        location: String,
-        remark: String,
-        photos: List<EvidencePhoto>,
-    ) -> PickupOrderScanResult,
-    operatorName: String,
-    accountUnitName: String,
-    onSubmitted: (PickupOrderScanResult) -> Unit,
-) {
-    var scannedVin by rememberSaveable(detail?.order?.id) { mutableStateOf<String?>(null) }
-    var vinInput by rememberSaveable(detail?.order?.id) { mutableStateOf("") }
-    var scanningVin by remember { mutableStateOf(false) }
-
-    if (scannedVin != null && detail != null) {
-        PickupEvidenceContent(
-            modifier = modifier,
-            order = detail,
-            vin = scannedVin.orEmpty(),
-            onBack = { scannedVin = null },
-            onUploadPhoto = onUploadPhoto,
-            onSubmitScan = onSubmitScan,
-            operatorName = operatorName,
-            accountUnitName = accountUnitName,
-            onSubmitted = {
-                scannedVin = null
-                vinInput = ""
-                onSubmitted(it)
-            },
-        )
-        return
-    }
-
-    LazyColumn(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Column(
-                modifier = Modifier.padding(top = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                    Text(
-                        text = stringResource(R.string.pickup_back_to_tasks),
-                        modifier = Modifier.padding(start = 6.dp),
-                    )
-                }
-                if (loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                message?.let {
-                    Text(
-                        text = it,
-                        color = if (it.contains(stringResource(R.string.pickup_success))) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.error
-                        },
-                    )
-                }
-            }
-        }
-
-        if (detail == null) {
-            item {
-                Text(
-                    text = stringResource(R.string.pickup_loading_detail),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            return@LazyColumn
-        }
-
-        item { PickupTaskHeader(detail) }
-
-        item {
-            VinScanEntry(
-                vin = vinInput,
-                onVinChange = { vinInput = it.trim().uppercase() },
-                onScan = { scannedVin = vinInput },
-                onOpenCameraScan = { scanningVin = true },
-            )
-        }
-
-        val pending = detail.vins.filter { it.pickedUpAt == null && it.arrivalStatus == "EXPECTED" }
-        val handled = detail.vins.filterNot { it.pickedUpAt == null && it.arrivalStatus == "EXPECTED" }
-
-        item {
-            Text(
-                text = stringResource(R.string.pickup_pending_vins, pending.size),
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
-        items(pending, key = { it.id }) { item ->
-            VinRow(item = item, completed = false)
-        }
-
-        item {
-            Text(
-                text = stringResource(R.string.pickup_handled_vins, handled.size),
-                modifier = Modifier.padding(top = 8.dp),
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
-        items(handled, key = { it.id }) { item ->
-            VinRow(item = item, completed = true)
-        }
-    }
-
-    if (scanningVin) {
-        VinBarcodeScannerScreen(
-            title = stringResource(R.string.pickup_scan_vin_title),
-            onVinScanned = { vin ->
-                vinInput = vin
-                scannedVin = vin
-                scanningVin = false
-            },
-            onClose = { scanningVin = false },
-        )
-    }
-}
-
-@Composable
-private fun VinScanEntry(
-    vin: String,
-    onVinChange: (String) -> Unit,
-    onScan: () -> Unit,
-    onOpenCameraScan: () -> Unit,
-) {
-    Card(
-        shape = RoundedCornerShape(Dimens.CardRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = vin,
-                onValueChange = onVinChange,
-                label = { Text(stringResource(R.string.pickup_vin)) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(Dimens.CardRadius),
-            )
-            Button(
-                onClick = onOpenCameraScan,
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Icon(Icons.Filled.PhotoCamera, contentDescription = null)
-            }
-            Button(
-                onClick = onScan,
-                enabled = vin.length >= 8,
-                modifier = Modifier.padding(top = 8.dp),
-            ) {
-                Text(stringResource(R.string.pickup_lookup))
-            }
-        }
-    }
-}
-
-@Composable
-private fun PickupEvidenceContent(
-    modifier: Modifier,
-    order: PickupOrderDetail,
-    vin: String,
-    onBack: () -> Unit,
-    onUploadPhoto: suspend (ByteArray) -> UploadedFile,
-    onSubmitScan: suspend (
-        vin: String,
-        location: String,
-        remark: String,
-        photos: List<EvidencePhoto>,
-    ) -> PickupOrderScanResult,
-    operatorName: String,
-    accountUnitName: String,
-    onSubmitted: (PickupOrderScanResult) -> Unit,
-) {
-    val scope = rememberCoroutineScope()
-    var remark by rememberSaveable(order.order.id, vin) { mutableStateOf("") }
-    var photos by remember { mutableStateOf<List<EvidencePhoto>>(emptyList()) }
-    var submitting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-
-    LazyColumn(
-        modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Column(
-                modifier = Modifier.padding(top = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                OutlinedButton(onClick = onBack, enabled = !submitting) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                    Text(
-                        text = stringResource(R.string.pickup_task_detail),
-                        modifier = Modifier.padding(start = 6.dp),
-                    )
-                }
-                if (submitting) {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                }
-                error?.let { Text(text = it, color = MaterialTheme.colorScheme.error) }
-            }
-        }
-
-        item {
-            Card(
-                shape = RoundedCornerShape(Dimens.CardRadius),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(vin, style = MaterialTheme.typography.headlineSmall)
-                    VehicleLine(order.vins.firstOrNull { it.vin == vin } ?: PickupVin(id = vin, vin = vin))
-                    OutlinedTextField(
-                        value = remark,
-                        onValueChange = { remark = it },
-                        label = { Text(stringResource(R.string.pickup_remark_optional)) },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(Dimens.CardRadius),
-                    )
-                    EvidencePhotoCapture(
-                        subject = stringResource(R.string.pickup_photo_subject, vin),
-                        operatorName = operatorName,
-                        accountUnitName = accountUnitName,
-                        photos = photos,
-                        onPhotosChange = { photos = it },
-                        onUploadPhoto = onUploadPhoto,
-                        enabled = !submitting,
-                        title = stringResource(R.string.pickup_photo_title),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Button(
+    val currentDetail = detail
+    val currentEvidenceVin = evidenceVin
+    Box(modifier = Modifier.fillMaxSize()) {
+        ScreenScaffold(
+            title = currentDetail?.order?.orderCode?.takeIf { selectedOrderId != null }
+                ?: stringResource(R.string.pickup_title),
+            onBack = ::back,
+            loading = tasks.busy,
+            feedback = feedback,
+            actions = {
+                if (currentEvidenceVin == null) {
+                    IconButton(
+                        enabled = !tasks.busy,
                         onClick = {
-                            submitting = true
-                            error = null
-                            scope.launch {
-                                runCatching {
-                                    onSubmitScan(
-                                        vin,
-                                        order.order.originText.orEmpty(),
-                                        remark,
-                                        photos,
-                                    )
-                                }
-                                    .onSuccess { onSubmitted(it) }
-                                    .onFailure { error = errorMessage(it) }
-                                submitting = false
+                            val orderId = selectedOrderId
+                            if (orderId == null) {
+                                loadOrders()
+                            } else {
+                                tasks.launch { detail = repository.pickupOrderDetail(orderId) }
                             }
                         },
-                        enabled = photos.isNotEmpty() && !submitting,
-                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        Icon(Icons.Filled.CheckCircle, contentDescription = null)
-                        Text(
+                        Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.common_refresh))
+                    }
+                }
+            },
+            bottomBar = {
+                when {
+                    currentDetail == null || selectedOrderId == null -> Unit
+                    currentEvidenceVin != null -> BottomActionBar {
+                        PrimaryAction(
                             text = stringResource(R.string.pickup_confirm),
-                            modifier = Modifier.padding(start = 8.dp),
+                            enabled = !tasks.busy && photos.isNotEmpty(),
+                            onClick = { submit(currentDetail, currentEvidenceVin) },
                         )
+                    }
+                    currentDetail.order.pickupStatus != STATUS_COMPLETED -> BottomActionBar {
+                        if (vinInput.length >= 8) {
+                            PrimaryAction(
+                                text = stringResource(R.string.common_next),
+                                onClick = { openEvidence(vinInput) },
+                            )
+                        } else {
+                            PrimaryAction(
+                                text = stringResource(R.string.common_scan_vin),
+                                icon = Icons.Filled.QrCodeScanner,
+                                onClick = { scannerOpen = true },
+                            )
+                        }
+                    }
+                }
+            },
+        ) { padding ->
+            val listModifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+            val contentPadding = PaddingValues(Dimens.PagePadding)
+            val spacing = Arrangement.spacedBy(Dimens.ItemGap)
+            when {
+                selectedOrderId == null -> LazyColumn(
+                    modifier = listModifier,
+                    contentPadding = contentPadding,
+                    verticalArrangement = spacing,
+                ) {
+                    val all = orders.orEmpty()
+                    item {
+                        FilterTabs(
+                            options = listOf(STATUS_PENDING, STATUS_IN_PROGRESS, STATUS_COMPLETED).map { value ->
+                                value to "${statusLabel(value)} ${all.count { it.pickupStatus == value }}"
+                            },
+                            selected = status,
+                            onSelect = { status = it },
+                        )
+                    }
+                    val visible = all.filter { it.pickupStatus == status }
+                    if (orders != null && visible.isEmpty()) {
+                        item { EmptyState(stringResource(R.string.pickup_empty)) }
+                    }
+                    items(visible, key = { it.id }) { order ->
+                        OrderCard(order = order, onClick = { selectedOrderId = order.id })
+                    }
+                }
+
+                currentDetail == null -> Unit
+
+                currentEvidenceVin != null -> LazyColumn(
+                    modifier = listModifier,
+                    contentPadding = contentPadding,
+                    verticalArrangement = spacing,
+                ) {
+                    val matched = currentDetail.vins.firstOrNull { it.vin == currentEvidenceVin }
+                    item {
+                        ContentCard {
+                            Text(
+                                text = currentEvidenceVin,
+                                style = MaterialTheme.typography.titleLarge.copy(fontFamily = FontFamily.Monospace),
+                            )
+                            matched?.vehicleLine()?.let { SupportingText(it) }
+                            if (matched == null || !matched.isPending()) {
+                                SupportingText(stringResource(R.string.pickup_vin_not_in_task), tone = Tone.Warning)
+                            }
+                        }
+                    }
+                    item {
+                        ContentCard {
+                            EvidencePhotoCapture(
+                                subject = stringResource(R.string.pickup_photo_subject, currentEvidenceVin),
+                                operatorName = loginResult.operatorName(),
+                                accountUnitName = loginResult.accountUnitName(),
+                                photos = photos,
+                                onPhotosChange = { photos = it },
+                                onUploadPhoto = { bytes ->
+                                    repository.uploadPhoto(
+                                        fileName = "pickup-${System.currentTimeMillis()}.jpg",
+                                        bytes = bytes,
+                                    )
+                                },
+                                enabled = !tasks.busy,
+                                title = stringResource(R.string.pickup_photos),
+                            )
+                        }
+                    }
+                    item {
+                        ContentCard {
+                            FormField(
+                                value = remark,
+                                onValueChange = { remark = it },
+                                label = stringResource(R.string.common_remark),
+                                singleLine = false,
+                            )
+                        }
+                    }
+                }
+
+                else -> LazyColumn(
+                    modifier = listModifier,
+                    contentPadding = contentPadding,
+                    verticalArrangement = spacing,
+                ) {
+                    val order = currentDetail.order
+                    val pending = currentDetail.vins.filter { it.isPending() }
+                    val handled = currentDetail.vins.filterNot { it.isPending() }
+                    item {
+                        ContentCard {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = order.customer?.name ?: order.orderCode,
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.titleMedium,
+                                )
+                                StatusBadge(statusLabel(order.pickupStatus), statusTone(order.pickupStatus))
+                            }
+                            SupportingText(joinRoute(order.originText, order.destinationYard?.name ?: order.destinationText))
+                            order.plannedPickupDate?.let { SupportingText(it) }
+                            ProgressSummary(
+                                text = stringResource(R.string.pickup_progress, currentDetail.stats.pickedUp, currentDetail.stats.total),
+                                done = currentDetail.stats.pickedUp,
+                                total = currentDetail.stats.total,
+                            )
+                        }
+                    }
+                    if (order.pickupStatus != STATUS_COMPLETED) {
+                        item {
+                            ContentCard {
+                                VinInput(
+                                    value = vinInput,
+                                    onValueChange = { vinInput = it },
+                                    onScan = { scannerOpen = true },
+                                    onDone = { if (vinInput.length >= 8) openEvidence(vinInput) },
+                                )
+                            }
+                        }
+                    }
+                    if (pending.isNotEmpty()) {
+                        item { SectionHeader(stringResource(R.string.pickup_pending_list), trailing = pending.size.toString()) }
+                        item {
+                            ListCard(items = pending) { vin ->
+                                ListRow(
+                                    title = vin.vin,
+                                    monospace = true,
+                                    supporting = vin.vehicleLine(),
+                                    onClick = { openEvidence(vin.vin) },
+                                )
+                            }
+                        }
+                    }
+                    if (handled.isNotEmpty()) {
+                        item { SectionHeader(stringResource(R.string.pickup_handled_list), trailing = handled.size.toString()) }
+                        item {
+                            ListCard(items = handled) { vin ->
+                                val (label, tone) = vinStatus(vin)
+                                ListRow(title = vin.vin, monospace = true, badge = label, badgeTone = tone)
+                            }
+                        }
                     }
                 }
             }
         }
-    }
-}
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PickupTaskHeader(detail: PickupOrderDetail) {
-    val order = detail.order
-    Card(
-        shape = RoundedCornerShape(Dimens.CardRadius),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusPill(text = statusLabel(order.pickupStatus))
-                order.plannedPickupDate?.let {
-                    StatusPill(text = it, color = MaterialTheme.colorScheme.secondary)
-                }
-            }
-            Text(order.orderCode, style = MaterialTheme.typography.headlineSmall)
-            order.customer?.name?.let {
-                Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            RouteLine(origin = order.originText, destination = order.destinationYard?.name ?: order.destinationText)
-            PickupProgress(
-                pickedUp = detail.stats.pickedUp,
-                total = detail.stats.total,
-                remaining = detail.stats.remaining,
-            )
-        }
-    }
-}
-
-@Composable
-private fun VinRow(item: PickupVin, completed: Boolean) {
-    Card(
-        shape = RoundedCornerShape(Dimens.CardRadius),
-        colors = CardDefaults.cardColors(
-            containerColor = if (completed) {
-                MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            },
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (completed) 0.dp else 1.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Text(
-                text = item.vin,
-                modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            StatusPill(
-                text = vinStatusLabel(item),
-                color = if (item.pickedUpAt != null) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.secondary
+        if (scannerOpen) {
+            VinBarcodeScannerScreen(
+                title = stringResource(R.string.common_scan_vin),
+                onVinScanned = { vin ->
+                    scannerOpen = false
+                    vinInput = vin
+                    openEvidence(vin)
                 },
+                onClose = { scannerOpen = false },
             )
         }
     }
 }
 
 @Composable
-private fun PickupProgress(pickedUp: Int, total: Int, remaining: Int) {
-    val progress = if (total <= 0) 0f else pickedUp.toFloat() / total.toFloat()
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-        Text(
-            text = stringResource(R.string.pickup_progress, pickedUp, total, remaining),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
+private fun OrderCard(order: PickupOrderSummary, onClick: () -> Unit) {
+    ContentCard(onClick = onClick) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(order.orderCode, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+            StatusBadge(statusLabel(order.pickupStatus), statusTone(order.pickupStatus))
+        }
+        SupportingText(order.customerName)
+        SupportingText(joinRoute(order.originText, order.destinationYardName))
+        ProgressSummary(
+            text = stringResource(R.string.pickup_progress, order.pickedUp, order.total),
+            done = order.pickedUp,
+            total = order.total,
         )
     }
 }
 
+private fun PickupVin.isPending(): Boolean = pickedUpAt == null && arrivalStatus == "EXPECTED"
+
+private fun PickupVin.vehicleLine(): String? =
+    listOfNotNull(brand, model, color).joinToString(" / ").ifBlank { null }
+
 @Composable
-private fun RouteLine(origin: String?, destination: String?) {
-    val parts = listOfNotNull(origin?.takeIf { it.isNotBlank() }, destination?.takeIf { it.isNotBlank() })
-    if (parts.isNotEmpty()) {
-        Text(
-            text = parts.joinToString(" -> "),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+private fun statusLabel(status: String): String = when (status) {
+    STATUS_PENDING -> stringResource(R.string.pickup_status_pending)
+    STATUS_IN_PROGRESS -> stringResource(R.string.pickup_status_progress)
+    STATUS_COMPLETED -> stringResource(R.string.pickup_status_completed)
+    else -> status
+}
+
+private fun statusTone(status: String): Tone = when (status) {
+    STATUS_PENDING -> Tone.Warning
+    STATUS_IN_PROGRESS -> Tone.Info
+    STATUS_COMPLETED -> Tone.Success
+    else -> Tone.Neutral
 }
 
 @Composable
-private fun VehicleLine(item: PickupVin) {
-    val parts = listOfNotNull(item.brand, item.model, item.color, item.vehicleType)
-    if (parts.isNotEmpty()) {
-        Text(
-            text = parts.joinToString(" / "),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun statusLabel(status: String): String {
-    return when (status) {
-        STATUS_PENDING -> stringResource(R.string.pickup_status_pending)
-        STATUS_IN_PROGRESS -> stringResource(R.string.pickup_status_progress)
-        STATUS_COMPLETED -> stringResource(R.string.pickup_status_completed)
-        else -> status
-    }
-}
-
-@Composable
-private fun vinStatusLabel(item: PickupVin): String {
-    return when {
-        item.pickedUpAt != null -> stringResource(R.string.pickup_vin_picked)
-        item.arrivalStatus == "ARRIVED" -> stringResource(R.string.pickup_vin_arrived)
-        item.arrivalStatus == "CANCELLED" -> stringResource(R.string.pickup_vin_cancelled)
-        else -> stringResource(R.string.pickup_vin_pending)
-    }
-}
-
-private fun Context.hasPermission(permission: String): Boolean {
-    return checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+private fun vinStatus(item: PickupVin): Pair<String, Tone> = when {
+    item.pickedUpAt != null -> stringResource(R.string.pickup_vin_picked) to Tone.Success
+    item.arrivalStatus == "ARRIVED" -> stringResource(R.string.pickup_vin_arrived) to Tone.Info
+    item.arrivalStatus == "CANCELLED" -> stringResource(R.string.pickup_vin_cancelled) to Tone.Neutral
+    else -> stringResource(R.string.pickup_vin_pending) to Tone.Warning
 }
 
 private fun Context.hasAnyLocationPermission(): Boolean {
-    return hasPermission(Manifest.permission.ACCESS_FINE_LOCATION) ||
-        hasPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
-}
-
-private fun errorMessage(throwable: Throwable): String {
-    return (throwable as? ApiException)?.message
-        ?: throwable.localizedMessage
-        ?: "Request failed"
+    return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 }

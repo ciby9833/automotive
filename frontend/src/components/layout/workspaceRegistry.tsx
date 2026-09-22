@@ -28,8 +28,11 @@ import UsersPage from "@/app/(dashboard)/users/page";
 import PickupScanPage from "@/app/(dashboard)/pickup/page";
 import { InboundOrderDetail } from "@/app/(dashboard)/inbound/orders/[id]/page";
 import type { WorkspaceTab } from "./layoutStore";
+import TransportPage from "@/app/(dashboard)/transport/page";
+import TransportFinancePage from "@/app/(dashboard)/finance/transport/page";
 
 const WORKSPACE_PAGE_REGISTRY: Record<string, ComponentType> = {
+  "/transport": TransportPage,
   "/dashboard": DashboardPage,
   "/inbound/import": InboundImportPage,
   "/inbound/orders": InboundOrdersPage,
@@ -47,6 +50,7 @@ const WORKSPACE_PAGE_REGISTRY: Record<string, ComponentType> = {
   "/vin-inventory": VinInventoryPage,
   "/tracking": TrackingPage,
   "/finance": FinancePage,
+  "/finance/transport": TransportFinancePage,
   "/customers": CustomersPage,
   "/carriers": CarriersPage,
   "/settings/yards": YardSetupPage,

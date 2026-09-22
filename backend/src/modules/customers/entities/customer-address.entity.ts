@@ -41,4 +41,12 @@ export class CustomerAddress extends BaseEntity {
 
   @Column({ default: true })
   isActive: boolean;
+
+  // 地点类型：STORE 门店（派送目的地/应收计价维度）、FACTORY 工厂、YARD 客户场地/RDC。
+  // 纯运输的起点、终点都只能从该客户自己的地点里选。老的出库流程只匹配 STORE。
+  @Column({ type: 'varchar', default: 'STORE' })
+  kind: CustomerAddressKind;
 }
+
+export const CUSTOMER_ADDRESS_KINDS = ['STORE', 'FACTORY', 'YARD'] as const;
+export type CustomerAddressKind = (typeof CUSTOMER_ADDRESS_KINDS)[number];

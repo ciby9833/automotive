@@ -5,12 +5,17 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
+import {
+  CUSTOMER_ADDRESS_KINDS,
+  type CustomerAddressKind,
+} from '../entities/customer-address.entity';
 
 export class CreateCustomerAddressDto {
   @ApiProperty({
@@ -65,6 +70,11 @@ export class CreateCustomerAddressDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiProperty({ required: false, enum: CUSTOMER_ADDRESS_KINDS, default: 'STORE' })
+  @IsOptional()
+  @IsIn(CUSTOMER_ADDRESS_KINDS)
+  kind?: CustomerAddressKind;
 }
 
 // 批量导入 (BYD 门店 Excel 一次 100 条)：单行结构与 CreateCustomerAddressDto 相同

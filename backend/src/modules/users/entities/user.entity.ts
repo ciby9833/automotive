@@ -56,6 +56,10 @@ export class User extends BaseEntity {
   @Column({ name: 'carrier_id', type: 'uuid', nullable: true })
   carrierId: string | null;
 
+  // CARRIER_DRIVER 可选：绑定司机档案后，纯运输只显示派给该司机的趟次
+  @Column({ name: 'driver_id', type: 'uuid', nullable: true })
+  driverId: string | null;
+
   // CUSTOMER 专属：直接挂在客户下
   @ManyToOne(() => Customer, { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'customer_id' })

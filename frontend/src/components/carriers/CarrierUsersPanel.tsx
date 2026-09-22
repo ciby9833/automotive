@@ -24,7 +24,7 @@ import {
   ReloadOutlined,
   UnlockOutlined,
 } from '@ant-design/icons';
-import { carriersApi, type CarrierUser } from '@/lib/api/carriers';
+import { carriersApi, type CarrierUser, type Driver } from '@/lib/api/carriers';
 import { useTranslation } from '@/i18n/useTranslation';
 
 interface Props {
@@ -56,6 +56,26 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
 
   const [editing, setEditing] = useState<CarrierUser | null>(null);
   const [editForm] = Form.useForm();
+  // 司机账号可绑定司机档案：纯运输 App 据此只显示派给该司机的趟次
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const createRole = Form.useWatch('role', createForm);
+
+  useEffect(() => {
+    carriersApi
+      .listDrivers(carrierId)
+      .then(setDrivers)
+      .catch(() => setDrivers([]));
+  }, [carrierId]);
+
+  const driverOptions = (currentUserId?: string) => [
+    { value: '', label: t('carrierUsers.noDriver') },
+    ...drivers
+      .filter(
+        (d) =>
+          !users.some((u) => u.driverId === d.id && u.id !== currentUserId),
+      )
+      .map((d) => ({ value: d.id, label: d.phone ? `${d.name} · ${d.phone}` : d.name })),
+  ];
 
   // 重置密码后一次性显示
   const [resetResult, setResetResult] = useState<{
@@ -89,10 +109,15 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
       displayName: string;
       role: 'CARRIER_STAFF' | 'CARRIER_DRIVER';
       email?: string;
+      driverId?: string;
     };
     setCreateSubmitting(true);
     try {
-      await carriersApi.createUser(carrierId, values);
+      await carriersApi.createUser(carrierId, {
+        ...values,
+        driverId:
+          values.role === 'CARRIER_DRIVER' && values.driverId ? values.driverId : undefined,
+      });
       message.success(t('carrierUsers.createOk'));
       setCreateOpen(false);
       createForm.resetFields();
@@ -111,6 +136,7 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
     editForm.setFieldsValue({
       displayName: u.displayName,
       email: u.email ?? '',
+      driverId: u.driverId ?? '',
     });
   };
 
@@ -119,11 +145,13 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
     const values = (await editForm.validateFields()) as {
       displayName?: string;
       email?: string;
+      driverId?: string;
     };
     try {
       await carriersApi.updateUser(carrierId, editing.id, {
         displayName: values.displayName,
         email: values.email?.trim() || null,
+        ...(editing.role === 'CARRIER_DRIVER' ? { driverId: values.driverId || null } : {}),
       });
       message.success(t('carrierUsers.updateOk'));
       setEditing(null);
@@ -254,6 +282,14 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
             render: (v: string | null) => v ?? '-',
           },
           {
+            title: t('carrierUsers.driver'),
+            dataIndex: 'driverId',
+            render: (v: string | null, u: CarrierUser) =>
+              u.role === 'CARRIER_DRIVER'
+                ? (drivers.find((d) => d.id === v)?.name ?? '-')
+                : '',
+          },
+          {
             title: t('carrierUsers.state'),
             dataIndex: 'isActive',
             width: 90,
@@ -372,6 +408,15 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
           >
             <Select options={roleOptions} />
           </Form.Item>
+          {createRole === 'CARRIER_DRIVER' && (
+            <Form.Item
+              label={t('carrierUsers.driver')}
+              name="driverId"
+              extra={t('carrierUsers.driverHint')}
+            >
+              <Select options={driverOptions()} allowClear />
+            </Form.Item>
+          )}
           <Form.Item
             label={t('carrierUsers.email')}
             name="email"
@@ -395,6 +440,15 @@ export function CarrierUsersPanel({ carrierId, carrierName, allowRoles }: Props)
           <Form.Item label={t('carrierUsers.displayName')} name="displayName">
             <Input maxLength={60} />
           </Form.Item>
+          {editing?.role === 'CARRIER_DRIVER' && (
+            <Form.Item
+              label={t('carrierUsers.driver')}
+              name="driverId"
+              extra={t('carrierUsers.driverHint')}
+            >
+              <Select options={driverOptions(editing.id)} />
+            </Form.Item>
+          )}
           <Form.Item
             label={t('carrierUsers.email')}
             name="email"

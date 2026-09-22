@@ -7,48 +7,16 @@ import com.automotive.alms.core.navigation.AppRoute
 
 data class HomeAction(
     @StringRes val titleRes: Int,
-    @StringRes val subtitleRes: Int,
     val route: AppRoute,
     val requiredPermission: String,
 )
 
 object HomeActions {
     val all = listOf(
-        HomeAction(
-            titleRes = R.string.inbound_scan,
-            subtitleRes = R.string.inbound_scan_subtitle,
-            route = AppRoute.InboundScan,
-            requiredPermission = Permission.INBOUND_SCAN,
-        ),
-        HomeAction(
-            titleRes = R.string.pickup_scan,
-            subtitleRes = R.string.pickup_scan_subtitle,
-            route = AppRoute.PickupScan,
-            requiredPermission = Permission.PICKUP_SCAN,
-        ),
-        HomeAction(
-            titleRes = R.string.load_scan,
-            subtitleRes = R.string.load_scan_subtitle,
-            route = AppRoute.LoadScan,
-            requiredPermission = Permission.WAYBILL_SCAN,
-        ),
-        HomeAction(
-            titleRes = R.string.waybills,
-            subtitleRes = R.string.waybills_subtitle,
-            route = AppRoute.WaybillList,
-            requiredPermission = Permission.WAYBILL_VIEW,
-        ),
-        HomeAction(
-            titleRes = R.string.vin_inventory,
-            subtitleRes = R.string.vin_inventory_subtitle,
-            route = AppRoute.YardInventory,
-            requiredPermission = Permission.YARD_VIEW_VIN_INVENTORY,
-        ),
-        HomeAction(
-            titleRes = R.string.outbound_orders,
-            subtitleRes = R.string.outbound_orders_subtitle,
-            route = AppRoute.OutboundOrders,
-            requiredPermission = Permission.OUTBOUND_VIEW,
-        ),
+        HomeAction(R.string.transport_title, AppRoute.Transport, "transport:view"),
+        HomeAction(R.string.inbound_title, AppRoute.InboundScan, Permission.INBOUND_SCAN),
+        HomeAction(R.string.pickup_title, AppRoute.PickupScan, Permission.PICKUP_SCAN),
+        HomeAction(R.string.load_title, AppRoute.LoadScan, Permission.WAYBILL_SCAN),
+        HomeAction(R.string.waybill_title, AppRoute.WaybillList, Permission.WAYBILL_VIEW),
     )
 }

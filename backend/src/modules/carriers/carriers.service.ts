@@ -339,6 +339,7 @@ export class CarriersService {
     };
     if (dto.plateNumber !== undefined) vehicle.plateNumber = dto.plateNumber;
     if (dto.towType !== undefined) vehicle.towType = dto.towType ?? null;
+    if (dto.capacity !== undefined) vehicle.capacity = dto.capacity ?? null;
     const saved = await this.vehiclesRepository.save(vehicle);
     await this.audit.log({
       operationType: OperationType.CARRIER_VEHICLE_UPDATE,
@@ -456,6 +457,7 @@ export class CarriersService {
       displayName: string;
       role: Role;
       email: string | null;
+      driverId: string | null;
       isActive: boolean;
       createdAt: Date;
     }>
@@ -491,6 +493,7 @@ export class CarriersService {
       displayName: u.displayName,
       role: u.role,
       email: u.email,
+      driverId: u.driverId,
       isActive: u.isActive,
       createdAt: u.createdAt,
     }));
@@ -516,8 +519,14 @@ export class CarriersService {
     });
     if (existing) throw new ConflictException('用户名已存在');
 
+    const driverId = await this.resolveDriverBinding(
+      carrierId,
+      dto.role,
+      dto.driverId,
+    );
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = this.usersRepository.create({
+      driverId,
       username: dto.username,
       passwordHash,
       displayName: dto.displayName,
@@ -551,9 +560,21 @@ export class CarriersService {
     this.assertCarrierUserManagable(scope);
     const user = await this.getCarrierUserOrThrow(carrierId, userId, scope);
 
-    const before = { displayName: user.displayName, email: user.email };
+    const before = {
+      displayName: user.displayName,
+      email: user.email,
+      driverId: user.driverId,
+    };
     if (dto.displayName !== undefined) user.displayName = dto.displayName;
     if (dto.email !== undefined) user.email = dto.email ?? null;
+    if (dto.driverId !== undefined) {
+      user.driverId = await this.resolveDriverBinding(
+        carrierId,
+        user.role,
+        dto.driverId,
+        user.id,
+      );
+    }
     const saved = await this.usersRepository.save(user);
 
     await this.audit.log({
@@ -563,7 +584,11 @@ export class CarriersService {
         carrierId,
         userId,
         before,
-        after: { displayName: saved.displayName, email: saved.email },
+        after: {
+          displayName: saved.displayName,
+          email: saved.email,
+          driverId: saved.driverId,
+        },
       },
     });
     return saved;
@@ -632,6 +657,30 @@ export class CarriersService {
       payload: { carrierId, userId, username: user.username },
     });
     return { username: user.username, temporaryPassword };
+  }
+
+  // 司机账号可选绑定本承运商的一个司机档案；一个档案只能绑定一个账号
+  private async resolveDriverBinding(
+    carrierId: string,
+    role: Role,
+    driverId: string | null | undefined,
+    userId?: string,
+  ): Promise<string | null> {
+    if (!driverId) return null;
+    if (role !== Role.CARRIER_DRIVER) {
+      throw new BadRequestException('只有司机账号可以绑定司机档案');
+    }
+    const driver = await this.driversRepository.findOne({
+      where: { id: driverId },
+    });
+    if (!driver || driver.carrierId !== carrierId) {
+      throw new BadRequestException('司机档案不属于此承运商');
+    }
+    const taken = await this.usersRepository.findOne({ where: { driverId } });
+    if (taken && taken.id !== userId) {
+      throw new ConflictException(`该司机档案已绑定账号 ${taken.username}`);
+    }
+    return driverId;
   }
 
   private async getCarrierUserOrThrow(

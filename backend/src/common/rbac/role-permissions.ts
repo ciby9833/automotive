@@ -147,5 +147,8 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
 };
 
 export function permissionsForRole(role: Role): Permission[] {
-  return ROLE_PERMISSIONS[role] ?? [];
+  const base = ROLE_PERMISSIONS[role] ?? [];
+  return role !== Role.YARD_STAFF && base.length
+    ? [...new Set([...base, Permission.TRANSPORT_VIEW])]
+    : base;
 }

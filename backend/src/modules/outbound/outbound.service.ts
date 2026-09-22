@@ -113,6 +113,7 @@ export class OutboundService {
         customerId: dto.customerId,
       })
       .andWhere('address.isActive = true')
+      .andWhere("address.kind = 'STORE'")
       .andWhere('UPPER(BTRIM(address.code)) IN (:...codes)', {
         codes: normalizedDealerCodes,
       })
@@ -991,6 +992,7 @@ export class OutboundService {
               id: dto.destinationDealerId,
               customerId,
               isActive: true,
+              kind: 'STORE',
             },
           });
           if (!destDealer) {
@@ -1000,7 +1002,7 @@ export class OutboundService {
           }
         } else if (dealerCode && customerId) {
           destDealer = await mgr.getRepository(CustomerAddress).findOne({
-            where: { customerId, code: dealerCode, isActive: true },
+            where: { customerId, code: dealerCode, isActive: true, kind: 'STORE' },
           });
         }
         if (!destDealer) {

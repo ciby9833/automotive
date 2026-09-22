@@ -1,6 +1,7 @@
 // 功能权限枚举：细化到"能做哪个动作"，比 Role 粒度更细
 // 角色→权限 映射在 role-permissions.ts；接口用 @Permissions(X) 声明所需权限
 export enum Permission {
+  TRANSPORT_VIEW = 'transport:view',
   // 场地看板 (日常运营，YARD_STAFF 每天用)
   YARD_VIEW_BOARD = 'yard:view-board',
   YARD_ASSIGN_SLOT = 'yard:assign-slot',

@@ -50,9 +50,11 @@ class ApiClient(
         fileName: String,
         contentType: String,
         bytes: ByteArray,
+        fields: Map<String, String> = emptyMap(),
     ): T {
-        val body = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
+        val builder = MultipartBody.Builder().setType(MultipartBody.FORM)
+        fields.forEach { (name, value) -> builder.addFormDataPart(name, value) }
+        val body = builder
             .addFormDataPart(
                 name = "file",
                 filename = fileName,

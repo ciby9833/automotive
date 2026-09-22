@@ -22,6 +22,7 @@ import { InboundModule } from './modules/inbound/inbound.module';
 import { ScopeModule } from './common/scope/scope.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AppReleasesModule } from './modules/app-releases/app-releases.module';
+import { TransportModule } from './modules/transport/transport.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { AppReleasesModule } from './modules/app-releases/app-releases.module';
     OutboundModule,
     DashboardModule,
     AppReleasesModule,
+    TransportModule,
   ],
   controllers: [AppController],
   providers: [AppService],

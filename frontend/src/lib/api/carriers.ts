@@ -31,6 +31,7 @@ export interface Vehicle {
   id: string;
   plateNumber: string;
   towType: string | null;
+  capacity: number | null;
   isActive: boolean;
   carrierId: string;
 }
@@ -117,12 +118,15 @@ export const carriersApi = {
     unwrap<{ ok: boolean }>(
       apiClient.delete(`/carriers/${carrierId}/drivers/${driverId}`),
     ),
-  addVehicle: (carrierId: string, dto: { plateNumber: string; towType?: string }) =>
+  addVehicle: (
+    carrierId: string,
+    dto: { plateNumber: string; towType?: string; capacity?: number },
+  ) =>
     unwrap<Vehicle>(apiClient.post(`/carriers/${carrierId}/vehicles`, dto)),
   updateVehicle: (
     carrierId: string,
     vehicleId: string,
-    dto: Partial<{ plateNumber: string; towType: string | null }>,
+    dto: Partial<{ plateNumber: string; towType: string | null; capacity: number | null }>,
   ) =>
     unwrap<Vehicle>(
       apiClient.patch(`/carriers/${carrierId}/vehicles/${vehicleId}`, dto),
@@ -160,12 +164,13 @@ export const carriersApi = {
       displayName: string;
       role: 'CARRIER_STAFF' | 'CARRIER_DRIVER';
       email?: string;
+      driverId?: string;
     },
   ) => unwrap<CarrierUser>(apiClient.post(`/carriers/${carrierId}/users`, dto)),
   updateUser: (
     carrierId: string,
     userId: string,
-    dto: { displayName?: string; email?: string | null },
+    dto: { displayName?: string; email?: string | null; driverId?: string | null },
   ) =>
     unwrap<CarrierUser>(
       apiClient.patch(`/carriers/${carrierId}/users/${userId}`, dto),
@@ -190,6 +195,7 @@ export interface CarrierUser {
   displayName: string;
   role: 'CARRIER_STAFF' | 'CARRIER_DRIVER';
   email: string | null;
+  driverId: string | null;
   isActive: boolean;
   createdAt: string;
 }

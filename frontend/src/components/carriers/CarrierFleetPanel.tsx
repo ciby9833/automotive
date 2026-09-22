@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
+  InputNumber,
   Button,
   Empty,
   Form,
@@ -377,6 +378,7 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
     form.setFieldsValue({
       plateNumber: v.plateNumber,
       towType: v.towType,
+      capacity: v.capacity ?? undefined,
     });
     setCreateOpen(true);
   };
@@ -385,18 +387,21 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
     const values = (await form.validateFields()) as {
       plateNumber: string;
       towType?: string;
+      capacity?: number | null;
     };
     try {
       if (editing) {
         await carriersApi.updateVehicle(carrierId, editing.id, {
           plateNumber: values.plateNumber,
           towType: values.towType ?? null,
+          capacity: values.capacity ?? null,
         });
         message.success(t('carrierFleet.vehicleUpdated'));
       } else {
         await carriersApi.addVehicle(carrierId, {
           plateNumber: values.plateNumber,
           towType: values.towType,
+          capacity: values.capacity ?? undefined,
         });
         message.success(t('carrierFleet.vehicleCreated'));
       }
@@ -476,6 +481,13 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
             dataIndex: 'towType',
             render: (v: string | null) =>
               v ? <Tag color="blue">{v}</Tag> : '-',
+          },
+          {
+            title: t('carrierFleet.capacity'),
+            dataIndex: 'capacity',
+            width: 110,
+            render: (v: number | null, r: Vehicle) =>
+              v ?? (r.towType ? { CC: 6, TANSYA: 4, TOWING: 1 }[r.towType] ?? '-' : '-'),
           },
           {
             title: t('carrierFleet.state'),
@@ -571,6 +583,13 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
                 { value: 'TANSYA', label: 'TANSYA' },
               ]}
             />
+          </Form.Item>
+          <Form.Item
+            label={t('carrierFleet.capacity')}
+            name="capacity"
+            extra={t('carrierFleet.capacityHint')}
+          >
+            <InputNumber min={1} max={20} precision={0} style={{ width: '100%' }} />
           </Form.Item>
         </Form>
       </Modal>

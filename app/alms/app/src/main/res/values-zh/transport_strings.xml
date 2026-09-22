@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="transport_title">独立运输</string>
+    <string name="transport_search">搜索趟次 / 车牌 / VIN</string>
+    <string name="transport_empty">暂无趟次</string>
+    <string name="transport_filter_active">进行中</string>
+    <string name="transport_filter_done">已完成</string>
+    <string name="transport_prev_page">上一页</string>
+    <string name="transport_next_page">下一页</string>
+    <string name="transport_planned">待提货</string>
+    <string name="transport_loading">装车中</string>
+    <string name="transport_transit">运输中</string>
+    <string name="transport_completed">已完成</string>
+    <string name="transport_cancelled">已取消</string>
+    <string name="transport_line_to_pick">待提</string>
+    <string name="transport_line_loaded">已装</string>
+    <string name="transport_line_transit">在途</string>
+    <string name="transport_line_delivered">已签收</string>
+    <string name="transport_line_closed">已关闭</string>
+    <string name="transport_loaded_progress">已装 %1$d / %2$d</string>
+    <string name="transport_signed_progress">已签收 %1$d / %2$d</string>
+    <string name="transport_leg_counts">%1$d 台 · 已装 %2$d · 已签收 %3$d</string>
+    <string name="transport_pending_vin">待扫码</string>
+    <string name="transport_photo">照片（选填）</string>
+    <string name="transport_pickup">确认提货</string>
+    <string name="transport_sign">确认签收</string>
+    <string name="transport_pickup_done">%1$s 已提货</string>
+    <string name="transport_sign_done">%1$s 已签收</string>
+    <string name="transport_unplanned">%1$s 不在计划内，已提交内部处理</string>
+    <string name="transport_choose_line">这台车送哪个门店？</string>
+    <string name="transport_blocked">有 %1$d 台计划外车辆待内部处理，处理后才能发车</string>
+    <string name="transport_depart">发车</string>
+    <string name="transport_depart_confirm">未装的 %1$d 台会退回待派车，确认发车？</string>
+    <string name="transport_departed">已发车</string>
+    <string name="transport_confirm">确认</string>
+    <string name="transport_pod">上传回单</string>
+    <string name="transport_pod_invalid">请选择 20 MB 以内的 PDF 或 JPG</string>
+    <string name="transport_saved">已上传</string>
+    <string name="transport_record">登记货损 / 拒收</string>
+    <string name="transport_damage">货损</string>
+    <string name="transport_refused">拒收</string>
+    <string name="transport_other">其他</string>
+    <string name="transport_note">说明</string>
+    <string name="transport_recorded">已登记</string>
+</resources>

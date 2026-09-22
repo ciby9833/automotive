@@ -3,6 +3,7 @@ import {
   IsEmail,
   IsEnum,
   IsOptional,
+  IsUUID,
   IsString,
   Length,
   MaxLength,
@@ -36,4 +37,9 @@ export class CreateCarrierUserDto {
   @IsEmail()
   @MaxLength(120)
   email?: string;
+
+  @ApiProperty({ required: false, description: '司机账号绑定的司机档案' })
+  @IsOptional()
+  @IsUUID()
+  driverId?: string;
 }

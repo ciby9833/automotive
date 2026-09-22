@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   IsEmail,
   IsOptional,
+  IsUUID,
   IsString,
   Length,
   MaxLength,
@@ -21,4 +22,9 @@ export class UpdateCarrierUserDto {
   @IsEmail()
   @MaxLength(120)
   email?: string;
+
+  @ApiProperty({ required: false, nullable: true, description: '司机账号绑定的司机档案；null 解绑' })
+  @IsOptional()
+  @IsUUID()
+  driverId?: string | null;
 }

@@ -52,4 +52,5 @@ class AppContainer(context: Context) {
     val inboundRepository = InboundRepository(apiClient)
     val waybillRepository = WaybillRepository(apiClient)
     val trackingRepository = TrackingRepository(apiClient)
+    val transportRepository = com.automotive.alms.feature.transport.TransportRepository(apiClient)
 }

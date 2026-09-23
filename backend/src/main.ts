@@ -8,9 +8,17 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { PreAuthBlockGuard } from './common/guards/preauth-block.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { DataSource } from 'typeorm';
+import { checkMigrations } from './database/check-migrations';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  try {
+    await checkMigrations(app.get(DataSource));
+  } catch (error) {
+    await app.close();
+    throw error;
+  }
   const configService = app.get(ConfigService);
 
   app.enableCors({

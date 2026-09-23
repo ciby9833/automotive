@@ -33,6 +33,7 @@ docker compose up -d
 cd backend
 cp .env.example .env
 npm install
+npm run migration:run
 npm run start:dev
 ```
 
@@ -57,5 +58,5 @@ npm run dev
 ## 开发提示
 
 - 数据库 schema 变更走 migration: `npm run migration:generate` / `npm run migration:run`
-- 本地开发 `DB_SYNCHRONIZE=true` 时会自动同步 schema，生产必须关掉
+- 本地、预发和生产均保持 `DB_SYNCHRONIZE=false`；实体同步不能替代流水、快照及触发器迁移。更新代码后先备份并执行 `npm run migration:run`，再启动后端；后端发现未执行的迁移会拒绝启动并提示迁移名称。
 - 上传的照片/文件走 MinIO，接口 `/storage/upload` 返回 object key

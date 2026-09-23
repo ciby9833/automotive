@@ -124,7 +124,17 @@
     <string name="evidence_empty_file">照片文件为空</string>
     <string name="evidence_preview_failed">照片预览失败</string>
 
-    <string name="scanner_vin_hint">将 VIN 条码放入框内</string>
+    <string name="scanner_vin_hint">将 VIN 条形码或二维码完整放入框内</string>
+    <string name="scanner_focus_hint">点击画面对焦；小条码可调大倍率，请保留码周围的空白。</string>
+    <string name="scanner_invalid_vin">已识别到码，但没有有效 VIN。请扫描 VIN 码，或返回手动输入（8–32 位字母或数字）。</string>
+    <string name="scanner_multiple_vins">检测到多个不同 VIN，请对准一个车辆码再扫描。</string>
+    <string name="scanner_processing_failed">识别暂时失败，请调整距离重试；仍失败可关闭后重新扫码。</string>
+    <string name="scanner_manual_entry">手动输入</string>
+    <string name="scanner_retry">重试</string>
+    <string name="scanner_camera_failed_title">相机无法启动</string>
+    <string name="scanner_camera_failed_body">请确认相机未被其他应用占用，再重试；也可以返回手动输入 VIN。</string>
+    <string name="scanner_zoom">倍率</string>
+    <string name="scanner_flash">切换照明</string>
     <string name="scanner_camera_permission_action">授权</string>
     <string name="scanner_camera_permission_title">需要相机权限</string>
     <string name="scanner_camera_permission_body">扫描 VIN 需要使用相机</string>

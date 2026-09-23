@@ -124,7 +124,17 @@
     <string name="evidence_empty_file">File foto kosong</string>
     <string name="evidence_preview_failed">Pratinjau foto gagal</string>
 
-    <string name="scanner_vin_hint">Arahkan barcode VIN ke dalam bingkai</string>
+    <string name="scanner_vin_hint">Arahkan seluruh barcode atau kode QR VIN ke dalam bingkai</string>
+    <string name="scanner_focus_hint">Ketuk untuk fokus. Perbesar kode kecil dan sisakan tepi kosong di sekitar kode.</string>
+    <string name="scanner_invalid_vin">Kode terdeteksi tanpa VIN yang valid. Pindai kode VIN atau isi manual (8–32 huruf atau angka).</string>
+    <string name="scanner_multiple_vins">Beberapa VIN terdeteksi. Arahkan kamera ke satu kode kendaraan.</string>
+    <string name="scanner_processing_failed">Gambar belum dapat dibaca. Sesuaikan jarak atau buka kembali pemindai.</string>
+    <string name="scanner_manual_entry">Isi manual</string>
+    <string name="scanner_retry">Coba lagi</string>
+    <string name="scanner_camera_failed_title">Kamera tidak dapat dibuka</string>
+    <string name="scanner_camera_failed_body">Pastikan kamera tidak digunakan aplikasi lain, lalu coba lagi atau isi VIN manual.</string>
+    <string name="scanner_zoom">Perbesar</string>
+    <string name="scanner_flash">Ubah lampu</string>
     <string name="scanner_camera_permission_action">Izinkan</string>
     <string name="scanner_camera_permission_title">Perlu izin kamera</string>
     <string name="scanner_camera_permission_body">Pemindaian VIN memerlukan kamera</string>

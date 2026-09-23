@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { AppDataSource } from '../src/database/data-source';
+import { checkMigrations } from '../src/database/check-migrations';
 import { Organization } from '../src/modules/organizations/entities/organization.entity';
 import { Yard } from '../src/modules/yards/entities/yard.entity';
 import {
@@ -49,6 +50,9 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
       );
       await db.runMigrations({ transaction: 'each' });
       db.migrations = migrations;
+      await expect(checkMigrations(db)).rejects.toThrow(
+        'InventoryLedger1790300000000, OperationalUpdates1790400000000',
+      );
       const org = await db.getRepository(Organization).save({
         code: 'MIGRATION',
         name: 'Migration fixture',
@@ -117,6 +121,7 @@ if (database && !/^alms_inventory_test_\d+$/.test(database))
         .getRepository(OrderVin)
         .update(vins[1].id, { slotId: slots[1].id });
       await db.runMigrations({ transaction: 'each' });
+      await expect(checkMigrations(db)).resolves.toBeUndefined();
       const rows = await db.query(
         'SELECT vin,entered_at,position,slot_id FROM yard_inventory ORDER BY vin',
       );

@@ -38,8 +38,8 @@ import { TransportModule } from './modules/transport/transport.module';
         password: configService.get<string>('database.password'),
         database: configService.get<string>('database.database'),
         autoLoadEntities: true,
-        // 生产/预发环境不使用 synchronize，schema 变更统一走 src/database/migrations
-        // （npm run migration:generate / migration:run），本地开发可用 DB_SYNCHRONIZE=true 提速
+        migrations: [__dirname + '/database/migrations/*{.ts,.js}'],
+        // schema 变更统一走 migration；启动只检查，不自动修改业务数据库。
         synchronize: configService.get<boolean>('database.synchronize'),
       }),
     }),

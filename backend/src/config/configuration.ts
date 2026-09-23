@@ -17,8 +17,7 @@ export default () => ({
     username: process.env.DB_USERNAME ?? 'tms',
     password: process.env.DB_PASSWORD ?? 'tms',
     database: process.env.DB_DATABASE ?? 'tms',
-    // 默认关闭：生产/预发环境必须通过 `npm run migration:run` 管理schema，
-    // 本地开发如需快速迭代可在 .env 里显式设置 DB_SYNCHRONIZE=true
+    // 保持关闭，通过 migration 管理实体之外的流水、快照和触发器。
     synchronize: (process.env.DB_SYNCHRONIZE ?? 'false') === 'true',
   },
   redis: {

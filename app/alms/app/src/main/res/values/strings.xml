@@ -124,7 +124,17 @@
     <string name="evidence_empty_file">Photo file is empty</string>
     <string name="evidence_preview_failed">Photo preview failed</string>
 
-    <string name="scanner_vin_hint">Place the VIN barcode inside the frame</string>
+    <string name="scanner_vin_hint">Fit the complete VIN barcode or QR code inside the frame</string>
+    <string name="scanner_focus_hint">Tap to focus. Zoom in for small codes and keep the blank margin around the code.</string>
+    <string name="scanner_invalid_vin">Code detected, but no valid VIN. Scan a VIN code or enter it manually (8–32 letters or digits).</string>
+    <string name="scanner_multiple_vins">Multiple VINs detected. Point at one vehicle code at a time.</string>
+    <string name="scanner_processing_failed">Could not decode this image. Adjust the distance or reopen the scanner.</string>
+    <string name="scanner_manual_entry">Enter manually</string>
+    <string name="scanner_retry">Retry</string>
+    <string name="scanner_camera_failed_title">Camera could not start</string>
+    <string name="scanner_camera_failed_body">Check that no other app is using the camera, then retry or enter the VIN manually.</string>
+    <string name="scanner_zoom">Zoom</string>
+    <string name="scanner_flash">Toggle light</string>
     <string name="scanner_camera_permission_action">Allow</string>
     <string name="scanner_camera_permission_title">Camera permission needed</string>
     <string name="scanner_camera_permission_body">Scanning VINs requires the camera</string>

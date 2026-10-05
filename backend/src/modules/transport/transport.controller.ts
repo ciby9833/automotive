@@ -35,6 +35,7 @@ import {
   ChargeIdsDto,
   CreateTransportOrderDto,
   CreateTripDto,
+  ForceStatusDto,
   ImportTransportDto,
   LineIdsDto,
   PickupScanDto,
@@ -140,6 +141,10 @@ export class TransportController {
     @Query('originId') originId?: string,
     @Query('destinationId') destinationId?: string,
     @Query('towType') towType?: string,
+    @Query('tripId') tripId?: string,
+    @Query('dateField') dateField?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
@@ -152,6 +157,10 @@ export class TransportController {
       originId,
       destinationId,
       towType,
+      tripId,
+      dateField,
+      from,
+      to,
       search,
       ...paging(page, pageSize, 500),
     });
@@ -264,6 +273,27 @@ export class TransportController {
   @Post('trips/:id/depart')
   async depart(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() u: AuthenticatedUser) {
     return this.trips.depart(await this.access.actor(u), id);
+  }
+
+  // 内部人员补录运输状态（司机没用 App 时）
+  @Permissions(Permission.TRANSPORT_DISPATCH)
+  @Post('trips/:id/force-pickup')
+  async forcePickup(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() d: ForceStatusDto,
+    @CurrentUser() u: AuthenticatedUser,
+  ) {
+    return this.trips.forcePickup(await this.access.actor(u), id, d);
+  }
+
+  @Permissions(Permission.TRANSPORT_DISPATCH)
+  @Post('trips/:id/force-sign')
+  async forceSign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() d: ForceStatusDto,
+    @CurrentUser() u: AuthenticatedUser,
+  ) {
+    return this.trips.forceSign(await this.access.actor(u), id, d);
   }
 
   @Permissions(Permission.TRANSPORT_EXECUTE)
@@ -403,7 +433,7 @@ export class TransportController {
     });
   }
 
-  @Permissions(Permission.TRANSPORT_FINANCE)
+  @Permissions(Permission.TRANSPORT_FINANCE_ADJUST)
   @Patch('charges/:id')
   async adjust(
     @Param('id', ParseUUIDPipe) id: string,

@@ -14,6 +14,7 @@ export enum Permission {
   TRANSPORT_EXECUTE = 'transport:execute',
   TRANSPORT_FINANCE_VIEW = 'transport:finance-view',
   TRANSPORT_FINANCE = 'transport:finance',
+  TRANSPORT_FINANCE_ADJUST = 'transport:finance-adjust',
   APP_RELEASE_VIEW = 'system:app-release-view',
   APP_RELEASE_MANAGE = 'system:app-release-manage',
   SNAPSHOT_MANAGE = 'system:snapshot-manage',

@@ -2,7 +2,7 @@
 
 客户只买 A 点到 B 点的运输，车辆不进 J&T 场地：没有入库、库位、移库、出库。客户、地点、物流商、司机、拖车全部引用系统基础资料。
 
-设计依据：《【汽车物流TMS】运输流程.pdf》、业务线下派单表，以及业务方 2026-09-16 / 09-18 两轮确认（见文末“业务规则”）。
+设计依据：《【汽车物流TMS】运输流程.pdf》、业务线下派单表，以及业务方 2026-09-16 / 09-18 / 09-30 三轮确认（见文末“业务规则”）。
 
 ## 核心模型：一台车一行
 
@@ -30,29 +30,30 @@
 
 1. **建单**（内部）：网页手工建单，或 Excel 导入（先预览、逐行报错，确认后整个文件一个事务落库）。发货地、收货地只能选该客户地址簿里的地点。
 2. **分配**（内部）：在“调度”里按台指定物流商和拖车类型。Excel 里填了 Vendor + Armada 的行导入即分配。
-3. **派车**（内部或承运商业务员）：勾选同一物流商、同一拖车类型的明细，选司机和拖车建趟次，或加到未发车的趟次。校验载量；一辆拖车、一个司机同一时间只能有一个未完成趟次。
-4. **提货**（司机 App / 网页）：扫 VIN。
+3. **派车**（内部或承运商业务员）：勾选同一物流商、同一拖车类型的明细，选司机和拖车建趟次，或加到未发车的趟次。校验载量；同一拖车、同一司机可以提前排多趟，选到还有未签收车辆的拖车只给黄色提示，真正的拦截在装车（见第 4 步）。
+4. **提货**（司机 App / 网页）：扫 VIN。装车前校验拖车：同一拖车在别的趟次还有“已装车未签收”的车时，本趟不能装（提示占用的趟次号）。
    - 命中计划 VIN → 提货；
    - 本趟有空 VIN 明细 → 只有一条路线时自动绑定，多条路线时让司机选门店；
    - 属于别的需求单 → 提示先调整；
    - 系统里完全没有 → 登记为计划外车辆，内部可以顶替本趟一台、作为追加车辆加进需求单，或驳回（都要写原因）。未处理完不能发车。
 5. **发车**：至少装 1 台。没装上的明细自动退回“待派车”，不阻塞发车。
 6. **签收**：按门店逐台扫 VIN。每段上传一张 POD（PDF/JPG，≤20 MB）。拒收/退回的车由内部“关闭”。全部签收或关闭后趟次完成。
-7. **费用**：每台车签收时生成应收、应付各一条。
+7. **代录**（内部，需派车权限）：司机扫不了码时，在趟次详情用“代录提货 / 代录签收”按明细批量补录——代录提货只能选待提货且已有 VIN 的车，代录签收只能选在途的车，必须填原因，可附现场照片，操作记录里单独标成 `内勤代录`。
+8. **费用**：每台车签收时生成应收、应付各一条（代录签收同样生成）。
 
 ## 计价
 
 - 应收：客户 + 发货地 + 收货门店 + 拖车类型
 - 应付：客户 + 物流商 + 发货地 + 收货门店（优先）或目的区域（`customer_addresses.region`）+ 拖车类型
 - 报价有开始、结束日期，同一维度期间不能重叠；币种为客户所属机构默认币种。
-- 匹配不到报价记 0 元（`UNPRICED`），内部可手工调整（记原因）。
+- 匹配不到报价记 0 元（`UNPRICED`）。手工改价是单独的权限 `transport:finance-adjust`，只给总部（IT）管理员；机构财务只能“按报价重算”。改价必须填原因，金额标成 `MANUAL`。
 - “按报价重算”只处理未确认的费用，默认保留手工调整过的金额。
 
 ## 权限
 
 | 角色 | 网页 | App |
 | --- | --- | --- |
-| HQ / 机构管理员 | 需求单、调度、趟次、异常、报价、费用 | 趟次 |
+| HQ / 机构管理员 | 需求单、调度、趟次、运输明细、异常、报价、费用 | 趟次 |
 | 承运商业务员 | 分配给本承运商的明细（派车）、本承运商趟次 | 趟次 |
 | 司机 | 本承运商趟次；账号绑定了司机档案时只看派给自己的 | 趟次 |
 | 客户 | 自己的需求单（只读，含 POD） | — |
@@ -66,6 +67,7 @@
 - `customer_addresses.kind`：`STORE` 门店（默认，老数据全部为门店）/ `FACTORY` 工厂 / `YARD` 场地、RDC。老出库流程的门店编码匹配只匹配 `STORE`。
 - `carrier_vehicles.capacity`：载量，空则按拖车类型默认。
 - `users.driver_id`：司机账号绑定司机档案，一个档案只能绑一个账号。
+- `customers.code`：客户编号，机构内唯一（忽略大小写），Excel 导入按编号优先匹配客户。
 - VIN 互斥：纯运输明细与旧 `waybill_vins` 共用 advisory lock，同一 VIN 不能同时在两边进行中；场地在库车辆必须走出库流程。
 
 ## 接口
@@ -73,19 +75,20 @@
 全部在 `/transport` 下，Swagger：`/api-docs`。
 
 - 需求单：`GET/POST /orders`、`GET /orders/:id`、`POST /orders/import`（`dryRun` 预览）、`POST /orders/:id/vins`、`POST /orders/:id/cancel`
-- 明细：`GET /lines`、`PATCH /lines/:id`、`POST /lines/allocate`、`POST /lines/cancel`、`POST /lines/:id/close`、`GET /vins/:vin/history`
-- 趟次：`GET/POST /trips`、`GET /trips/:id`、`POST /trips/:id/lines`、`/lines/remove`、`/cancel`、`/pickup`、`/depart`、`/sign`、`/exceptions`、`/documents`
+- 明细：`GET /lines`（支持 `tripId`、`dateField`=plannedPickup/plannedDelivery/pickedUp/delivered + `from`/`to`、客户、起点、终点、物流商、状态；网页“运输明细”页签按这些条件导出 Excel）、`PATCH /lines/:id`、`POST /lines/allocate`、`POST /lines/cancel`、`POST /lines/:id/close`、`GET /vins/:vin/history`
+- 趟次：`GET/POST /trips`、`GET /trips/:id`、`POST /trips/:id/lines`、`/lines/remove`、`/cancel`、`/pickup`、`/depart`、`/sign`、`/force-pickup`、`/force-sign`、`/exceptions`、`/documents`
 - 异常：`GET /exceptions`、`POST /exceptions/:id/resolve`
 - 报价与费用：`GET/POST /tariffs`、`PATCH/DELETE /tariffs/:id`、`GET /charges`、`PATCH /charges/:id`、`POST /charges/confirm`、`POST /charges/recalculate`
 
 ## Excel 模板
 
-列：`CustomerRequestNo, VIN, Quantity, Origin, Dealer, Type, Model, Color, Armada, Vendor, PlannedPickupDate, PlannedDeliveryDate, Remark`。也识别线下表的“发货地址名称-Origin”这类中英文表头。
+列：`Customer, CustomerRequestNo, VIN, Quantity, Origin, Dealer, Type, Model, Color, Armada, Vendor, PlannedPickupDate, PlannedDeliveryDate, Remark`。也识别线下表的“发货地址名称-Origin”这类中英文表头。
 
 - 一行一台车；没有 VIN 时填 Quantity（1–500）。
 - Origin / Dealer 填客户地址簿编码；Vendor 填物流商简称或名称；Armada 接受 `CC / TANSYA / tansa / TOWING`。
 - 填了 Vendor 必须同时填 Armada。
-- 同一 CustomerRequestNo 合并为一张需求单；客户订单号重复会拒绝。
+- Customer 填客户编号或客户名称；留空时用导入弹窗里选的默认客户。一个文件可以同时导多个客户、多个订单号。
+- 同一（客户 + CustomerRequestNo）合并为一张需求单；客户订单号在同一客户下重复会拒绝。
 
 ## 业务规则（业务方确认）
 
@@ -95,10 +98,11 @@
 - 起点、终点只能选该客户已维护的门店、工厂、场地。
 - 货损、拒收只做记录，不参与扣款或报价。
 - 司机账号可由承运商业务员或 J&T 创建。
+- 09-30 追加：导入模板带客户列、一个文件多客户多订单号；内勤可代录提货/签收并附照片；运输明细按 VIN 列出、按日期类型筛选并导出；拖车可提前排多趟，装车时才拦截；手工改价只给总部（IT）管理员。
 
 ## 部署与验证
 
-迁移：`1789600000000-PureTransport.ts`（会清掉早期原型的 `transport_tasks / planned_vins / actual_vins` 表，这些表从未上线）。保持 `DB_SYNCHRONIZE=false`，先备份再执行：
+迁移：`1789600000000-PureTransport.ts`（会清掉早期原型的 `transport_tasks / planned_vins / actual_vins` 表，这些表从未上线）、`1790500000000-TransportFeedback0930.ts`（客户编号字段与唯一索引；删掉“一辆拖车/一个司机只能有一个未完成趟次”的唯一索引）。保持 `DB_SYNCHRONIZE=false`，先备份再执行：
 
 ```sh
 cd backend

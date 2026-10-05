@@ -23,6 +23,8 @@ export interface Customer {
   organizationId: string;
   organization?: { id: string; code: string; name: string };
   name: string;
+  /** 客户编号：运输 Excel 导入按编号匹配客户 */
+  code: string | null;
   contactName: string | null;
   contactPhone: string | null;
   email: string | null;
@@ -50,6 +52,7 @@ export const customersApi = {
   create: (dto: {
     organizationId: string;
     name: string;
+    code?: string;
     contactName?: string;
     contactPhone?: string;
     email?: string;
@@ -58,6 +61,7 @@ export const customersApi = {
     id: string,
     dto: Partial<{
       name: string;
+      code: string | null;
       contactName: string | null;
       contactPhone: string | null;
       email: string | null;

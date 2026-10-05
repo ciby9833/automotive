@@ -190,6 +190,8 @@ export interface CreateOrderInput {
 
 export interface ImportRow {
   row: number;
+  /** 客户编号或客户名称；留空时用界面上选的默认客户 */
+  customer?: string;
   customerRequestNo: string;
   vin?: string;
   quantity?: string;
@@ -208,6 +210,8 @@ export interface ImportRow {
 export interface ImportResult {
   errors: { row: number; message: string }[];
   orders: {
+    customerId: string;
+    customerName: string;
     customerRequestNo: string;
     lineCount: number;
     withVin: number;
@@ -303,7 +307,7 @@ export const transportApi = {
   order: (id: string) => unwrap<OrderDetail>(apiClient.get(`/transport/orders/${id}`)),
   createOrder: (d: CreateOrderInput) =>
     unwrap<TransportOrder>(apiClient.post("/transport/orders", d)),
-  importOrders: (customerId: string, rows: ImportRow[], dryRun: boolean) =>
+  importOrders: (rows: ImportRow[], dryRun: boolean, customerId?: string) =>
     unwrap<ImportResult>(apiClient.post("/transport/orders/import", { customerId, rows, dryRun })),
   supplementVins: (orderId: string, items: { lineId: string; vin: string }[]) =>
     unwrap<{ updated: number }>(apiClient.post(`/transport/orders/${orderId}/vins`, { items })),
@@ -342,6 +346,11 @@ export const transportApi = {
     unwrap<{ ok: boolean; returned: number }>(apiClient.post(`/transport/trips/${id}/depart`)),
   sign: (id: string, vin: string) =>
     unwrap<{ result: string; line: TransportLine }>(apiClient.post(`/transport/trips/${id}/sign`, { vin })),
+  // 内勤代操作：司机没法扫码时按明细强制提货/签收，必须填原因，可附照片
+  forcePickup: (id: string, lineIds: string[], reason: string, photoKeys: string[]) =>
+    unwrap<{ updated: number }>(apiClient.post(`/transport/trips/${id}/force-pickup`, { lineIds, reason, photoKeys })),
+  forceSign: (id: string, lineIds: string[], reason: string, photoKeys: string[]) =>
+    unwrap<{ updated: number }>(apiClient.post(`/transport/trips/${id}/force-sign`, { lineIds, reason, photoKeys })),
   recordException: (id: string, d: { type: "DAMAGE" | "REFUSED" | "OTHER"; vin?: string; note: string }) =>
     unwrap<TransportException>(apiClient.post(`/transport/trips/${id}/exceptions`, d)),
   uploadDocument: (id: string, originId: string, destinationId: string, file: File) => {

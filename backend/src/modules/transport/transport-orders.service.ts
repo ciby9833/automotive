@@ -45,6 +45,18 @@ export interface ImportRowError {
   row: number;
   message: string;
 }
+interface CustomerRef {
+  id: string;
+  name: string;
+  code: string | null;
+  organization_id: string;
+  status: string;
+}
+interface ImportGroup {
+  customer: CustomerRef;
+  order: NewOrder;
+  rows: number[];
+}
 
 const MAX_LINES_PER_ORDER = 2000;
 const EDITABLE_BEFORE_PICKUP = ['UNALLOCATED', 'ALLOCATED', 'DISPATCHED'];
@@ -148,6 +160,11 @@ export class TransportOrdersService {
       originId?: string;
       destinationId?: string;
       towType?: string;
+      tripId?: string;
+      /** 日期维度：计划提货 / 计划到达 / 实际提货 / 签收 */
+      dateField?: string;
+      from?: string;
+      to?: string;
       search?: string;
       page: number;
       pageSize: number;
@@ -166,20 +183,44 @@ export class TransportOrdersService {
       [q.originId, 'l.origin_id'],
       [q.destinationId, 'l.destination_id'],
       [q.towType, 'l.tow_type'],
+      [q.tripId, 'l.trip_id'],
     ];
     for (const [value, col] of eq) {
       if (!value) continue;
       args.push(value);
       where.push(`${col} = $${args.length}`);
     }
+    if (q.from || q.to) {
+      const columns: Record<string, string> = {
+        plannedPickup: 'o.planned_pickup_date',
+        plannedDelivery: 'o.planned_delivery_date',
+        pickedUp: 'l.picked_up_at::date',
+        delivered: 'l.delivered_at::date',
+      };
+      const column = columns[q.dateField ?? 'plannedPickup'];
+      if (!column) throw new BadRequestException('日期类型不正确');
+      if (q.from) {
+        args.push(q.from);
+        where.push(`${column} >= $${args.length}`);
+      }
+      if (q.to) {
+        args.push(q.to);
+        where.push(`${column} <= $${args.length}`);
+      }
+    }
     if (q.search?.trim()) {
       args.push(`%${q.search.trim()}%`);
       const p = `$${args.length}`;
-      where.push(`(l.vin ILIKE ${p} OR o.code ILIKE ${p} OR o.customer_request_no ILIKE ${p})`);
+      where.push(
+        `(l.vin ILIKE ${p} OR o.code ILIKE ${p} OR o.customer_request_no ILIKE ${p} OR t.code ILIKE ${p})`,
+      );
     }
     const filter = where.join(' AND ');
     const [{ total }] = await this.db.query<{ total: number }[]>(
-      `SELECT count(*)::int total FROM transport_lines l JOIN transport_orders o ON o.id = l.order_id WHERE ${filter}`,
+      `SELECT count(*)::int total FROM transport_lines l
+       JOIN transport_orders o ON o.id = l.order_id
+       LEFT JOIN transport_trips t ON t.id = l.trip_id
+       WHERE ${filter}`,
       args,
     );
     args.push(q.pageSize, (q.page - 1) * q.pageSize);
@@ -240,33 +281,77 @@ export class TransportOrdersService {
       remark: d.remark?.trim() ?? '',
       lines,
     };
-    const errors = await this.validate(this.db.manager, a, customer, [
-      { order, rows: lines.map(() => 0) },
-    ]);
+    const group: ImportGroup = { customer, order, rows: lines.map(() => 0) };
+    const errors = await this.validate(this.db.manager, a, [group]);
     if (errors.length) throw new BadRequestException(errors.map((e) => e.message).join('；'));
     return this.access.tx(async (m) => {
-      const [created] = await this.insert(m, a, customer, [order], 'MANUAL');
+      const [created] = await this.insert(m, a, [group], 'MANUAL');
       return created;
     });
   }
 
   /**
    * Excel 导入：先 dryRun 预览，逐行返回错误；确认后整个文件一个事务落库。
-   * 同一 CustomerRequestNo 合并为一张需求单；Quantity 行展开为 N 条空 VIN 明细。
+   * 一个文件可以包含多个客户、多个客户订单号：按「客户 + 客户订单号」合并成需求单。
+   * 行里填了 Customer（编号优先，其次名称）就以行为准，没填就用界面上选的默认客户。
+   * Quantity 行展开为 N 条空 VIN 明细。
    */
   async import(a: Actor, d: ImportTransportDto) {
     this.access.requireInternal(a);
-    const customer = await this.customer(a, d.customerId);
+    const fallback = d.customerId ? await this.customer(a, d.customerId) : null;
     const errors: ImportRowError[] = [];
-    const addresses = await this.db.query<AddressRow[]>(
-      `SELECT id, customer_id, code, "dealerName", region, kind, "isActive" FROM customer_addresses WHERE customer_id = $1`,
-      [customer.id],
+    const customers = await this.db.query<CustomerRef[]>(
+      `SELECT id, name, code, organization_id, status FROM customers WHERE organization_id = ANY($1::uuid[])`,
+      [a.orgIds],
     );
-    const byCode = new Map(
-      addresses
-        .filter((x) => x.code)
-        .map((x) => [x.code!.trim().toUpperCase(), x] as const),
-    );
+    const customerByKey = new Map<string, CustomerRef[]>();
+    for (const c of customers)
+      for (const key of [c.code, c.name]) {
+        const k = key?.trim().toUpperCase();
+        if (!k) continue;
+        customerByKey.set(k, [...(customerByKey.get(k) ?? []), c]);
+      }
+
+    // 第一遍：解析每行的客户，决定要加载哪些客户的地址簿
+    const rowCustomers = new Map<number, CustomerRef>();
+    for (const r of d.rows) {
+      const key = r.customer?.trim();
+      if (!key) {
+        if (fallback) rowCustomers.set(r.row, fallback);
+        else errors.push({ row: r.row, message: '缺少客户：请在 Customer 列填写，或在上方选择默认客户' });
+        continue;
+      }
+      const hits = customerByKey.get(key.toUpperCase()) ?? [];
+      if (hits.length !== 1) {
+        errors.push({
+          row: r.row,
+          message: hits.length ? `客户 ${key} 匹配到多个，请用客户编号` : `客户 ${key} 不存在`,
+        });
+        continue;
+      }
+      if (hits[0].status !== 'ACTIVE') {
+        errors.push({ row: r.row, message: `客户 ${hits[0].name} 已暂停或停用，不能新建运输` });
+        continue;
+      }
+      rowCustomers.set(r.row, hits[0]);
+    }
+
+    const customerIds = [...new Set([...rowCustomers.values()].map((c) => c.id))];
+    const addresses = customerIds.length
+      ? await this.db.query<AddressRow[]>(
+          `SELECT id, customer_id, code, "dealerName", region, kind, "isActive" FROM customer_addresses
+           WHERE customer_id = ANY($1::uuid[])`,
+          [customerIds],
+        )
+      : [];
+    const placesByCustomer = new Map<string, Map<string, AddressRow>>();
+    for (const x of addresses) {
+      if (!x.code) continue;
+      const map = placesByCustomer.get(x.customer_id) ?? new Map<string, AddressRow>();
+      map.set(x.code.trim().toUpperCase(), x);
+      placesByCustomer.set(x.customer_id, map);
+    }
+
     const carriers = await this.db.query<
       { id: string; name: string; short_name: string | null }[]
     >(
@@ -281,9 +366,12 @@ export class TransportOrdersService {
         carrierByKey.set(k, [...(carrierByKey.get(k) ?? []), c.id]);
       }
 
-    const groups = new Map<string, { order: NewOrder; rows: number[] }>();
+    const groups = new Map<string, ImportGroup>();
     for (const r of d.rows) {
       const fail = (message: string) => errors.push({ row: r.row, message });
+      const customer = rowCustomers.get(r.row);
+      if (!customer) continue;
+      const byCode = placesByCustomer.get(customer.id) ?? new Map<string, AddressRow>();
       const requestNo = r.customerRequestNo?.trim();
       if (!requestNo) {
         fail('缺少 CustomerRequestNo');
@@ -309,9 +397,9 @@ export class TransportOrdersService {
       }
       const origin = byCode.get(r.origin?.trim().toUpperCase() ?? '');
       const dealer = byCode.get(r.dealer?.trim().toUpperCase() ?? '');
-      if (!origin) fail(`发货地 ${r.origin || '(空)'} 不是该客户已维护的地点`);
+      if (!origin) fail(`发货地 ${r.origin || '(空)'} 不是客户 ${customer.name} 已维护的地点`);
       else if (!origin.isActive) fail(`发货地 ${r.origin} 已停用`);
-      if (!dealer) fail(`收货地 ${r.dealer || '(空)'} 不是该客户已维护的地点`);
+      if (!dealer) fail(`收货地 ${r.dealer || '(空)'} 不是客户 ${customer.name} 已维护的地点`);
       else if (!dealer.isActive) fail(`收货地 ${r.dealer} 已停用`);
       if (origin && dealer && origin.id === dealer.id) fail('发货地和收货地不能相同');
       let towType: TowType | null = null;
@@ -342,9 +430,11 @@ export class TransportOrdersService {
         dates.push(v);
       }
       if (!origin || !dealer) continue;
-      let group = groups.get(requestNo);
+      const key = `${customer.id}|${requestNo}`;
+      let group = groups.get(key);
       if (!group) {
         group = {
+          customer,
           order: {
             customerRequestNo: requestNo,
             plannedPickupDate: dates[0],
@@ -354,7 +444,7 @@ export class TransportOrdersService {
           },
           rows: [],
         };
-        groups.set(requestNo, group);
+        groups.set(key, group);
       } else {
         const o = group.order;
         if (
@@ -380,9 +470,12 @@ export class TransportOrdersService {
         group.rows.push(r.row);
       }
     }
-    errors.push(...(await this.validate(this.db.manager, a, customer, [...groups.values()])));
+    const list = [...groups.values()];
+    errors.push(...(await this.validate(this.db.manager, a, list)));
     errors.sort((x, y) => x.row - y.row);
-    const summary = [...groups.values()].map((g) => ({
+    const summary = list.map((g) => ({
+      customerId: g.customer.id,
+      customerName: g.customer.name,
       customerRequestNo: g.order.customerRequestNo,
       lineCount: g.order.lines.length,
       withVin: g.order.lines.filter((l) => l.vin).length,
@@ -391,9 +484,7 @@ export class TransportOrdersService {
       plannedDeliveryDate: g.order.plannedDeliveryDate,
     }));
     if (errors.length || d.dryRun) return { errors, orders: summary, created: [] };
-    const created = await this.access.tx((m) =>
-      this.insert(m, a, customer, [...groups.values()].map((g) => g.order), 'EXCEL'),
-    );
+    const created = await this.access.tx((m) => this.insert(m, a, list, 'EXCEL'));
     return { errors: [], orders: summary, created };
   }
 
@@ -571,10 +662,11 @@ export class TransportOrdersService {
     await this.refreshOrders(m, lines.map((l) => l.order_id));
   }
 
-  private async customer(a: Actor, customerId: string) {
-    const [customer] = await this.db.query<
-      { id: string; name: string; organization_id: string; status: string }[]
-    >('SELECT id, name, organization_id, status FROM customers WHERE id = $1', [customerId]);
+  private async customer(a: Actor, customerId: string): Promise<CustomerRef> {
+    const [customer] = await this.db.query<CustomerRef[]>(
+      'SELECT id, name, code, organization_id, status FROM customers WHERE id = $1',
+      [customerId],
+    );
     if (!customer || !a.orgIds.includes(customer.organization_id))
       throw new ForbiddenException('客户不存在或不在当前机构');
     if (customer.status !== 'ACTIVE') throw new BadRequestException('客户已暂停或停用，不能新建运输');
@@ -585,11 +677,12 @@ export class TransportOrdersService {
   private async validate(
     m: EntityManager,
     a: Actor,
-    customer: { id: string },
-    groups: { order: NewOrder; rows: number[] }[],
+    groups: ImportGroup[],
   ): Promise<ImportRowError[]> {
     const errors: ImportRowError[] = [];
-    const lines = groups.flatMap((g) => g.order.lines.map((l, i) => ({ l, row: g.rows[i] })));
+    const lines = groups.flatMap((g) =>
+      g.order.lines.map((l, i) => ({ l, row: g.rows[i], customer: g.customer })),
+    );
     const addressIds = [...new Set(lines.flatMap(({ l }) => [l.originId, l.destinationId]))];
     const addresses = await m.query<AddressRow[]>(
       `SELECT id, customer_id, code, "dealerName", region, kind, "isActive" FROM customer_addresses WHERE id = ANY($1::uuid[])`,
@@ -608,11 +701,11 @@ export class TransportOrdersService {
         .filter((c) => c.status === 'ACTIVE' && a.orgIds.includes(c.organization_id))
         .map((c) => c.id),
     );
-    for (const { l, row } of lines) {
+    for (const { l, row, customer } of lines) {
       for (const id of [l.originId, l.destinationId]) {
         const x = addressById.get(id);
         if (!x || x.customer_id !== customer.id)
-          errors.push({ row, message: '起点或终点不是该客户已维护的地点' });
+          errors.push({ row, message: `起点或终点不是客户 ${customer.name} 已维护的地点` });
         else if (!x.isActive) errors.push({ row, message: `地点 ${x.code ?? x.dealerName} 已停用` });
       }
       if (l.originId === l.destinationId) errors.push({ row, message: '发货地和收货地不能相同' });
@@ -656,14 +749,21 @@ export class TransportOrdersService {
       for (const b of stock)
         errors.push({ row: vinRows.get(b.vin)!, message: `VIN ${b.vin} 在场地库存中，请走出库流程` });
     }
-    const requestNos = groups.map((g) => g.order.customerRequestNo);
-    const dup = await m.query<{ customer_request_no: string }[]>(
-      `SELECT customer_request_no FROM transport_orders WHERE customer_id = $1 AND customer_request_no = ANY($2::varchar[])`,
-      [customer.id, requestNos],
+    const dup = await m.query<{ customer_id: string; customer_request_no: string }[]>(
+      `SELECT customer_id, customer_request_no FROM transport_orders
+       WHERE (customer_id, customer_request_no) IN (
+         SELECT * FROM unnest($1::uuid[], $2::varchar[])
+       )`,
+      [groups.map((g) => g.customer.id), groups.map((g) => g.order.customerRequestNo)],
     );
     for (const x of dup) {
-      const g = groups.find((y) => y.order.customerRequestNo === x.customer_request_no)!;
-      errors.push({ row: g.rows[0], message: `客户订单号 ${x.customer_request_no} 已存在` });
+      const g = groups.find(
+        (y) => y.customer.id === x.customer_id && y.order.customerRequestNo === x.customer_request_no,
+      )!;
+      errors.push({
+        row: g.rows[0],
+        message: `客户 ${g.customer.name} 的订单号 ${x.customer_request_no} 已存在`,
+      });
     }
     return errors;
   }
@@ -671,12 +771,11 @@ export class TransportOrdersService {
   private async insert(
     m: EntityManager,
     a: Actor,
-    customer: { id: string; organization_id: string },
-    orders: NewOrder[],
+    groups: { customer: { id: string; organization_id: string }; order: NewOrder }[],
     source: 'MANUAL' | 'EXCEL',
   ) {
     const created: OrderRow[] = [];
-    for (const o of orders) {
+    for (const { customer, order: o } of groups) {
       const [order] = await m.query<OrderRow[]>(
         `INSERT INTO transport_orders(code, organization_id, customer_id, customer_request_no, planned_pickup_date,
            planned_delivery_date, source, remark, created_by)

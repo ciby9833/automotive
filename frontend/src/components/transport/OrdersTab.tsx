@@ -22,6 +22,7 @@ import {
   Upload,
   message,
 } from "antd";
+import type { TableProps } from "antd";
 import { DownloadOutlined, MinusCircleOutlined, PlusOutlined, UploadOutlined } from "@ant-design/icons";
 import type { Dayjs } from "dayjs";
 import {
@@ -382,10 +383,10 @@ function ImportModal({
   const [result, setResult] = useState<ImportResult | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const preview = async (cid: string, data: ImportRow[]) => {
+  const preview = async (data: ImportRow[], cid?: string) => {
     setBusy(true);
     try {
-      setResult(await transportApi.importOrders(cid, data, true));
+      setResult(await transportApi.importOrders(data, true, cid));
     } catch (e) {
       notifyError(e);
     } finally {
@@ -394,10 +395,10 @@ function ImportModal({
   };
 
   const confirm = async () => {
-    if (!customerId || !result || result.errors.length) return;
+    if (!result || result.errors.length) return;
     setBusy(true);
     try {
-      const r = await transportApi.importOrders(customerId, rows, false);
+      const r = await transportApi.importOrders(rows, false, customerId);
       if (r.errors.length) setResult(r);
       else {
         message.success(t("importDone", { n: r.created.length }));
@@ -426,15 +427,16 @@ function ImportModal({
         <Typography.Text type="secondary">{t("importHint")}</Typography.Text>
         <Space wrap>
           <Select
+            allowClear
             showSearch
             optionFilterProp="label"
-            placeholder={t("customer")}
+            placeholder={t("defaultCustomer")}
             style={{ width: 240 }}
             value={customerId}
             options={customers}
             onChange={(v) => {
               setCustomerId(v);
-              if (rows.length) void preview(v, rows);
+              if (rows.length) void preview(rows, v);
             }}
           />
           <Upload
@@ -446,16 +448,14 @@ function ImportModal({
                 setRows(data);
                 setFileName(file.name);
                 setResult(null);
-                if (customerId) await preview(customerId, data);
+                await preview(data, customerId);
               } catch (e) {
                 message.error(errorText(e));
               }
               return false;
             }}
           >
-            <Button icon={<UploadOutlined />} disabled={!customerId}>
-              {fileName || t("importExcel")}
-            </Button>
+            <Button icon={<UploadOutlined />}>{fileName || t("importExcel")}</Button>
           </Upload>
           <Button type="link" icon={<DownloadOutlined />} onClick={downloadTransportTemplate}>
             {t("downloadTemplate")}
@@ -481,10 +481,11 @@ function ImportModal({
             <Alert type="success" showIcon message={t("importReady", { orders: result.orders.length, lines })} />
             <Table
               size="small"
-              rowKey="customerRequestNo"
+              rowKey={(o) => `${o.customerId}-${o.customerRequestNo}`}
               dataSource={result.orders}
               pagination={false}
               columns={[
+                { title: t("customer"), dataIndex: "customerName", width: 170 },
                 { title: t("requestNo"), dataIndex: "customerRequestNo" },
                 { title: t("lineCount"), dataIndex: "lineCount", width: 80 },
                 { title: t("withVin"), dataIndex: "withVin", width: 90 },
@@ -685,6 +686,7 @@ export function LineTable({
   onOpenTrip,
   selection,
   extraColumns = [],
+  pagination,
 }: {
   lines: TransportLine[];
   onOpenTrip?: (id: string) => void;
@@ -694,6 +696,8 @@ export function LineTable({
     getCheckboxProps?: (l: TransportLine) => { disabled: boolean };
   };
   extraColumns?: object[];
+  /** 服务端分页时由调用方传入；不传则本地分页 */
+  pagination?: TableProps<TransportLine>["pagination"];
 }) {
   const t = useTransportText();
   return (
@@ -702,7 +706,7 @@ export function LineTable({
       rowKey="id"
       dataSource={lines}
       rowSelection={selection}
-      pagination={lines.length > 50 ? { pageSize: 50, showSizeChanger: false } : false}
+      pagination={pagination ?? (lines.length > 50 ? { pageSize: 50, showSizeChanger: false } : false)}
       scroll={{ x: 1000 }}
       columns={[
         { title: "#", dataIndex: "line_no", width: 50 },

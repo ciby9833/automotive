@@ -665,6 +665,8 @@
     "addCustomer": "新增客户",
     "name": "客户名称",
     "namePlaceholder": "如 BYD",
+    "code": "客户编号",
+    "codeHint": "选填，运输 Excel 导入按编号匹配客户",
     "contactName": "联系人",
     "contactPhone": "联系电话",
     "email": "邮箱",

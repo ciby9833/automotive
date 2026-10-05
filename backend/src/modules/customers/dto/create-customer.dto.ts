@@ -12,6 +12,11 @@ export class CreateCustomerDto {
   @IsNotEmpty()
   name: string;
 
+  @ApiProperty({ required: false, description: '客户编号，导入时按它匹配' })
+  @IsOptional()
+  @IsString()
+  code?: string;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

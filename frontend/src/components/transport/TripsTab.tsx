@@ -33,6 +33,7 @@ import {
   type TripDetail,
 } from "@/lib/api/transport";
 import { AttachmentLink } from '@/components/evidence/SignedAttachments';
+import { uploadFile } from '@/lib/api/storage';
 import { Permission, usePermission } from '@/lib/auth/permissions';
 import { LineTable, ReasonModal } from "./OrdersTab";
 import { ResolveModal } from "./ExceptionsTab";
@@ -189,6 +190,7 @@ export function TripDrawer({
   const [closing, setClosing] = useState<TransportLine | null>(null);
   const [exceptionOpen, setExceptionOpen] = useState(false);
   const [resolving, setResolving] = useState<TransportException | null>(null);
+  const [forcing, setForcing] = useState<"pickup" | "sign" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -328,6 +330,12 @@ export function TripDrawer({
                   </>
                 )}
                 {canExecute && <Button onClick={() => setExceptionOpen(true)}>{t("recordException")}</Button>}
+                {internal && canDispatch && loadable && (
+                  <Button onClick={() => setForcing("pickup")}>{t("forcePickup")}</Button>
+                )}
+                {internal && canDispatch && signing && (
+                  <Button onClick={() => setForcing("sign")}>{t("forceSign")}</Button>
+                )}
               </Space>
             </Card>
           )}
@@ -563,6 +571,20 @@ export function TripDrawer({
           }}
         />
       )}
+      {forcing && trip && (
+        <ForceModal
+          mode={forcing}
+          tripId={trip.id}
+          lines={(detail?.lines ?? []).filter((l) =>
+            forcing === "pickup" ? l.status === "DISPATCHED" && !!l.vin : l.status === "IN_TRANSIT",
+          )}
+          onClose={() => setForcing(null)}
+          onDone={() => {
+            setForcing(null);
+            void refresh();
+          }}
+        />
+      )}
       {resolving && (
         <ResolveModal
           exception={resolving}
@@ -574,6 +596,112 @@ export function TripDrawer({
         />
       )}
     </Drawer>
+  );
+}
+
+/** 内勤代录提货/签收：司机扫不了码时用，必须填原因，照片可选 */
+function ForceModal({
+  mode,
+  tripId,
+  lines,
+  onClose,
+  onDone,
+}: {
+  mode: "pickup" | "sign";
+  tripId: string;
+  lines: TransportLine[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const t = useTransportText();
+  const [selected, setSelected] = useState<string[]>(lines.map((l) => l.id));
+  const [reason, setReason] = useState("");
+  const [photos, setPhotos] = useState<{ key: string; name: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const keys = photos.map((p) => p.key);
+      const r =
+        mode === "pickup"
+          ? await transportApi.forcePickup(tripId, selected, reason.trim(), keys)
+          : await transportApi.forceSign(tripId, selected, reason.trim(), keys);
+      message.success(t("forceDone", { n: r.updated }));
+      onDone();
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open
+      width={760}
+      title={mode === "pickup" ? t("forcePickup") : t("forceSign")}
+      onCancel={onClose}
+      confirmLoading={busy}
+      okButtonProps={{ disabled: !selected.length || !reason.trim() }}
+      onOk={submit}
+    >
+      <Space direction="vertical" size={12} style={{ width: "100%" }}>
+        <Typography.Text type="secondary">{t("forceHint")}</Typography.Text>
+        <Table<TransportLine>
+          size="small"
+          rowKey="id"
+          dataSource={lines}
+          pagination={false}
+          scroll={{ y: 260 }}
+          locale={{ emptyText: mode === "pickup" ? t("forcePickupEmpty") : t("forceSignEmpty") }}
+          rowSelection={{ selectedRowKeys: selected, onChange: (k) => setSelected(k as string[]) }}
+          columns={[
+            { title: t("vin"), dataIndex: "vin", render: (v) => <Vin vin={v} /> },
+            { title: t("customer"), dataIndex: "customer_name", width: 140 },
+            {
+              title: `${t("origin")} → ${t("destination")}`,
+              render: (_, l) => (
+                <span>
+                  <Place code={l.origin_code} name={l.origin_name} /> →{" "}
+                  <Place code={l.destination_code} name={l.destination_name} />
+                </span>
+              ),
+            },
+          ]}
+        />
+        <Input.TextArea
+          rows={2}
+          maxLength={1000}
+          placeholder={t("reasonRequired")}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+        <Space wrap>
+          <Upload
+            accept="image/jpeg,image/png"
+            multiple
+            showUploadList={false}
+            beforeUpload={async (file) => {
+              try {
+                const r = await uploadFile(file);
+                setPhotos((p) => [...p, { key: r.key, name: file.name }]);
+              } catch (e) {
+                notifyError(e);
+              }
+              return false;
+            }}
+          >
+            <Button icon={<UploadOutlined />}>{t("photos")}</Button>
+          </Upload>
+          {photos.map((p) => (
+            <Tag key={p.key} closable onClose={() => setPhotos((list) => list.filter((x) => x.key !== p.key))}>
+              {p.name}
+            </Tag>
+          ))}
+        </Space>
+      </Space>
+    </Modal>
   );
 }
 

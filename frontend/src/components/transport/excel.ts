@@ -3,6 +3,7 @@ import type { ImportRow } from "@/lib/api/transport";
 
 /** 模板列与业务线下派单表对齐；一行一台车，没有 VIN 时填 Quantity。 */
 export const TRANSPORT_COLUMNS = [
+  "Customer",
   "CustomerRequestNo",
   "VIN",
   "Quantity",
@@ -22,6 +23,8 @@ export const TRANSPORT_COLUMNS = [
 const ALIASES: Record<string, (typeof TRANSPORT_COLUMNS)[number]> = {
   CUSTOMERREQUESTNO: "CustomerRequestNo",
   REQUESTNO: "CustomerRequestNo",
+  CUSTOMER: "Customer",
+  CUSTOMERCODE: "Customer",
   VIN: "VIN",
   QUANTITY: "Quantity",
   QTY: "Quantity",
@@ -68,6 +71,7 @@ export async function readTransportExcel(file: File): Promise<ImportRow[]> {
     if (!TRANSPORT_COLUMNS.some((c) => get(c))) return;
     rows.push({
       row: i + 2,
+      customer: get("Customer") || undefined,
       customerRequestNo: get("CustomerRequestNo"),
       vin: get("VIN").toUpperCase() || undefined,
       quantity: get("Quantity") || undefined,
@@ -89,8 +93,9 @@ export async function readTransportExcel(file: File): Promise<ImportRow[]> {
 
 export function downloadTransportTemplate() {
   const sample = [
-    ["CUST-0918-01", "MGEEH40FXTJ009399", "", "GEELY-Purwakarta", "GEELY-001", "E22H-MAX-INT.WHITE-TT", "EX2", "YELLOW/WHITE-TT", "CC", "JNT", "2026-09-20", "2026-09-22", ""],
-    ["CUST-0918-01", "", "3", "GEELY-Purwakarta", "GEELY-002", "", "", "", "TANSYA", "", "2026-09-20", "2026-09-22", "VIN 后补"],
+    ["GEELY", "CUST-0918-01", "MGEEH40FXTJ009399", "", "GEELY-Purwakarta", "GEELY-001", "E22H-MAX-INT.WHITE-TT", "EX2", "YELLOW/WHITE-TT", "CC", "JNT", "2026-09-20", "2026-09-22", ""],
+    ["GEELY", "CUST-0918-01", "", "3", "GEELY-Purwakarta", "GEELY-002", "", "", "", "TANSYA", "", "2026-09-20", "2026-09-22", "VIN 后补"],
+    ["BYD", "BYD-0918-07", "LC0C76C4XS1234567", "", "BYD-Subang", "BYD-D01", "", "", "", "CC", "", "2026-09-21", "2026-09-23", "另一个客户、另一个订单号"],
   ];
   const ws = XLSX.utils.aoa_to_sheet([[...TRANSPORT_COLUMNS], ...sample]);
   ws["!cols"] = TRANSPORT_COLUMNS.map((c) => ({ wch: Math.max(12, c.length + 2) }));

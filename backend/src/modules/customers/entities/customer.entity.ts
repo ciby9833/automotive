@@ -9,6 +9,10 @@ export class Customer extends OrgScopedEntity {
   @Column()
   name: string; // 如 BYD
 
+  // 客户编号：Excel 导入按编号匹配（同机构内唯一）；存量客户可以为空，按名称匹配
+  @Column({ type: 'varchar', nullable: true })
+  code: string | null;
+
   @Column({ nullable: true })
   contactName: string;
 

@@ -665,6 +665,8 @@
     "addCustomer": "Tambah Pelanggan",
     "name": "Nama Pelanggan",
     "namePlaceholder": "mis. BYD",
+    "code": "Kode pelanggan",
+    "codeHint": "Opsional. Impor Excel transportasi mencocokkan pelanggan dengan kode ini",
     "contactName": "Kontak",
     "contactPhone": "Telepon",
     "email": "Email",

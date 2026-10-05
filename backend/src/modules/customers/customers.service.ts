@@ -63,6 +63,15 @@ export class CustomersService {
       email: customer.email,
     };
     if (dto.name !== undefined) customer.name = dto.name;
+    if (dto.code !== undefined) {
+      customer.code = dto.code?.trim() || null;
+      if (customer.code)
+        await this.assertCustomerCodeUnique(
+          customer.organizationId,
+          customer.code,
+          customer.id,
+        );
+    }
     if (dto.contactName !== undefined) customer.contactName = (dto.contactName ?? null) as string;
     if (dto.contactPhone !== undefined) customer.contactPhone = (dto.contactPhone ?? null) as string;
     if (dto.email !== undefined) customer.email = (dto.email ?? null) as string;
@@ -180,9 +189,33 @@ export class CustomersService {
     return customer;
   }
 
-  create(dto: CreateCustomerDto, scope: EffectiveScope): Promise<Customer> {
+  async create(
+    dto: CreateCustomerDto,
+    scope: EffectiveScope,
+  ): Promise<Customer> {
     this.scopeService.assertOrgWritable(scope, dto.organizationId);
-    return this.customersRepository.save(this.customersRepository.create(dto));
+    const code = dto.code?.trim() || null;
+    if (code) await this.assertCustomerCodeUnique(dto.organizationId, code);
+    return this.customersRepository.save(
+      this.customersRepository.create({ ...dto, code }),
+    );
+  }
+
+  // 客户编号是运输导入的匹配键，机构内唯一（忽略大小写和首尾空格）
+  private async assertCustomerCodeUnique(
+    organizationId: string,
+    code: string,
+    exceptId?: string,
+  ) {
+    const qb = this.customersRepository
+      .createQueryBuilder('customer')
+      .where('customer.organizationId = :organizationId', { organizationId })
+      .andWhere('UPPER(BTRIM(customer.code)) = :code', {
+        code: code.toUpperCase(),
+      });
+    if (exceptId) qb.andWhere('customer.id <> :exceptId', { exceptId });
+    if (await qb.getExists())
+      throw new ConflictException(`客户编号已存在：${code}`);
   }
 
   async addAddress(

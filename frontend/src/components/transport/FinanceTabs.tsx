@@ -337,6 +337,8 @@ function TariffModal({
 // ------------------------------------------------------------------ 费用
 export function ChargesTab({ onOpenTrip }: { onOpenTrip: (id: string) => void }) {
   const canWrite = usePermission(Permission.TRANSPORT_FINANCE);
+  // 手动改价只给总部（IT）管理员，机构财务只能按价表重算
+  const canAdjust = usePermission(Permission.TRANSPORT_FINANCE_ADJUST);
   const t = useTransportText();
   const customers = useCustomers(true);
   const carriers = useCarriers(true);
@@ -523,12 +525,14 @@ export function ChargesTab({ onOpenTrip }: { onOpenTrip: (id: string) => void })
             title: t("status"),
             width: 150,
             render: (_, c) =>
-              c.status === "PENDING" ? (
-                <Button disabled={!canWrite} size="small" type="link" onClick={() => setAdjusting(c)}>
+              c.status !== "PENDING" ? (
+                <Tag color="green">{t("CONFIRMED")}</Tag>
+              ) : canAdjust ? (
+                <Button size="small" type="link" onClick={() => setAdjusting(c)}>
                   {t("adjust")}
                 </Button>
               ) : (
-                <Tag color="green">{t("CONFIRMED")}</Tag>
+                <Tag>{t("PENDING")}</Tag>
               ),
           },
         ]}

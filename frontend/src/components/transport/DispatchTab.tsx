@@ -276,6 +276,7 @@ function TripModal({
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [openTrips, setOpenTrips] = useState<TransportTrip[]>([]);
+  const [activeTrips, setActiveTrips] = useState<TransportTrip[]>([]);
   const [driverId, setDriverId] = useState<string>();
   const [vehicleId, setVehicleId] = useState<string>();
   const [tripId, setTripId] = useState<string>();
@@ -285,12 +286,17 @@ function TripModal({
     Promise.all([
       carriersApi.listDrivers(carrierId),
       carriersApi.listVehicles(carrierId),
-      transportApi.trips({ status: "PLANNED,LOADING", pageSize: 200 }),
+      transportApi.trips({ status: "PLANNED,LOADING,IN_TRANSIT", pageSize: 200 }),
     ])
       .then(([d, v, trips]) => {
         setDrivers(d);
         setVehicles(v.filter((x) => x.towType === towType));
-        setOpenTrips(trips.items.filter((x) => x.carrier_id === carrierId && x.tow_type === towType));
+        setActiveTrips(trips.items);
+        setOpenTrips(
+          trips.items.filter(
+            (x) => x.status !== "IN_TRANSIT" && x.carrier_id === carrierId && x.tow_type === towType,
+          ),
+        );
       })
       .catch(notifyError);
   }, [carrierId, towType]);
@@ -300,6 +306,11 @@ function TripModal({
   const target = openTrips.find((x) => x.id === tripId);
   const room = target ? target.capacity - (target.line_count ?? 0) : null;
   const over = mode === "new" ? capacity !== null && lines.length > capacity : room !== null && lines.length > room;
+  // 允许同一拖车提前排多趟，只提示；真正的拦截在装车时（后端校验未签收车辆）
+  const busyTrips =
+    mode === "new" && vehicleId
+      ? activeTrips.filter((x) => x.vehicle_id === vehicleId && (x.loaded_count ?? 0) > (x.delivered_count ?? 0))
+      : [];
 
   const submit = async () => {
     setBusy(true);
@@ -374,6 +385,9 @@ function TripModal({
         )}
         {over && (
           <Alert type="error" showIcon message={t("overCapacity", { cap: mode === "new" ? (capacity ?? 0) : (target?.capacity ?? 0) })} />
+        )}
+        {busyTrips.length > 0 && (
+          <Alert type="warning" showIcon message={t("trailerBusy", { trips: busyTrips.map((x) => x.code).join("、") })} />
         )}
       </Space>
     </Modal>

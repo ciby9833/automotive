@@ -52,6 +52,7 @@ export default function CustomersPage() {
   const onCreate = async (values: {
     organizationId: string;
     name: string;
+    code?: string;
     contactName?: string;
     contactPhone?: string;
     email?: string;
@@ -71,6 +72,7 @@ export default function CustomersPage() {
     setEditing(c);
     editForm.setFieldsValue({
       name: c.name,
+      code: c.code,
       contactName: c.contactName,
       contactPhone: c.contactPhone,
       email: c.email,
@@ -83,6 +85,7 @@ export default function CustomersPage() {
     try {
       await customersApi.update(editing.id, {
         name: values.name,
+        code: values.code?.trim() || null,
         contactName: values.contactName || null,
         contactPhone: values.contactPhone || null,
         email: values.email || null,
@@ -164,6 +167,7 @@ export default function CustomersPage() {
               </Space>
             ),
           },
+          { title: t('customers.code'), dataIndex: 'code', width: 120, render: (v: string | null) => v || '-' },
           { title: t('customers.contactName'), dataIndex: 'contactName' },
           { title: t('customers.contactPhone'), dataIndex: 'contactPhone' },
           { title: t('customers.email'), dataIndex: 'email' },
@@ -228,6 +232,9 @@ export default function CustomersPage() {
           <Form.Item label={t('customers.name')} name="name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
+          <Form.Item label={t('customers.code')} name="code" extra={t('customers.codeHint')}>
+            <Input />
+          </Form.Item>
           <Form.Item label={t('customers.contactName')} name="contactName">
             <Input />
           </Form.Item>
@@ -261,6 +268,9 @@ export default function CustomersPage() {
           </Form.Item>
           <Form.Item label={t('customers.name')} name="name" rules={[{ required: true }]}>
             <Input placeholder={t('customers.namePlaceholder')} />
+          </Form.Item>
+          <Form.Item label={t('customers.code')} name="code" extra={t('customers.codeHint')}>
+            <Input />
           </Form.Item>
           <Form.Item label={t('customers.contactName')} name="contactName">
             <Input />

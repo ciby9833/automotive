@@ -9,6 +9,12 @@ export class UpdateCustomerDto {
   @MaxLength(120)
   name?: string;
 
+  @ApiProperty({ required: false, nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  code?: string | null;
+
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()

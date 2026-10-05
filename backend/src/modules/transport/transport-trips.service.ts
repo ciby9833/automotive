@@ -9,6 +9,7 @@ import { EntityManager } from 'typeorm';
 import { Actor, TransportAccess } from './transport.access';
 import {
   CreateTripDto,
+  ForceStatusDto,
   PickupScanDto,
   RecordExceptionDto,
   RemoveTripLinesDto,
@@ -298,6 +299,7 @@ export class TransportTripsService {
     return this.access.tx(async (m) => {
       const trip = await this.access.trip(m, a, tripId, 'EXECUTE', true);
       this.requireLoadable(trip);
+      await this.assertTrailerFree(m, trip);
       const vin = normalizeTransportVin(d.vin);
       const lines = await m.query<LineRow[]>(
         `SELECT * FROM transport_lines WHERE trip_id = $1 AND status IN ('DISPATCHED','PICKED_UP')
@@ -420,6 +422,89 @@ export class TransportTripsService {
       await this.completeIfDone(m, a, trip);
       await this.orders.refreshOrders(m, [line.order_id]);
       return { result: 'DELIVERED', line: await this.lineView(m, line.id) };
+    });
+  }
+
+  /**
+   * 强制提货：司机没用 App 时由内部人员补录。只能选“待提货”的明细，必须有 VIN、必须写原因。
+   */
+  async forcePickup(a: Actor, tripId: string, d: ForceStatusDto) {
+    this.access.requireInternal(a);
+    const reason = d.reason.trim();
+    if (!reason) throw new BadRequestException('请填写原因');
+    return this.access.tx(async (m) => {
+      const trip = await this.access.trip(m, a, tripId, 'MANAGE', true);
+      this.requireLoadable(trip);
+      await this.assertTrailerFree(m, trip);
+      const lines = await m.query<LineRow[]>(
+        `SELECT * FROM transport_lines WHERE trip_id = $1 AND id = ANY($2::uuid[]) ORDER BY line_no FOR UPDATE`,
+        [tripId, d.lineIds],
+      );
+      if (lines.length !== new Set(d.lineIds).size) throw new NotFoundException('部分明细不在本趟次');
+      for (const line of lines) {
+        if (line.status !== 'DISPATCHED')
+          throw new BadRequestException(`第 ${line.line_no} 行不是待提货状态`);
+        if (!line.vin)
+          throw new BadRequestException(`第 ${line.line_no} 行还没有 VIN，请先补 VIN 再强制提货`);
+      }
+      for (const line of lines) {
+        await this.access.assertNotInYard(m, line.vin!);
+        await this.pick(m, a, trip, line, line.vin!, d.photoKeys ?? [], null, null, a.user.userId);
+        await this.access.event(m, a, {
+          organizationId: trip.organization_id,
+          orderId: line.order_id,
+          tripId,
+          lineId: line.id,
+          vin: line.vin,
+          action: 'LINE_FORCE_PICKED_UP',
+          reason,
+          payload: { photos: d.photoKeys ?? [] },
+        });
+      }
+      return { updated: lines.length };
+    });
+  }
+
+  /** 强制签收：只能选“运输中”的明细，必须写原因；费用照常生成。 */
+  async forceSign(a: Actor, tripId: string, d: ForceStatusDto) {
+    this.access.requireInternal(a);
+    const reason = d.reason.trim();
+    if (!reason) throw new BadRequestException('请填写原因');
+    return this.access.tx(async (m) => {
+      const trip = await this.access.trip(m, a, tripId, 'MANAGE', true);
+      if (trip.status !== 'IN_TRANSIT') throw new BadRequestException('趟次还没发车');
+      const lines = await m.query<LineRow[]>(
+        `SELECT * FROM transport_lines WHERE trip_id = $1 AND id = ANY($2::uuid[]) ORDER BY line_no FOR UPDATE`,
+        [tripId, d.lineIds],
+      );
+      if (lines.length !== new Set(d.lineIds).size) throw new NotFoundException('部分明细不在本趟次');
+      for (const line of lines)
+        if (line.status !== 'IN_TRANSIT')
+          throw new BadRequestException(`第 ${line.line_no} 行不是运输中状态`);
+      const orderIds: string[] = [];
+      for (const line of lines) {
+        const [saved] = await this.access.rows<LineRow>(
+          m,
+          `UPDATE transport_lines SET status = 'DELIVERED', delivered_at = now(), delivered_by = $1,
+             delivery_photos = $2, updated_at = now() WHERE id = $3 RETURNING *`,
+          [a.user.userId, JSON.stringify(d.photoKeys ?? []), line.id],
+        );
+        await this.finance.createChargesForLine(m, saved, trip);
+        await this.access.event(m, a, {
+          organizationId: trip.organization_id,
+          orderId: line.order_id,
+          tripId,
+          lineId: line.id,
+          vin: line.vin,
+          action: 'LINE_FORCE_DELIVERED',
+          reason,
+          payload: { photos: d.photoKeys ?? [] },
+        });
+        orderIds.push(line.order_id);
+      }
+      await this.completeIfDone(m, a, trip);
+      await this.orders.refreshOrders(m, orderIds);
+      return { updated: lines.length };
     });
   }
 
@@ -624,6 +709,25 @@ export class TransportTripsService {
   }
 
   // ------------------------------------------------------------------ 工具
+  /**
+   * 09.30 反馈：允许同一拖车/司机提前排多趟，但同一辆拖车只要还有“已装车未签收”的车，
+   * 就不能给别的趟次装车。派车时不拦（界面给黄色提示），装车时在这里真正拦住。
+   */
+  private async assertTrailerFree(m: EntityManager, trip: TripRow) {
+    const [busy] = await m.query<{ code: string; loaded: number }[]>(
+      `SELECT t.code, count(l.id)::int loaded
+       FROM transport_trips t JOIN transport_lines l ON l.trip_id = t.id
+       WHERE t.vehicle_id = $1 AND t.id <> $2 AND t.status IN ('LOADING','IN_TRANSIT')
+         AND l.status IN ('PICKED_UP','IN_TRANSIT')
+       GROUP BY t.code LIMIT 1`,
+      [trip.vehicle_id, trip.id],
+    );
+    if (busy)
+      throw new ConflictException(
+        `该拖车在趟次 ${busy.code} 还有 ${busy.loaded} 台已装车未签收的车辆，签收完成后才能装本趟`,
+      );
+  }
+
   private requireLoadable(trip: TripRow) {
     if (!LOADABLE.includes(trip.status)) throw new BadRequestException('该趟次已发车或已结束，不能再装车');
   }

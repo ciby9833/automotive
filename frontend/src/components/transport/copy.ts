@@ -5,6 +5,7 @@ const copy = {
   tabDispatch: ["调度", "Dispatch", "Penugasan"],
   tabTrips: ["趟次", "Trips", "Trip"],
   tabExceptions: ["异常", "Exceptions", "Pengecualian"],
+  tabLines: ["运输明细", "Vehicle list", "Daftar kendaraan"],
   tabTariffs: ["报价", "Tariffs", "Tarif"],
   tabCharges: ["费用", "Charges", "Biaya"],
 
@@ -75,7 +76,8 @@ const copy = {
   row: ["行", "Row", "Baris"],
   withVin: ["有 VIN", "With VIN", "Ber-VIN"],
   preAllocated: ["已指定物流商", "Vendor set", "Vendor ditetapkan"],
-  importHint: ["一行一台车；没有 VIN 时填 Quantity。Origin、Dealer 填客户地址簿编码，Vendor 填物流商简称。", "One row per car; use Quantity when there is no VIN. Origin and Dealer use address-book codes; Vendor uses the carrier short name.", "Satu baris satu unit; isi Quantity jika tanpa VIN. Origin dan Dealer memakai kode buku alamat; Vendor memakai nama singkat."],
+  importHint: ["一行一台车；没有 VIN 时填 Quantity。Customer 填客户编号或名称，同一文件可以多个客户、多个订单号；Origin、Dealer 填客户地址簿编码，Vendor 填物流商简称。", "One row per car; use Quantity when there is no VIN. Customer takes a customer code or name, so one file can hold several customers and order numbers. Origin and Dealer use address-book codes; Vendor uses the carrier short name.", "Satu baris satu unit; isi Quantity jika tanpa VIN. Customer memakai kode atau nama pelanggan, jadi satu file bisa berisi beberapa pelanggan dan nomor pesanan. Origin dan Dealer memakai kode buku alamat; Vendor memakai nama singkat."],
+  defaultCustomer: ["默认客户（Customer 列为空时用）", "Default customer (when Customer is blank)", "Pelanggan default (jika Customer kosong)"],
 
   // 调度
   allocate: ["分配物流商", "Assign vendor", "Tetapkan vendor"],
@@ -108,8 +110,30 @@ const copy = {
   recordException: ["登记货损/拒收", "Record damage / refusal", "Catat kerusakan / penolakan"],
   closeLine: ["关闭（拒收/退回）", "Close (refused / returned)", "Tutup (ditolak / kembali)"],
   picked: ["{vin} 已提货", "{vin} picked up", "{vin} diambil"],
+  forcePickup: ["代录提货", "Record pickup for driver", "Catat ambil untuk sopir"],
+  forceSign: ["代录签收", "Record delivery for driver", "Catat terima untuk sopir"],
+  forceHint: ["司机无法扫码时由内勤代录，必须填原因，可附现场照片", "For when the driver cannot scan: enter a reason and optionally attach photos", "Untuk sopir yang tidak bisa memindai: isi alasan, foto opsional"],
+  forcePickupEmpty: ["没有可代录的车：只能选待提货且已有 VIN 的车，先补 VIN", "Nothing to record: only cars that are to pick up and already have a VIN. Add the VIN first", "Tidak ada unit: hanya unit menunggu ambil yang sudah ber-VIN. Isi VIN dulu"],
+  forceSignEmpty: ["没有在途的车可以代录签收", "No cars in transit to record", "Tidak ada unit dalam perjalanan"],
+  photos: ["现场照片", "Photos", "Foto"],
+  forceDone: ["已代录 {n} 台", "{n} cars recorded", "{n} unit tercatat"],
+  trailerBusy: ["该拖车还有未签收的车：{trips}。可以先排趟，但装车时要等上一趟签收完", "This trailer still has unsigned cars on {trips}. You can plan the trip now, but loading waits until those are signed", "Trailer ini masih punya unit belum diterima di {trips}. Trip bisa dibuat, tetapi pemuatan menunggu unit itu diterima"],
   signedOk: ["{vin} 已签收", "{vin} delivered", "{vin} diterima"],
   unplannedScanned: ["{vin} 不在计划内，已提交内部处理", "{vin} is not planned; sent for review", "{vin} di luar rencana; dikirim untuk ditinjau"],
+
+  // 运输明细
+  linesHint: ["按台查全流程明细，可按日期类型筛选后导出 Excel", "Every car across all statuses. Filter by a date type, then export to Excel", "Semua unit di semua status. Saring menurut jenis tanggal, lalu ekspor ke Excel"],
+  dateField: ["日期类型", "Date type", "Jenis tanggal"],
+  datePlannedPickup: ["计划提货日", "Planned pickup", "Rencana ambil"],
+  datePlannedDelivery: ["计划到达日", "Planned delivery", "Rencana tiba"],
+  datePickedUp: ["实际提货日", "Actual pickup", "Ambil aktual"],
+  dateDelivered: ["实际签收日", "Actual delivery", "Terima aktual"],
+  dateRange: ["日期范围", "Date range", "Rentang tanggal"],
+  export: ["导出 Excel", "Export Excel", "Ekspor Excel"],
+  exportEmpty: ["当前筛选没有数据", "Nothing to export", "Tidak ada data"],
+  exportDone: ["已导出 {n} 台", "Exported {n} cars", "{n} unit diekspor"],
+  pickedUpAt: ["实际提货", "Picked up at", "Waktu ambil"],
+  deliveredAt: ["实际签收", "Delivered at", "Waktu terima"],
 
   // 异常
   exceptionType: ["类型", "Type", "Jenis"],
@@ -186,6 +210,8 @@ const copy = {
   LINE_ALLOCATED: ["分配物流商", "Vendor assigned", "Vendor ditetapkan"],
   LINE_DISPATCHED: ["派车", "Dispatched", "Ditugaskan"],
   LINE_PICKED_UP: ["提货", "Picked up", "Diambil"],
+  LINE_FORCE_PICKED_UP: ["内勤代录提货", "Pickup recorded by staff", "Ambil dicatat staf"],
+  LINE_FORCE_DELIVERED: ["内勤代录签收", "Delivery recorded by staff", "Terima dicatat staf"],
   LINE_NOT_LOADED: ["发车时未装，退回待派车", "Not loaded; back to pool", "Tidak dimuat; kembali ke antrean"],
   LINE_REMOVED_FROM_TRIP: ["移出趟次", "Removed from trip", "Dikeluarkan dari trip"],
   LINE_DELIVERED: ["签收", "Delivered", "Diterima"],

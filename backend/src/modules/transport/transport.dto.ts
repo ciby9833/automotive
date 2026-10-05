@@ -49,6 +49,8 @@ export class CreateTransportOrderDto {
 /** Excel 原始行：地点、承运商按编码/简称匹配，由后端统一校验并逐行报错。 */
 export class TransportImportRowDto {
   @IsInt() @Min(1) row: number;
+  /** 客户编号（优先）或名称；留空时用界面上选的默认客户 */
+  @IsOptional() @IsString() @MaxLength(120) customer?: string;
   @IsString() @MaxLength(120) customerRequestNo: string;
   @IsOptional() @IsString() @MaxLength(32) vin?: string;
   @IsOptional() @IsString() @MaxLength(10) quantity?: string;
@@ -65,7 +67,8 @@ export class TransportImportRowDto {
 }
 
 export class ImportTransportDto {
-  @IsUUID() customerId: string;
+  /** 默认客户：行里没填 Customer 时用它；整个文件都填了客户则可以不传 */
+  @IsOptional() @IsUUID() customerId?: string;
   @IsBoolean() dryRun: boolean;
   @IsArray()
   @ArrayMinSize(1)
@@ -118,6 +121,16 @@ export class CancelLinesDto extends LineIdsDto {
 
 export class RemoveTripLinesDto extends LineIdsDto {
   @IsOptional() @IsString() @MaxLength(1000) reason?: string;
+}
+
+/** 内部人员补录运输状态：强制提货 / 强制签收，可附图片 */
+export class ForceStatusDto extends LineIdsDto {
+  @IsString() @MinLength(1) @MaxLength(1000) reason: string;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  photoKeys?: string[];
 }
 
 export class CreateTripDto extends LineIdsDto {

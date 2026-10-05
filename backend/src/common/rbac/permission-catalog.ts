@@ -143,6 +143,11 @@ export const ACTIONS: Record<P, ActionDefinition> = {
     ],
   },
   [P.TRANSPORT_FINANCE]: { types: org, requires: [P.TRANSPORT_FINANCE_VIEW] },
+  // 手动改价只给总部（IT）管理员，机构财务只能按价表重算
+  [P.TRANSPORT_FINANCE_ADJUST]: {
+    types: [R.HQ_ADMIN],
+    requires: [P.TRANSPORT_FINANCE_VIEW],
+  },
   [P.APP_RELEASE_VIEW]: { types: [R.HQ_ADMIN] },
   [P.APP_RELEASE_MANAGE]: {
     types: [R.HQ_ADMIN],
@@ -403,7 +408,7 @@ export const MENUS: MenuDefinition[] = [
     'nav.transportFinance',
     hqOrg,
     [P.TRANSPORT_FINANCE_VIEW],
-    [P.TRANSPORT_FINANCE],
+    [P.TRANSPORT_FINANCE, P.TRANSPORT_FINANCE_ADJUST],
   ),
   menu(
     'customers',

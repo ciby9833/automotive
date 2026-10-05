@@ -9,6 +9,7 @@ import { OrdersTab } from "@/components/transport/OrdersTab";
 import { DispatchTab } from "@/components/transport/DispatchTab";
 import { TripDrawer, TripsTab } from "@/components/transport/TripsTab";
 import { ExceptionsTab } from "@/components/transport/ExceptionsTab";
+import { LinesTab } from "@/components/transport/LinesTab";
 import { useTransportText } from "@/components/transport/shared";
 
 export default function TransportPage() {
@@ -48,6 +49,11 @@ function TransportWorkspace({ role }: { role?: string }) {
       key: "trips",
       label: t("tabTrips"),
       children: <TripsTab key={version} internal={internal} canManage={canManage} onOpenTrip={setTripId} />,
+    },
+    internal && {
+      key: "lines",
+      label: t("tabLines"),
+      children: <LinesTab key={version} onOpenTrip={setTripId} />,
     },
     internal && {
       key: "exceptions",

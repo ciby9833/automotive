@@ -665,6 +665,8 @@
     "addCustomer": "Add Customer",
     "name": "Customer Name",
     "namePlaceholder": "e.g. BYD",
+    "code": "Customer code",
+    "codeHint": "Optional. Transport Excel imports match customers by this code",
     "contactName": "Contact",
     "contactPhone": "Phone",
     "email": "Email",

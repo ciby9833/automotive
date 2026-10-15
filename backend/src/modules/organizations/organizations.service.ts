@@ -76,6 +76,7 @@ export class OrganizationsService {
           code: dto.code.trim().toUpperCase(),
           name: dto.name.trim(),
           defaultCurrency: dto.defaultCurrency,
+          countryCode: dto.countryCode ?? null,
           parentId: dto.parentId,
         }),
       );
@@ -153,6 +154,15 @@ export class OrganizationsService {
         await this.assertUnused(manager, id, true);
       } else if (currencyChanged) {
         await this.assertUnused(manager, id, false);
+      }
+      if (dto.countryCode !== undefined && dto.countryCode !== org.countryCode) {
+        // 门店已经挂了这个国家的区域，换国家会让区域和报价对不上
+        const [{ used }] = await manager.query<{ used: number }[]>(
+          `SELECT count(*)::int used FROM customer_addresses a JOIN customers c ON c.id = a.customer_id
+           WHERE c.organization_id = $1 AND a.region_id IS NOT NULL`,
+          [id],
+        );
+        if (used) throw new BadRequestException(`该机构已有 ${used} 个客户地点设置了区域，不能更换国家`);
       }
       Object.assign(org, dto);
       await manager.save(org);

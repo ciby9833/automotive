@@ -23,6 +23,7 @@ import { ScopeModule } from './common/scope/scope.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { AppReleasesModule } from './modules/app-releases/app-releases.module';
 import { TransportModule } from './modules/transport/transport.module';
+import { RegionsModule } from './modules/regions/regions.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { TransportModule } from './modules/transport/transport.module';
     YardsModule,
     CarriersModule,
     CustomersModule,
+    RegionsModule,
     WaybillsModule,
     FinanceModule,
     TrackingModule,

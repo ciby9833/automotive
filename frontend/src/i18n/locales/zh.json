@@ -647,7 +647,7 @@
     "plateNumber": "车牌号",
     "towType": "拖车类型",
     "capacity": "载量（台）",
-    "capacityHint": "留空按类型默认：CC 6、TANSYA 4、TOWING 1",
+    "capacityHint": "留空按类型默认：CC 6、TANSYA 4、DD 3、TOWING 1",
     "vehicleCreated": "车辆已新增",
     "vehicleUpdated": "车辆已更新",
     "vehicleDisabled": "车辆已禁用",
@@ -1647,5 +1647,11 @@
     },
     "correctionFailed": "库存纠正失败",
     "correctionSaved": "库存纠正已保存"
+  },
+  "regions": {
+    "custom": "自定义",
+    "noCountry": "所属机构未设置国家，请先在机构管理里设置",
+    "country": "所在国家",
+    "countryHint": "决定客户地点和运输报价可选的行政区划"
   }
 }

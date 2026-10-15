@@ -183,5 +183,6 @@ export function addressOptions(
 export const TOW_OPTIONS = [
   { value: "CC", label: "CC · 6" },
   { value: "TANSYA", label: "TANSYA · 4" },
+  { value: "DD", label: "DD · 3" },
   { value: "TOWING", label: "TOWING · 1" },
 ];

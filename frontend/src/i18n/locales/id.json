@@ -647,7 +647,7 @@
     "plateNumber": "No. Plat",
     "towType": "Jenis Tow",
     "capacity": "Kapasitas (unit)",
-    "capacityHint": "Kosong = default per tipe: CC 6, TANSYA 4, TOWING 1",
+    "capacityHint": "Kosong = default per tipe: CC 6, TANSYA 4, DD 3, TOWING 1",
     "vehicleCreated": "Kendaraan ditambahkan",
     "vehicleUpdated": "Kendaraan diperbarui",
     "vehicleDisabled": "Kendaraan dinonaktifkan",
@@ -1647,5 +1647,11 @@
     },
     "correctionFailed": "Koreksi inventaris gagal",
     "correctionSaved": "Koreksi inventaris tersimpan"
+  },
+  "regions": {
+    "custom": "kustom",
+    "noCountry": "Organisasi belum punya negara. Atur dulu di Organisasi",
+    "country": "Negara",
+    "countryHint": "Menentukan wilayah administratif untuk lokasi pelanggan dan tarif transportasi"
   }
 }

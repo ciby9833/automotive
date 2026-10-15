@@ -9,6 +9,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   ValidateNested,
 } from 'class-validator';
@@ -47,11 +48,20 @@ export class CreateCustomerAddressDto {
 
   @ApiProperty({
     required: false,
-    description: '地理大区 (GREATER JAKARTA 等)',
+    nullable: true,
+    description: '区域 id（标准行政区划）；传 null 清空',
+  })
+  @IsOptional()
+  @IsUUID()
+  regionId?: string | null;
+
+  @ApiProperty({
+    required: false,
+    description: '区域文字（Excel 导入用）：省/县/市的标准名称或代码，后端对到 regionId；同时传 regionId 时以 regionId 为准',
   })
   @IsOptional()
   @IsString()
-  @MaxLength(120)
+  @MaxLength(150)
   region?: string;
 
   @ApiProperty({ required: false })

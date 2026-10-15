@@ -29,7 +29,11 @@ export class CustomerAddress extends BaseEntity {
   @Column({ type: 'varchar', nullable: true })
   code: string | null;
 
-  // 地理大区 (GREATER JAKARTA / SUMATERA 等)，用于开单时按区聚合
+  // 所属区域：各国标准行政区划（regions），运输报价“区域价”按它查找
+  @Column({ name: 'region_id', type: 'uuid', nullable: true })
+  regionId: string | null;
+
+  // 区域名称：由后端按 regionId 写入，仅用于显示（老运单/出库页面直接读它）
   @Column({ type: 'varchar', nullable: true })
   region: string | null;
 

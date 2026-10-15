@@ -204,6 +204,7 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
       </Space>
       <LineTable
         lines={rows}
+        loading={loading}
         onOpenTrip={onOpenTrip}
         pagination={{ current: page, pageSize: PAGE_SIZE, total, onChange: setPage, showSizeChanger: false }}
         extraColumns={[

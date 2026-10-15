@@ -37,7 +37,9 @@ import { uploadFile } from '@/lib/api/storage';
 import { Permission, usePermission } from '@/lib/auth/permissions';
 import { LineTable, ReasonModal } from "./OrdersTab";
 import { ResolveModal } from "./ExceptionsTab";
-import { Place, TripStatusTag, Vin, fmtTime, notifyError, useTransportText } from "./shared";
+import { CarrierChangeModal } from "./DispatchModals";
+import { useAuthStore } from "@/lib/auth/store";
+import { Place, TripStatusTag, Vin, fmtTime, notifyError, useCarriers, useTransportText } from "./shared";
 
 interface Props {
   internal: boolean;
@@ -125,7 +127,7 @@ export function TripsTab({ onOpenTrip }: Props) {
             render: (_, r) => (
               <Space direction="vertical" size={0}>
                 <span>
-                  {r.plate_number} <Tag>{r.tow_type}</Tag>
+                  {r.driver_id ? r.plate_number : <Tag color="orange">{t("pendingAssign")}</Tag>} <Tag>{r.tow_type}</Tag>
                 </span>
                 <Typography.Text type="secondary">{r.driver_name}</Typography.Text>
               </Space>
@@ -191,6 +193,9 @@ export function TripDrawer({
   const [exceptionOpen, setExceptionOpen] = useState(false);
   const [resolving, setResolving] = useState<TransportException | null>(null);
   const [forcing, setForcing] = useState<"pickup" | "sign" | null>(null);
+  const [carrierChange, setCarrierChange] = useState<"assign" | "reassign" | "correct" | null>(null);
+  const ownCarrierId = useAuthStore((s) => s.externalContext?.carrierId ?? null);
+  const carriers = useCarriers(internal);
 
   const load = useCallback(async () => {
     try {
@@ -209,6 +214,8 @@ export function TripDrawer({
 
   const trip = detail?.trip;
   const loadable = trip && ["PLANNED", "LOADING"].includes(trip.status);
+  // 按组确认生成的趟次先只有物流商，指派司机和拖车后才能提货
+  const unassigned = !!trip && !trip.driver_id;
   const signing = trip?.status === "IN_TRANSIT";
   const openUnplanned = detail?.exceptions.filter((e) => e.type === "UNPLANNED_VIN" && e.status === "OPEN") ?? [];
   const notLoaded = detail?.lines.filter((l) => l.status === "DISPATCHED").length ?? 0;
@@ -275,11 +282,39 @@ export function TripDrawer({
       {trip && detail && (
         <Space direction="vertical" size={16} style={{ width: "100%" }}>
           <Descriptions size="small" bordered column={4}>
+            <Descriptions.Item label={t("carrier")} span={4}>
+              <Space>
+                {trip.carrier_name}
+                {/* 提货前可直接更换；提货后只有内部能“更正”，会重算应付 */}
+                {trip.status === "PLANNED" && canManage && (
+                  <Button size="small" type="link" onClick={() => setCarrierChange("reassign")}>
+                    {t("changeCarrier")}
+                  </Button>
+                )}
+                {internal && canDispatch && ["LOADING", "IN_TRANSIT", "COMPLETED"].includes(trip.status) && (
+                  <Button size="small" type="link" onClick={() => setCarrierChange("correct")}>
+                    {t("correctCarrier")}
+                  </Button>
+                )}
+              </Space>
+            </Descriptions.Item>
             <Descriptions.Item label={t("trailer")}>
-              {trip.plate_number} <Tag>{trip.tow_type}</Tag>
+              {unassigned ? (
+                <Space size={4}>
+                  <Tag color="orange">{t("pendingAssign")}</Tag>
+                  {trip.status === "PLANNED" && canManage && (
+                    <Button size="small" type="link" onClick={() => setCarrierChange("assign")}>
+                      {t("assignVehicles")}
+                    </Button>
+                  )}
+                </Space>
+              ) : (
+                trip.plate_number
+              )}{" "}
+              <Tag>{trip.tow_type}</Tag>
             </Descriptions.Item>
             <Descriptions.Item label={t("driver")}>
-              {trip.driver_name} {trip.driver_phone ?? ""}
+              {unassigned ? "-" : `${trip.driver_name ?? ""} ${trip.driver_phone ?? ""}`}
             </Descriptions.Item>
             <Descriptions.Item label={t("loaded")}>
               {loadedCount} / {trip.capacity}
@@ -303,12 +338,13 @@ export function TripDrawer({
                   placeholder={t("vinPlaceholder")}
                   value={vin}
                   disabled={busy}
-                  hidden={!canExecute}
+                  hidden={!canExecute || unassigned}
                   onChange={(e) => setVin(e.target.value.toUpperCase())}
                   onPressEnter={() => void scan(vin)}
                   addonBefore={signing ? t("scanSign") : t("scanPickup")}
                 />
-                {loadable && canExecute && (
+                {loadable && unassigned && <Typography.Text type="warning">{t("assignFirst")}</Typography.Text>}
+                {loadable && canExecute && !unassigned && (
                   <Popconfirm
                     title={t("departConfirm", { n: notLoaded })}
                     onConfirm={depart}
@@ -330,7 +366,7 @@ export function TripDrawer({
                   </>
                 )}
                 {canExecute && <Button onClick={() => setExceptionOpen(true)}>{t("recordException")}</Button>}
-                {internal && canDispatch && loadable && (
+                {internal && canDispatch && loadable && !unassigned && (
                   <Button onClick={() => setForcing("pickup")}>{t("forcePickup")}</Button>
                 )}
                 {internal && canDispatch && signing && (
@@ -581,6 +617,23 @@ export function TripDrawer({
           onClose={() => setForcing(null)}
           onDone={() => {
             setForcing(null);
+            void refresh();
+          }}
+        />
+      )}
+      {carrierChange && trip && (
+        <CarrierChangeModal
+          trip={trip}
+          mode={carrierChange}
+          ownCarrierId={internal ? null : ownCarrierId}
+          carriers={
+            internal
+              ? carriers.map((c) => ({ value: c.id, label: c.name }))
+              : [{ value: trip.carrier_id, label: trip.carrier_name }]
+          }
+          onClose={() => setCarrierChange(null)}
+          onDone={() => {
+            setCarrierChange(null);
             void refresh();
           }}
         />

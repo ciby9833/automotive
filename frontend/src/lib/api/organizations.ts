@@ -7,6 +7,8 @@ export interface Organization {
   code: string;
   name: string;
   defaultCurrency: Currency;
+  /** 所在国家（ISO 3166-1），决定客户地点与运输报价可选的行政区划 */
+  countryCode: string | null;
   isActive: boolean;
   parentId: string | null;
   operatingPolicy?: OrganizationOperatingPolicy;
@@ -33,6 +35,7 @@ export const organizationsApi = {
     code: string;
     name: string;
     defaultCurrency: Currency;
+    countryCode?: string | null;
     timezone: string;
     businessDayCutoff: string;
     parentId: string;
@@ -40,7 +43,7 @@ export const organizationsApi = {
   update: (
     id: string,
     dto: Partial<
-      Pick<Organization, "code" | "name" | "parentId" | "defaultCurrency">
+      Pick<Organization, "code" | "name" | "parentId" | "defaultCurrency" | "countryCode">
     >,
   ) => unwrap<Organization>(apiClient.patch(`/organizations/${id}`, dto)),
   setActive: (id: string, isActive: boolean) =>

@@ -2,21 +2,52 @@
 import { Permission, usePermission } from '@/lib/auth/permissions';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Form, Input, Modal, Radio, Select, Space, Typography, message } from "antd";
+import { Alert, Button, Form, Input, Modal, Radio, Segmented, Select, Space, Typography, message } from "antd";
 import { useAuthStore } from "@/lib/auth/store";
 import { carriersApi, type Driver, type Vehicle } from "@/lib/api/carriers";
-import { transportApi, type TowType, type TransportLine, type TransportTrip } from "@/lib/api/transport";
+import {
+  transportApi,
+  type TowType,
+  type TransportLine,
+  type TransportTrip,
+} from "@/lib/api/transport";
 import { LineTable } from "./OrdersTab";
+import { DEFAULT_CAPACITY } from "./DispatchModals";
+import { GroupBoard } from "./GroupBoard";
+import { AssignBoard } from "./AssignBoard";
 import { TOW_OPTIONS, notifyError, useCarriers, useCustomers, useTransportText } from "./shared";
-
-const DEFAULT_CAPACITY: Record<TowType, number> = { CC: 6, TANSYA: 4, TOWING: 1 };
 
 interface Props {
   internal: boolean;
   onOpenTrip: (tripId: string) => void;
 }
 
-export function DispatchTab({ internal, onOpenTrip }: Props) {
+/**
+ * 调度分三步视图：按组确认（只定物流商，一键生成趟次）→ 指派车辆（司机、拖车）→ 按明细（逐台处理例外情况）。
+ */
+export function DispatchTab(props: Props) {
+  const t = useTransportText();
+  const [view, setView] = useState<"group" | "assign" | "line">("group");
+  return (
+    <>
+      <Segmented
+        style={{ marginBottom: 12 }}
+        value={view}
+        onChange={(v) => setView(v as "group" | "assign" | "line")}
+        options={[
+          { value: "group", label: t("confirmGroups") },
+          { value: "assign", label: t("assignVehicles") },
+          { value: "line", label: t("byLine") },
+        ]}
+      />
+      {view === "group" && <GroupBoard internal={props.internal} onConfirmed={() => setView("assign")} />}
+      {view === "assign" && <AssignBoard onOpenTrip={props.onOpenTrip} />}
+      {view === "line" && <LinePool {...props} />}
+    </>
+  );
+}
+
+function LinePool({ internal, onOpenTrip }: Props) {
   const canDispatch = usePermission(Permission.TRANSPORT_DISPATCH);
   const t = useTransportText();
   const ownCarrierId = useAuthStore((s) => s.externalContext?.carrierId ?? null);
@@ -34,6 +65,7 @@ export function DispatchTab({ internal, onOpenTrip }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
   const [allocateOpen, setAllocateOpen] = useState(false);
   const [tripOpen, setTripOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
   const seq = useRef(0);
 
   const load = useCallback(async () => {
@@ -148,12 +180,18 @@ export function DispatchTab({ internal, onOpenTrip }: Props) {
         <Button type="primary" disabled={!canDispatch || !dispatchable} onClick={() => setTripOpen(true)}>
           {t("createTrip")}
         </Button>
+        {internal && (
+          <Button disabled={!canDispatch || !allocatable} onClick={() => setGroupOpen(true)}>
+            {t("setGroup")}
+          </Button>
+        )}
         {chosen.length > 0 && !dispatchable && chosen.every((l) => l.status === "ALLOCATED") && (
           <Typography.Text type="warning">{t("sameCarrier")}</Typography.Text>
         )}
       </Space>
       <LineTable
         lines={rows}
+        loading={loading}
         onOpenTrip={onOpenTrip}
         selection={{
           selectedRowKeys: selected,
@@ -161,6 +199,7 @@ export function DispatchTab({ internal, onOpenTrip }: Props) {
           getCheckboxProps: (l) => ({ disabled: !["UNALLOCATED", "ALLOCATED"].includes(l.status) }),
         }}
         extraColumns={[
+          { title: t("group"), dataIndex: "dispatch_group", width: 90, render: (v: string | null) => v ?? "-" },
           { title: t("orderCode"), dataIndex: "order_code", width: 140 },
           { title: t("customer"), dataIndex: "customer_name", width: 140 },
           { title: t("pickupDate"), dataIndex: "planned_pickup_date", width: 110, render: (v: string | null) => v ?? "-" },
@@ -192,6 +231,17 @@ export function DispatchTab({ internal, onOpenTrip }: Props) {
           }}
         />
       )}
+      {groupOpen && (
+        <SetGroupModal
+          lineIds={selected}
+          onClose={() => setGroupOpen(false)}
+          onDone={() => {
+            setGroupOpen(false);
+            setSelected([]);
+            void load();
+          }}
+        />
+      )}
       {tripOpen && chosen[0] && (
         <TripModal
           lines={chosen}
@@ -207,6 +257,40 @@ export function DispatchTab({ internal, onOpenTrip }: Props) {
         />
       )}
     </>
+  );
+}
+
+function SetGroupModal({ lineIds, onClose, onDone }: { lineIds: string[]; onClose: () => void; onDone: () => void }) {
+  const t = useTransportText();
+  const [group, setGroup] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      open
+      title={`${t("setGroup")} · ${t("selected", { n: lineIds.length })}`}
+      onCancel={onClose}
+      confirmLoading={busy}
+      onOk={async () => {
+        setBusy(true);
+        try {
+          await transportApi.setGroup(lineIds, group.trim());
+          message.success(t("saved"));
+          onDone();
+        } catch (e) {
+          notifyError(e);
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <Typography.Paragraph type="secondary">{t("setGroupHint")}</Typography.Paragraph>
+      <Input
+        maxLength={40}
+        placeholder={t("groupCode")}
+        value={group}
+        onChange={(e) => setGroup(e.target.value.toUpperCase())}
+      />
+    </Modal>
   );
 }
 
@@ -379,7 +463,7 @@ function TripModal({
             onChange={setTripId}
             options={openTrips.map((x) => ({
               value: x.id,
-              label: `${x.code} · ${x.plate_number} · ${x.driver_name} · ${x.line_count ?? 0}/${x.capacity}`,
+              label: `${x.code} · ${x.driver_id ? `${x.plate_number} · ${x.driver_name}` : t("pendingAssign")} · ${x.line_count ?? 0}/${x.capacity}`,
             }))}
           />
         )}

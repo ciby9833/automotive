@@ -8,4 +8,5 @@ export enum VehicleTowType {
   CC = 'CC',
   TOWING = 'TOWING',
   TANSYA = 'TANSYA',
+  DD = 'DD', // Double Drop，默认载量 3
 }

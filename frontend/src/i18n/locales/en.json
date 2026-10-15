@@ -647,7 +647,7 @@
     "plateNumber": "Plate #",
     "towType": "Tow Type",
     "capacity": "Capacity (cars)",
-    "capacityHint": "Blank = default by type: CC 6, TANSYA 4, TOWING 1",
+    "capacityHint": "Blank = default by type: CC 6, TANSYA 4, DD 3, TOWING 1",
     "vehicleCreated": "Vehicle added",
     "vehicleUpdated": "Vehicle updated",
     "vehicleDisabled": "Vehicle disabled",
@@ -1647,5 +1647,11 @@
     },
     "correctionFailed": "Inventory correction failed",
     "correctionSaved": "Inventory correction saved"
+  },
+  "regions": {
+    "custom": "custom",
+    "noCountry": "The organization has no country set. Set it in Organizations first",
+    "country": "Country",
+    "countryHint": "Determines which administrative regions customer sites and transport tariffs can use"
   }
 }

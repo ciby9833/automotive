@@ -61,6 +61,8 @@ export class TransportImportRowDto {
   @IsOptional() @IsString() @MaxLength(120) vehicleColor?: string;
   @IsOptional() @IsString() @MaxLength(30) armada?: string;
   @IsOptional() @IsString() @MaxLength(120) vendor?: string;
+  /** 派车组（CC1 / CC2 …）：同组的车同一拖车类型、同一物流商，一组一趟车 */
+  @IsOptional() @IsString() @MaxLength(40) group?: string;
   @IsOptional() @IsString() @MaxLength(20) plannedPickupDate?: string;
   @IsOptional() @IsString() @MaxLength(20) plannedDeliveryDate?: string;
   @IsOptional() @IsString() @MaxLength(1000) remark?: string;
@@ -108,6 +110,35 @@ export class LineIdsDto {
   @ArrayMaxSize(2000)
   @IsUUID('all', { each: true })
   lineIds: string[];
+}
+
+export class SetGroupDto extends LineIdsDto {
+  /** 组号（CC1 …）；空字符串表示取消分组 */
+  @IsOptional() @IsString() @MaxLength(40) group?: string;
+}
+
+/** 按组确认：只定物流商即可，司机和拖车可以之后再指派（两者要么都给，要么都不给） */
+export class BatchTripItemDto extends LineIdsDto {
+  @IsUUID() carrierId: string;
+  @IsOptional() @IsUUID() driverId?: string;
+  @IsOptional() @IsUUID() vehicleId?: string;
+}
+
+export class BatchTripsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => BatchTripItemDto)
+  items: BatchTripItemDto[];
+}
+
+/** 更换（提货前）或更正（提货后）这趟车的物流商、司机、拖车 */
+export class ReassignTripDto {
+  @IsUUID() carrierId: string;
+  @IsUUID() driverId: string;
+  @IsUUID() vehicleId: string;
+  @IsOptional() @IsString() @MaxLength(1000) reason?: string;
 }
 
 export class AllocateLinesDto extends LineIdsDto {
@@ -188,7 +219,8 @@ export class TariffDto {
   @IsOptional() @IsUUID() carrierId?: string;
   @IsUUID() originId: string;
   @IsOptional() @IsUUID() destinationId?: string;
-  @IsOptional() @IsString() @MaxLength(120) destinationRegion?: string;
+  // 门店与区域二选一：门店价优先，区域价兜底
+  @IsOptional() @IsUUID() destinationRegionId?: string;
   @IsIn(TOW_TYPES) towType: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(999999999999) price: number;
   @IsDateString() validFrom: string;

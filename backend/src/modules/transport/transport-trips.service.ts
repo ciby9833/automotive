@@ -8,16 +8,19 @@ import {
 import { EntityManager } from 'typeorm';
 import { Actor, TransportAccess } from './transport.access';
 import {
+  BatchTripsDto,
   CreateTripDto,
   ForceStatusDto,
   PickupScanDto,
   RecordExceptionDto,
+  ReassignTripDto,
   RemoveTripLinesDto,
   ResolveExceptionDto,
   SignScanDto,
 } from './transport.dto';
 import { ExceptionRow, LineRow, TripRow } from './transport.rows';
 import {
+  DEFAULT_CAPACITY,
   TowType,
   decideScan,
   normalizeTransportVin,
@@ -44,9 +47,13 @@ export class TransportTripsService {
   }
 
   // ------------------------------------------------------------------ 查询
-  async list(a: Actor, q: { status?: string; search?: string; page: number; pageSize: number }) {
+  async list(
+    a: Actor,
+    q: { status?: string; search?: string; unassigned?: boolean; page: number; pageSize: number },
+  ) {
     const args: unknown[] = [];
     const where = [this.access.tripFilter(a, 't', args)];
+    if (q.unassigned) where.push(`t.status = 'PLANNED' AND t.driver_id IS NULL`);
     if (q.status) {
       args.push(q.status.split(',').map((s) => s.trim()).filter(Boolean));
       where.push(`t.status = ANY($${args.length}::varchar[])`);
@@ -61,19 +68,23 @@ export class TransportTripsService {
     }
     const from = `FROM transport_trips t
       JOIN carriers cr ON cr.id = t.carrier_id
-      JOIN drivers d ON d.id = t.driver_id
-      JOIN carrier_vehicles v ON v.id = t.vehicle_id
+      LEFT JOIN drivers d ON d.id = t.driver_id
+      LEFT JOIN carrier_vehicles v ON v.id = t.vehicle_id
       WHERE ${where.join(' AND ')}`;
     const [{ total }] = await this.db.query<{ total: number }[]>(`SELECT count(*)::int total ${from}`, args);
     args.push(q.pageSize, (q.page - 1) * q.pageSize);
     const items = await this.db.query(
-      `SELECT t.*, cr.name carrier_name, d.name driver_name, d.phone driver_phone, v."plateNumber" plate_number,
+      // 待指派车辆的趟次司机、车牌给空串：已发布的 App 把这两个字段当非空字符串解析
+      `SELECT t.*, cr.name carrier_name, coalesce(d.name, '') driver_name, d.phone driver_phone,
+         coalesce(v."plateNumber", '') plate_number,
          (SELECT count(*)::int FROM transport_lines l WHERE l.trip_id = t.id AND l.status <> 'CANCELLED') line_count,
          (SELECT count(*)::int FROM transport_lines l WHERE l.trip_id = t.id AND l.status IN ('PICKED_UP','IN_TRANSIT','DELIVERED','CLOSED')) loaded_count,
          (SELECT count(*)::int FROM transport_lines l WHERE l.trip_id = t.id AND l.status = 'DELIVERED') delivered_count,
          (SELECT string_agg(DISTINCT a."dealerName", ' / ') FROM transport_lines l JOIN customer_addresses a ON a.id = l.origin_id WHERE l.trip_id = t.id) origins,
          (SELECT string_agg(DISTINCT a."dealerName", ' / ') FROM transport_lines l JOIN customer_addresses a ON a.id = l.destination_id WHERE l.trip_id = t.id) destinations,
-         (SELECT count(*)::int FROM transport_exceptions e WHERE e.trip_id = t.id AND e.status = 'OPEN') open_exceptions
+         (SELECT count(*)::int FROM transport_exceptions e WHERE e.trip_id = t.id AND e.status = 'OPEN') open_exceptions,
+         (SELECT string_agg(DISTINCT c.name, ' / ') FROM transport_lines l JOIN customers c ON c.id = l.customer_id WHERE l.trip_id = t.id) customers,
+         (SELECT string_agg(DISTINCT l.dispatch_group, ' / ') FROM transport_lines l WHERE l.trip_id = t.id) dispatch_groups
        ${from}
        ORDER BY CASE t.status WHEN 'LOADING' THEN 0 WHEN 'PLANNED' THEN 1 WHEN 'IN_TRANSIT' THEN 2 ELSE 3 END, t.created_at DESC
        LIMIT $${args.length - 1} OFFSET $${args.length}`,
@@ -85,9 +96,9 @@ export class TransportTripsService {
   async detail(a: Actor, id: string) {
     const trip = await this.access.trip(this.db.manager, a, id, 'READ');
     const [resources] = await this.db.query(
-      `SELECT cr.name carrier_name, cr.short_name carrier_short_name, d.name driver_name, d.phone driver_phone,
-         v."plateNumber" plate_number
-       FROM carriers cr, drivers d, carrier_vehicles v WHERE cr.id = $1 AND d.id = $2 AND v.id = $3`,
+      `SELECT cr.name carrier_name, cr.short_name carrier_short_name, coalesce(d.name, '') driver_name, d.phone driver_phone,
+         coalesce(v."plateNumber", '') plate_number
+       FROM carriers cr LEFT JOIN drivers d ON d.id = $2 LEFT JOIN carrier_vehicles v ON v.id = $3 WHERE cr.id = $1`,
       [trip.carrier_id, trip.driver_id, trip.vehicle_id],
     );
     const args: unknown[] = [id];
@@ -182,55 +193,219 @@ export class TransportTripsService {
 
   // ------------------------------------------------------------------ 派车
   async create(a: Actor, d: CreateTripDto) {
+    this.requireDispatcher(a, d.carrierId);
+    return this.access.tx((m) => this.createIn(m, a, d, false));
+  }
+
+  /**
+   * 按组派车：每组一趟，各自一个事务，互不影响；失败的返回原因，成功的照常生成。
+   * 内部人员派车时，组里还没分配或分配给别家的车会一并分配给所选物流商。
+   */
+  async createBatch(a: Actor, d: BatchTripsDto) {
+    const results: { index: number; tripId?: string; tripCode?: string; error?: string }[] = [];
+    for (const [index, item] of d.items.entries()) {
+      try {
+        this.requireDispatcher(a, item.carrierId);
+        const trip = await this.access.tx((m) => this.createIn(m, a, item, a.internal));
+        results.push({ index, tripId: trip.id, tripCode: trip.code });
+      } catch (e) {
+        results.push({ index, error: (e as Error).message });
+      }
+    }
+    return { created: results.filter((r) => r.tripId).length, results };
+  }
+
+  private requireDispatcher(a: Actor, carrierId: string) {
     if (!a.internal && !a.carrierStaff) throw new ForbiddenException('只有机构或承运商业务员可以派车');
-    if (a.carrierStaff && d.carrierId !== a.carrierId)
-      throw new ForbiddenException('只能为本承运商派车');
+    if (a.carrierStaff && carrierId !== a.carrierId) throw new ForbiddenException('只能为本承运商派车');
+  }
+
+  /** 物流商、司机、拖车三者校验：都启用，司机和拖车属于该物流商，拖车维护了类型 */
+  private async resources(m: EntityManager, a: Actor, carrierId: string, driverId: string, vehicleId: string) {
+    const [carrier] = await m.query<{ id: string; organization_id: string; status: string }[]>(
+      'SELECT id, organization_id, status FROM carriers WHERE id = $1',
+      [carrierId],
+    );
+    if (!carrier || carrier.status !== 'ACTIVE') throw new BadRequestException('物流商不存在或未启用');
+    if (a.internal) this.access.requireOrg(a, carrier.organization_id);
+    const [driver] = await m.query<{ carrier_id: string; isActive: boolean }[]>(
+      'SELECT carrier_id, "isActive" FROM drivers WHERE id = $1',
+      [driverId],
+    );
+    if (!driver || driver.carrier_id !== carrierId || !driver.isActive)
+      throw new BadRequestException('司机不属于该物流商或已停用');
+    const [vehicle] = await m.query<
+      { carrier_id: string; isActive: boolean; towType: TowType | null; capacity: number | null }[]
+    >('SELECT carrier_id, "isActive", "towType", capacity FROM carrier_vehicles WHERE id = $1', [vehicleId]);
+    if (!vehicle || vehicle.carrier_id !== carrierId || !vehicle.isActive)
+      throw new BadRequestException('拖车不属于该物流商或已停用');
+    if (!vehicle.towType) throw new BadRequestException('请先在主数据里维护该拖车的类型');
+    return { carrier, towType: vehicle.towType, capacity: vehicleCapacity(vehicle.towType, vehicle.capacity) };
+  }
+
+  private async createIn(
+    m: EntityManager,
+    a: Actor,
+    d: { lineIds: string[]; carrierId: string; driverId?: string; vehicleId?: string },
+    allocate: boolean,
+  ) {
+    // 只定物流商：拖车类型取组里车的要求，载量先按类型默认，指派拖车时再按实车校验
+    const assigned = !!(d.driverId || d.vehicleId);
+    const { carrier, towType, capacity } = assigned
+      ? await this.resources(m, a, d.carrierId, d.driverId ?? '', d.vehicleId ?? '')
+      : await this.carrierOnly(m, a, d.carrierId, d.lineIds);
+    if (allocate) await this.allocateForTrip(m, a, d.lineIds, d.carrierId, towType);
+    const lines = await this.lockAssignable(m, a, d.lineIds, d.carrierId, towType);
+    if (lines.length > capacity)
+      throw new BadRequestException(`该拖车最多装 ${capacity} 台，已选 ${lines.length} 台`);
+    const [trip] = await m.query<TripRow[]>(
+      `INSERT INTO transport_trips(code, organization_id, carrier_id, driver_id, vehicle_id, tow_type, capacity, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [transportCode('TT'), carrier.organization_id, d.carrierId, d.driverId ?? null, d.vehicleId ?? null, towType, capacity, a.user.userId],
+    );
+    await this.attach(m, a, trip, lines);
+    await this.access.event(m, a, {
+      organizationId: trip.organization_id,
+      tripId: trip.id,
+      action: 'TRIP_CREATED',
+      payload: { driverId: d.driverId ?? null, vehicleId: d.vehicleId ?? null, lines: lines.length },
+    });
+    return trip;
+  }
+
+  private async carrierOnly(m: EntityManager, a: Actor, carrierId: string, lineIds: string[]) {
+    const [carrier] = await m.query<{ id: string; organization_id: string; status: string }[]>(
+      'SELECT id, organization_id, status FROM carriers WHERE id = $1',
+      [carrierId],
+    );
+    if (!carrier || carrier.status !== 'ACTIVE') throw new BadRequestException('物流商不存在或未启用');
+    if (a.internal) this.access.requireOrg(a, carrier.organization_id);
+    const types = await m.query<{ tow_type: TowType | null }[]>(
+      'SELECT DISTINCT tow_type FROM transport_lines WHERE id = ANY($1::uuid[])',
+      [[...new Set(lineIds)]],
+    );
+    if (types.length !== 1 || !types[0].tow_type)
+      throw new BadRequestException('这组车的拖车类型不一致或没有指定，请先调整');
+    const towType = types[0].tow_type;
+    return { carrier, towType, capacity: DEFAULT_CAPACITY[towType] };
+  }
+
+  /** 没指派司机和拖车的趟次不能提货 */
+  private requireAssigned(trip: TripRow) {
+    if (!trip.driver_id || !trip.vehicle_id) throw new BadRequestException('请先为这趟车指派司机和拖车');
+  }
+
+  /** 按组派车时顺手分配：待分配 / 已分配给别家的车改派给所选物流商；拖车类型不一致的照样报错 */
+  private async allocateForTrip(m: EntityManager, a: Actor, ids: string[], carrierId: string, towType: TowType) {
+    const lines = await m.query<LineRow[]>(
+      `SELECT * FROM transport_lines WHERE id = ANY($1::uuid[]) AND status IN ('UNALLOCATED','ALLOCATED')
+         AND carrier_id IS DISTINCT FROM $2 ORDER BY id FOR UPDATE`,
+      [[...new Set(ids)], carrierId],
+    );
+    for (const l of lines) {
+      this.access.requireOrg(a, l.organization_id);
+      if (l.tow_type && l.tow_type !== towType)
+        throw new BadRequestException(`第 ${l.line_no} 行要求 ${l.tow_type}，与拖车类型 ${towType} 不一致`);
+    }
+    if (!lines.length) return;
+    await m.query(
+      `UPDATE transport_lines SET carrier_id = $1, tow_type = $2, status = 'ALLOCATED', updated_at = now()
+       WHERE id = ANY($3::uuid[])`,
+      [carrierId, towType, lines.map((l) => l.id)],
+    );
+    for (const l of lines)
+      await this.access.event(m, a, {
+        organizationId: l.organization_id,
+        orderId: l.order_id,
+        lineId: l.id,
+        vin: l.vin,
+        action: 'LINE_ALLOCATED',
+        payload: { carrierId, towType, previousCarrierId: l.carrier_id },
+      });
+  }
+
+  /**
+   * 提货前更换这趟车的物流商 / 司机 / 拖车。拖车类型必须和本趟一致，载量照常校验。
+   * 承运商业务员只能在本承运商内换司机和拖车。
+   */
+  async reassign(a: Actor, tripId: string, d: ReassignTripDto) {
     return this.access.tx(async (m) => {
-      const [carrier] = await m.query<{ id: string; organization_id: string; status: string }[]>(
-        'SELECT id, organization_id, status FROM carriers WHERE id = $1',
-        [d.carrierId],
+      const trip = await this.access.trip(m, a, tripId, 'MANAGE', true);
+      this.requireDispatcher(a, d.carrierId);
+      if (trip.status !== 'PLANNED')
+        throw new BadRequestException('已开始提货的趟次不能更换物流商；如果是录错了，请用“更正物流商”');
+      const { towType, capacity } = await this.resources(m, a, d.carrierId, d.driverId, d.vehicleId);
+      if (towType !== trip.tow_type)
+        throw new BadRequestException(`拖车类型必须与本趟一致（${trip.tow_type}），所选拖车是 ${towType}`);
+      const [{ n }] = await m.query<{ n: number }[]>(
+        `SELECT count(*)::int n FROM transport_lines WHERE trip_id = $1 AND status = 'DISPATCHED'`,
+        [tripId],
       );
-      if (!carrier || carrier.status !== 'ACTIVE') throw new BadRequestException('物流商不存在或未启用');
-      if (a.internal) this.access.requireOrg(a, carrier.organization_id);
-      const [driver] = await m.query<{ carrier_id: string; isActive: boolean }[]>(
-        'SELECT carrier_id, "isActive" FROM drivers WHERE id = $1',
-        [d.driverId],
-      );
-      if (!driver || driver.carrier_id !== d.carrierId || !driver.isActive)
-        throw new BadRequestException('司机不属于该物流商或已停用');
-      const [vehicle] = await m.query<
-        { carrier_id: string; isActive: boolean; towType: TowType | null; capacity: number | null }[]
-      >('SELECT carrier_id, "isActive", "towType", capacity FROM carrier_vehicles WHERE id = $1', [d.vehicleId]);
-      if (!vehicle || vehicle.carrier_id !== d.carrierId || !vehicle.isActive)
-        throw new BadRequestException('拖车不属于该物流商或已停用');
-      if (!vehicle.towType) throw new BadRequestException('请先在主数据里维护该拖车的类型');
-      const capacity = vehicleCapacity(vehicle.towType, vehicle.capacity);
-      const lines = await this.lockAssignable(m, a, d.lineIds, d.carrierId, vehicle.towType);
-      if (lines.length > capacity)
-        throw new BadRequestException(`该拖车最多装 ${capacity} 台，已选 ${lines.length} 台`);
-      const [trip] = await m.query<TripRow[]>(
-        `INSERT INTO transport_trips(code, organization_id, carrier_id, driver_id, vehicle_id, tow_type, capacity, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-        [
-          transportCode('TT'),
-          carrier.organization_id,
-          d.carrierId,
-          d.driverId,
-          d.vehicleId,
-          vehicle.towType,
-          capacity,
-          a.user.userId,
-        ],
-      );
-      await this.attach(m, a, trip, lines);
+      if (n > capacity) throw new BadRequestException(`所选拖车最多装 ${capacity} 台，本趟有 ${n} 台`);
+      await this.switchCarrier(m, trip, d, capacity);
       await this.access.event(m, a, {
         organizationId: trip.organization_id,
-        tripId: trip.id,
-        action: 'TRIP_CREATED',
-        payload: { driverId: d.driverId, vehicleId: d.vehicleId, lines: lines.length },
+        tripId,
+        action: trip.driver_id ? 'TRIP_REASSIGNED' : 'TRIP_VEHICLE_ASSIGNED',
+        reason: d.reason?.trim() ?? '',
+        payload: this.carrierChange(trip, d),
       });
-      return trip;
+      return { ok: true };
     });
+  }
+
+  /**
+   * 内部更正：提货后发现物流商录错了。改趟次和明细上的物流商、司机、拖车，
+   * 并把本趟未确认的应付改到新物流商、按新物流商的报价重算（手工价也会被重算）。已确认的应付不能更正。
+   */
+  async correctCarrier(a: Actor, tripId: string, d: ReassignTripDto) {
+    this.access.requireInternal(a);
+    const reason = d.reason?.trim();
+    if (!reason) throw new BadRequestException('请填写更正原因');
+    return this.access.tx(async (m) => {
+      const trip = await this.access.trip(m, a, tripId, 'MANAGE', true);
+      if (!['LOADING', 'IN_TRANSIT', 'COMPLETED'].includes(trip.status))
+        throw new BadRequestException(
+          trip.status === 'PLANNED' ? '还没提货，请直接用“更换物流商”' : '已取消的趟次不能更正',
+        );
+      const { towType } = await this.resources(m, a, d.carrierId, d.driverId, d.vehicleId);
+      if (towType !== trip.tow_type)
+        throw new BadRequestException(`拖车类型必须与本趟一致（${trip.tow_type}），所选拖车是 ${towType}`);
+      const [{ confirmed }] = await m.query<{ confirmed: number }[]>(
+        `SELECT count(*)::int confirmed FROM transport_charges WHERE trip_id = $1 AND side = 'PAYABLE' AND status = 'CONFIRMED'`,
+        [tripId],
+      );
+      if (confirmed)
+        throw new BadRequestException(`本趟已有 ${confirmed} 条应付已确认，不能更正物流商，请先联系财务处理`);
+      await this.switchCarrier(m, trip, d, trip.capacity);
+      const repriced = await this.finance.repriceTripPayables(m, a, { ...trip, carrier_id: d.carrierId }, reason);
+      await this.access.event(m, a, {
+        organizationId: trip.organization_id,
+        tripId,
+        action: 'TRIP_CARRIER_CORRECTED',
+        reason,
+        payload: { ...this.carrierChange(trip, d), repriced },
+      });
+      return { ok: true, repriced };
+    });
+  }
+
+  private async switchCarrier(m: EntityManager, trip: TripRow, d: ReassignTripDto, capacity: number) {
+    await m.query(
+      `UPDATE transport_trips SET carrier_id = $1, driver_id = $2, vehicle_id = $3, capacity = $4 WHERE id = $5`,
+      [d.carrierId, d.driverId, d.vehicleId, capacity, trip.id],
+    );
+    await m.query(
+      `UPDATE transport_lines SET carrier_id = $1, updated_at = now() WHERE trip_id = $2 AND status <> 'CANCELLED'`,
+      [d.carrierId, trip.id],
+    );
+  }
+
+  private carrierChange(trip: TripRow, d: ReassignTripDto) {
+    return {
+      from: { carrierId: trip.carrier_id, driverId: trip.driver_id, vehicleId: trip.vehicle_id },
+      to: { carrierId: d.carrierId, driverId: d.driverId, vehicleId: d.vehicleId },
+    };
   }
 
   async addLines(a: Actor, tripId: string, lineIds: string[]) {
@@ -299,6 +474,7 @@ export class TransportTripsService {
     return this.access.tx(async (m) => {
       const trip = await this.access.trip(m, a, tripId, 'EXECUTE', true);
       this.requireLoadable(trip);
+      this.requireAssigned(trip);
       await this.assertTrailerFree(m, trip);
       const vin = normalizeTransportVin(d.vin);
       const lines = await m.query<LineRow[]>(
@@ -364,6 +540,7 @@ export class TransportTripsService {
       const trip = await this.access.trip(m, a, tripId, 'EXECUTE', true);
       if (trip.status === 'IN_TRANSIT') return { ok: true, returned: 0 };
       this.requireLoadable(trip);
+      this.requireAssigned(trip);
       const [{ open }] = await m.query<{ open: number }[]>(
         `SELECT count(*)::int open FROM transport_exceptions WHERE trip_id = $1 AND type = 'UNPLANNED_VIN' AND status = 'OPEN'`,
         [tripId],
@@ -435,6 +612,7 @@ export class TransportTripsService {
     return this.access.tx(async (m) => {
       const trip = await this.access.trip(m, a, tripId, 'MANAGE', true);
       this.requireLoadable(trip);
+      this.requireAssigned(trip);
       await this.assertTrailerFree(m, trip);
       const lines = await m.query<LineRow[]>(
         `SELECT * FROM transport_lines WHERE trip_id = $1 AND id = ANY($2::uuid[]) ORDER BY line_no FOR UPDATE`,

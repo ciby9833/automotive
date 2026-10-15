@@ -2,6 +2,8 @@ import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEnum,
+  IsIn,
+  IsOptional,
   IsNotEmpty,
   IsString,
   IsUUID,
@@ -10,6 +12,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { Currency } from '../../../common/enums/currency.enum';
+import { REGION_COUNTRIES } from '../../../database/data/admin-regions';
 
 export class UpdateOrganizationDto {
   @ValidateIf((_, value) => value !== undefined)
@@ -31,6 +34,10 @@ export class UpdateOrganizationDto {
   @ValidateIf((_, value) => value !== undefined)
   @IsEnum(Currency)
   defaultCurrency?: Currency;
+
+  @IsOptional()
+  @IsIn(REGION_COUNTRIES)
+  countryCode?: string | null;
 
   @ValidateIf((_, value) => value !== undefined)
   @IsUUID()

@@ -490,7 +490,7 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
             dataIndex: 'capacity',
             width: 110,
             render: (v: number | null, r: Vehicle) =>
-              v ?? (r.towType ? { CC: 6, TANSYA: 4, TOWING: 1 }[r.towType] ?? '-' : '-'),
+              v ?? (r.towType ? { CC: 6, TANSYA: 4, DD: 3, TOWING: 1 }[r.towType] ?? '-' : '-'),
           },
           {
             title: t('carrierFleet.state'),
@@ -584,6 +584,7 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
                 { value: 'CC', label: 'CC' },
                 { value: 'TOWING', label: 'TOWING' },
                 { value: 'TANSYA', label: 'TANSYA' },
+                { value: 'DD', label: 'DD (Double Drop)' },
               ]}
             />
           </Form.Item>

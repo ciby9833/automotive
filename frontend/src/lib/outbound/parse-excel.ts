@@ -22,6 +22,10 @@ const TOW_TYPE_ALIASES: Record<string, VehicleTowType> = {
   towing: 'TOWING',
   tow: 'TOWING',
   tansya: 'TANSYA',
+  tansa: 'TANSYA',
+  dd: 'DD',
+  'double drop': 'DD',
+  doubledrop: 'DD',
 };
 
 function normalizeHeader(h: string): string {

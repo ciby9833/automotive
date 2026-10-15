@@ -24,6 +24,8 @@ import {
 import { PlusOutlined } from "@ant-design/icons";
 import dayjs, { type Dayjs } from "dayjs";
 import { transportApi, type Charge, type ChargeTotals, type Tariff, type TariffInput } from "@/lib/api/transport";
+import type { Customer } from "@/lib/api/customers";
+import { RegionSelect } from "@/components/regions/RegionSelect";
 import {
   Place,
   TOW_OPTIONS,
@@ -113,7 +115,14 @@ export function TariffsTab() {
               r.destination_id ? (
                 <Place code={r.destination_code} name={r.destination_name} />
               ) : (
-                <Tag>{r.destination_region}</Tag>
+                <span>
+                  <Tag color="blue">{r.destination_region}</Tag>
+                  {r.destination_region_parent && (
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      {r.destination_region_parent}
+                    </Typography.Text>
+                  )}
+                </span>
               ),
           },
           { title: t("towType"), dataIndex: "tow_type", width: 90 },
@@ -161,7 +170,7 @@ export function TariffsTab() {
       {editing && (
         <TariffModal
           tariff={editing === "new" ? null : editing}
-          customers={customers.map((c) => ({ value: c.id, label: c.name }))}
+          customers={customers}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -180,7 +189,7 @@ function TariffModal({
   onSaved,
 }: {
   tariff: Tariff | null;
-  customers: { value: string; label: string }[];
+  customers: Customer[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -191,7 +200,9 @@ function TariffModal({
   const customerId = Form.useWatch("customerId", form) as string | undefined;
   const destMode = Form.useWatch("destMode", form) as "store" | "region" | undefined;
   const addresses = useCustomerAddresses(customerId);
-  const regions = [...new Set(addresses.map((a) => a.region).filter(Boolean))] as string[];
+  const organizationId = customers.find((c) => c.id === customerId)?.organizationId;
+  // 没挂区域的门店吃不到区域价，提前提示
+  const storesWithoutRegion = addresses.filter((a) => (a.kind ?? "STORE") === "STORE" && !a.regionId).length;
   const [busy, setBusy] = useState(false);
 
   return (
@@ -210,20 +221,20 @@ function TariffModal({
           originId: string;
           destMode: "store" | "region";
           destinationId?: string;
-          destinationRegion?: string;
+          destinationRegionId?: string;
           towType: TariffInput["towType"];
           price: number;
           period: [Dayjs, Dayjs | null];
           remark?: string;
         };
-        const store = v.side === "RECEIVABLE" || v.destMode === "store";
+        const store = v.destMode === "store";
         const body: TariffInput = {
           side: v.side,
           customerId: v.customerId,
           carrierId: v.side === "PAYABLE" ? v.carrierId : undefined,
           originId: v.originId,
           destinationId: store ? v.destinationId : undefined,
-          destinationRegion: store ? undefined : v.destinationRegion,
+          destinationRegionId: store ? undefined : v.destinationRegionId,
           towType: v.towType,
           price: v.price,
           validFrom: v.period[0].format("YYYY-MM-DD"),
@@ -255,7 +266,7 @@ function TariffModal({
                 originId: tariff.origin_id,
                 destMode: tariff.destination_id ? "store" : "region",
                 destinationId: tariff.destination_id ?? undefined,
-                destinationRegion: tariff.destination_region ?? undefined,
+                destinationRegionId: tariff.destination_region_id ?? undefined,
                 towType: tariff.tow_type,
                 price: Number(tariff.price),
                 period: [dayjs(tariff.valid_from), tariff.valid_to ? dayjs(tariff.valid_to) : null],
@@ -278,8 +289,10 @@ function TariffModal({
             <Select
               showSearch
               optionFilterProp="label"
-              options={customers}
-              onChange={() => form.setFieldsValue({ originId: undefined, destinationId: undefined })}
+              options={customers.map((c) => ({ value: c.id, label: c.name }))}
+              onChange={() =>
+                form.setFieldsValue({ originId: undefined, destinationId: undefined, destinationRegionId: undefined })
+              }
             />
           </Form.Item>
           {side === "PAYABLE" && (
@@ -291,28 +304,26 @@ function TariffModal({
         <Form.Item name="originId" label={t("origin")} rules={[{ required: true }]}>
           <Select showSearch optionFilterProp="label" options={addressOptions(addresses, t)} disabled={!customerId} />
         </Form.Item>
-        {side === "PAYABLE" && (
-          <Form.Item name="destMode" label={t("storeOrRegion")}>
-            <Radio.Group
-              options={[
-                { value: "store", label: t("destinationStore") },
-                { value: "region", label: t("region") },
-              ]}
-            />
-          </Form.Item>
-        )}
-        {side === "RECEIVABLE" || destMode !== "region" ? (
+        <Form.Item name="destMode" label={t("storeOrRegion")}>
+          <Radio.Group
+            options={[
+              { value: "store", label: t("destinationStore") },
+              { value: "region", label: t("region") },
+            ]}
+          />
+        </Form.Item>
+        {destMode !== "region" ? (
           <Form.Item name="destinationId" label={t("destinationStore")} rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" options={addressOptions(addresses, t)} disabled={!customerId} />
           </Form.Item>
         ) : (
-          <Form.Item name="destinationRegion" label={t("region")} rules={[{ required: true, whitespace: true }]}>
-            <Select
-              showSearch
-              options={regions.map((r) => ({ value: r, label: r }))}
-              disabled={!customerId}
-              notFoundContent={null}
-            />
+          <Form.Item
+            name="destinationRegionId"
+            label={t("region")}
+            rules={[{ required: true }]}
+            extra={customerId && storesWithoutRegion > 0 ? t("storesWithoutRegion", { n: storesWithoutRegion }) : undefined}
+          >
+            <RegionSelect organizationId={organizationId} disabled={!customerId} />
           </Form.Item>
         )}
         <Space style={{ width: "100%" }} styles={{ item: { flex: 1 } }}>

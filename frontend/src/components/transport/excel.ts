@@ -14,6 +14,7 @@ export const TRANSPORT_COLUMNS = [
   "Color",
   "Armada",
   "Vendor",
+  "Group",
   "PlannedPickupDate",
   "PlannedDeliveryDate",
   "Remark",
@@ -36,6 +37,9 @@ const ALIASES: Record<string, (typeof TRANSPORT_COLUMNS)[number]> = {
   COLOR: "Color",
   ARMADA: "Armada",
   VENDOR: "Vendor",
+  GROUP: "Group",
+  GROUPCODE: "Group",
+  BATCHGROUP: "Group",
   PLANNEDPICKUPDATE: "PlannedPickupDate",
   PLANNEDDELIVERYDATE: "PlannedDeliveryDate",
   REMARK: "Remark",
@@ -82,6 +86,7 @@ export async function readTransportExcel(file: File): Promise<ImportRow[]> {
       vehicleColor: get("Color") || undefined,
       armada: get("Armada") || undefined,
       vendor: get("Vendor") || undefined,
+      group: get("Group") || undefined,
       plannedPickupDate: get("PlannedPickupDate") || undefined,
       plannedDeliveryDate: get("PlannedDeliveryDate") || undefined,
       remark: get("Remark") || undefined,
@@ -93,9 +98,9 @@ export async function readTransportExcel(file: File): Promise<ImportRow[]> {
 
 export function downloadTransportTemplate() {
   const sample = [
-    ["GEELY", "CUST-0918-01", "MGEEH40FXTJ009399", "", "GEELY-Purwakarta", "GEELY-001", "E22H-MAX-INT.WHITE-TT", "EX2", "YELLOW/WHITE-TT", "CC", "JNT", "2026-09-20", "2026-09-22", ""],
-    ["GEELY", "CUST-0918-01", "", "3", "GEELY-Purwakarta", "GEELY-002", "", "", "", "TANSYA", "", "2026-09-20", "2026-09-22", "VIN 后补"],
-    ["BYD", "BYD-0918-07", "LC0C76C4XS1234567", "", "BYD-Subang", "BYD-D01", "", "", "", "CC", "", "2026-09-21", "2026-09-23", "另一个客户、另一个订单号"],
+    ["GEELY", "CUST-0918-01", "MGEEH40FXTJ009399", "", "GEELY-Purwakarta", "GEELY-001", "E22H-MAX-INT.WHITE-TT", "EX2", "YELLOW/WHITE-TT", "CC", "JNT", "CC1", "2026-09-20", "2026-09-22", ""],
+    ["GEELY", "CUST-0918-01", "", "3", "GEELY-Purwakarta", "GEELY-002", "", "", "", "CC", "", "CC1", "2026-09-20", "2026-09-22", "VIN 后补；同组跟着 CC1 派给 JNT"],
+    ["BYD", "BYD-0918-07", "LC0C76C4XS1234567", "", "BYD-Subang", "BYD-D01", "", "", "", "TANSYA", "", "TANSYA1", "2026-09-21", "2026-09-23", "另一个客户、另一个订单号、另一组"],
   ];
   const ws = XLSX.utils.aoa_to_sheet([[...TRANSPORT_COLUMNS], ...sample]);
   ws["!cols"] = TRANSPORT_COLUMNS.map((c) => ({ wch: Math.max(12, c.length + 2) }));

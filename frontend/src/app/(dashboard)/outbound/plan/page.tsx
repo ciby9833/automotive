@@ -428,7 +428,7 @@ function OutboundPlanInner() {
               setFilterTowType(value);
               setSelectedIds([]);
             }}
-            options={['CC', 'TOWING', 'TANSYA'].map((value) => ({
+            options={['CC', 'TANSYA', 'DD', 'TOWING'].map((value) => ({
               value,
               label: value,
             }))}
@@ -691,7 +691,7 @@ function OutboundPlanInner() {
                     <Select
                       value={effectiveTowType}
                       onChange={setTowTypeOverride}
-                      options={['CC', 'TOWING', 'TANSYA'].map((value) => ({
+                      options={['CC', 'TANSYA', 'DD', 'TOWING'].map((value) => ({
                         value,
                         label: value,
                       }))}

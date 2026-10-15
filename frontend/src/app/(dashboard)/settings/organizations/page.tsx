@@ -41,6 +41,14 @@ const currencies = ["IDR", "MYR", "THB", "VND", "PHP"].map((value) => ({
   value,
   label: value,
 }));
+// 有标准行政区划数据的国家
+const countries = [
+  { value: "ID", label: "ID · Indonesia" },
+  { value: "MY", label: "MY · Malaysia" },
+  { value: "TH", label: "TH · Thailand" },
+  { value: "VN", label: "VN · Việt Nam" },
+  { value: "PH", label: "PH · Philippines" },
+];
 const timezoneOptions = [
   "UTC",
   "Asia/Jakarta",
@@ -142,6 +150,7 @@ export default function OrganizationsPage() {
           code: values.code,
           name: values.name,
           defaultCurrency: values.defaultCurrency,
+          countryCode: values.countryCode ?? null,
           ...(dialog.org.parentId ? { parentId: values.parentId } : {}),
         });
       messageApi.success(t("orgManagement.saved"));
@@ -502,6 +511,13 @@ export default function OrganizationsPage() {
               options={currencies}
               disabled={dialog?.type === "edit" && !dialog.org?.parentId}
             />
+          </Form.Item>
+          <Form.Item
+            name="countryCode"
+            label={t("regions.country")}
+            extra={t("regions.countryHint")}
+          >
+            <Select allowClear options={countries} />
           </Form.Item>
           {dialog?.type === "create" && calendarFields}
         </Form>

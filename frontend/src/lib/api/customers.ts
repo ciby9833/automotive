@@ -8,6 +8,8 @@ export interface CustomerAddress {
   dealerName: string;
   address: string;
   code: string | null;
+  /** 所属区域（标准行政区划）；region 是对应的名称，仅用于显示 */
+  regionId: string | null;
   region: string | null;
   contactName: string | null;
   contactPhone: string | null;
@@ -37,6 +39,8 @@ export interface CustomerAddressPayload {
   dealerName: string;
   address: string;
   code: string;
+  regionId?: string | null;
+  /** Excel 导入填的区域文字，后端对到标准区域 */
   region?: string;
   contactName?: string;
   contactPhone?: string;

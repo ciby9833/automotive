@@ -478,7 +478,18 @@ function ImportModal({
         )}
         {result && !result.errors.length && (
           <>
-            <Alert type="success" showIcon message={t("importReady", { orders: result.orders.length, lines })} />
+            <Alert
+              type="success"
+              showIcon
+              message={t("importReady", { orders: result.orders.length, lines })}
+              description={
+                result.groups?.length
+                  ? t("importGroups", {
+                      list: result.groups.map((g) => `${g.group} ${g.towType ?? ""} ${g.lines}`).join(" · "),
+                    })
+                  : undefined
+              }
+            />
             <Table
               size="small"
               rowKey={(o) => `${o.customerId}-${o.customerRequestNo}`}
@@ -687,6 +698,7 @@ export function LineTable({
   selection,
   extraColumns = [],
   pagination,
+  loading,
 }: {
   lines: TransportLine[];
   onOpenTrip?: (id: string) => void;
@@ -698,6 +710,7 @@ export function LineTable({
   extraColumns?: object[];
   /** 服务端分页时由调用方传入；不传则本地分页 */
   pagination?: TableProps<TransportLine>["pagination"];
+  loading?: boolean;
 }) {
   const t = useTransportText();
   return (
@@ -705,6 +718,7 @@ export function LineTable({
       size="small"
       rowKey="id"
       dataSource={lines}
+      loading={loading}
       rowSelection={selection}
       pagination={pagination ?? (lines.length > 50 ? { pageSize: 50, showSizeChanger: false } : false)}
       scroll={{ x: 1000 }}

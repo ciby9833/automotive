@@ -1,6 +1,6 @@
 import { apiClient, unwrap } from "./client";
 
-export type TowType = "CC" | "TANSYA" | "TOWING";
+export type TowType = "CC" | "TANSYA" | "DD" | "TOWING";
 export type LineStatus =
   | "UNALLOCATED"
   | "ALLOCATED"
@@ -63,6 +63,9 @@ export interface TransportLine {
   trip_id: string | null;
   trip_code: string | null;
   trip_status: TripStatus | null;
+  /** 派车组（CC1 …）与所属批次；同批同组号才是同一组 */
+  dispatch_group: string | null;
+  group_batch_id: string | null;
   status: LineStatus;
   planned_pickup_date: string | null;
   planned_delivery_date: string | null;
@@ -107,8 +110,6 @@ export interface TransportTrip {
   code: string;
   organization_id: string;
   carrier_id: string;
-  driver_id: string;
-  vehicle_id: string;
   tow_type: TowType;
   capacity: number;
   status: TripStatus;
@@ -117,9 +118,14 @@ export interface TransportTrip {
   completed_at: string | null;
   cancel_reason: string | null;
   carrier_name: string;
-  driver_name: string;
+  /** 按组确认后先只有物流商，司机和拖车待指派 */
+  driver_id: string | null;
+  vehicle_id: string | null;
+  driver_name: string | null;
   driver_phone: string | null;
-  plate_number: string;
+  plate_number: string | null;
+  customers?: string | null;
+  dispatch_groups?: string | null;
   line_count?: number;
   loaded_count?: number;
   delivered_count?: number;
@@ -202,6 +208,7 @@ export interface ImportRow {
   vehicleColor?: string;
   armada?: string;
   vendor?: string;
+  group?: string;
   plannedPickupDate?: string;
   plannedDeliveryDate?: string;
   remark?: string;
@@ -219,7 +226,28 @@ export interface ImportResult {
     plannedPickupDate: string | null;
     plannedDeliveryDate: string | null;
   }[];
+  groups?: { group: string; towType: TowType | null; lines: number; carrierId: string | null }[];
   created: TransportOrder[];
+}
+
+/** 待派车的组：一组一趟车 */
+export interface DispatchGroup {
+  group_batch_id: string;
+  dispatch_group: string;
+  created_at: string;
+  line_count: number;
+  pending_count: number;
+  unallocated_count: number;
+  missing_vin_count: number;
+  pending_line_ids: string[] | null;
+  tow_types: TowType[] | null;
+  carrier_ids: string[] | null;
+  carrier_names: string | null;
+  trip_codes: string[] | null;
+  customers: string | null;
+  origins: string | null;
+  destinations: string | null;
+  planned_pickup_date: string | null;
 }
 
 export interface Tariff {
@@ -235,7 +263,9 @@ export interface Tariff {
   destination_id: string | null;
   destination_code: string | null;
   destination_name: string | null;
+  destination_region_id: string | null;
   destination_region: string | null;
+  destination_region_parent: string | null;
   tow_type: TowType;
   price: string;
   currency: string;
@@ -250,7 +280,8 @@ export interface TariffInput {
   carrierId?: string;
   originId: string;
   destinationId?: string;
-  destinationRegion?: string;
+  /** 门店与区域二选一：门店价优先，区域价兜底 */
+  destinationRegionId?: string;
   towType: TowType;
   price: number;
   validFrom: string;
@@ -318,6 +349,9 @@ export const transportApi = {
     unwrap<Paged<TransportLine>>(apiClient.get("/transport/lines", { params: clean(q) })),
   updateLine: (id: string, d: { vin?: string | null; vehicleConfig?: string; vehicleModel?: string; vehicleColor?: string }) =>
     unwrap<TransportLine>(apiClient.patch(`/transport/lines/${id}`, d)),
+  groups: (q: Query) => unwrap<DispatchGroup[]>(apiClient.get("/transport/groups", { params: clean(q) })),
+  setGroup: (lineIds: string[], group: string) =>
+    unwrap<{ updated: number; group: string | null }>(apiClient.post("/transport/lines/group", { lineIds, group })),
   allocate: (lineIds: string[], carrierId: string, towType: TowType) =>
     unwrap<{ updated: number }>(apiClient.post("/transport/lines/allocate", { lineIds, carrierId, towType })),
   cancelLines: (lineIds: string[], reason: string) =>
@@ -334,6 +368,17 @@ export const transportApi = {
   trip: (id: string) => unwrap<TripDetail>(apiClient.get(`/transport/trips/${id}`)),
   createTrip: (d: { carrierId: string; driverId: string; vehicleId: string; lineIds: string[] }) =>
     unwrap<TransportTrip>(apiClient.post("/transport/trips", d)),
+  /** 按组批量派车：每组一趟，各自成败 */
+  createTrips: (items: { lineIds: string[]; carrierId: string; driverId?: string; vehicleId?: string }[]) =>
+    unwrap<{ created: number; results: { index: number; tripId?: string; tripCode?: string; error?: string }[] }>(
+      apiClient.post("/transport/trips/batch", { items }),
+    ),
+  /** 提货前更换物流商 / 司机 / 拖车 */
+  reassignTrip: (id: string, d: { carrierId: string; driverId: string; vehicleId: string; reason?: string }) =>
+    unwrap<{ ok: boolean }>(apiClient.post(`/transport/trips/${id}/reassign`, d)),
+  /** 提货后内部更正物流商，并重算本趟未确认的应付 */
+  correctCarrier: (id: string, d: { carrierId: string; driverId: string; vehicleId: string; reason: string }) =>
+    unwrap<{ ok: boolean; repriced: number }>(apiClient.post(`/transport/trips/${id}/correct-carrier`, d)),
   addTripLines: (id: string, lineIds: string[]) =>
     unwrap<{ added: number }>(apiClient.post(`/transport/trips/${id}/lines`, { lineIds })),
   removeTripLines: (id: string, lineIds: string[], reason?: string) =>

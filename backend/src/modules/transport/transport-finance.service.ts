@@ -19,8 +19,9 @@ type Side = 'RECEIVABLE' | 'PAYABLE';
 
 /**
  * 纯运输报价与费用。与旧 finance_records（强绑定场地运单、账单邮件）分开存放，互不影响。
- * - 应收：客户 + 发货地 + 门店 + 拖车类型
- * - 应付：客户 + 物流商 + 发货地 + 门店（优先）或目的区域 + 拖车类型
+ * - 应收：客户 + 发货地 + 门店或区域 + 拖车类型
+ * - 应付：客户 + 物流商 + 发货地 + 门店或区域 + 拖车类型
+ * 查价：门店价优先；没有就按门店所属区域找，再逐级往上（县/市 → 省）。区域是各国标准行政区划（regions）。
  * 币种取客户所属机构默认币种；报价按生效期间匹配，匹配不到记 0 元（UNPRICED），可手工调整、可重算。
  */
 @Injectable()
@@ -57,14 +58,17 @@ export class TransportFinanceService {
     return this.db.query(
       `SELECT t.*, t.valid_from::text valid_from, t.valid_to::text valid_to, c.name customer_name, cr.name carrier_name,
          oa.code origin_code, oa."dealerName" origin_name,
-         da.code destination_code, da."dealerName" destination_name
+         da.code destination_code, da."dealerName" destination_name,
+         rg.name destination_region, rg.code destination_region_code, rp.name destination_region_parent
        FROM transport_tariffs t
        JOIN customers c ON c.id = t.customer_id
        LEFT JOIN carriers cr ON cr.id = t.carrier_id
        JOIN customer_addresses oa ON oa.id = t.origin_id
        LEFT JOIN customer_addresses da ON da.id = t.destination_id
+       LEFT JOIN regions rg ON rg.id = t.destination_region_id
+       LEFT JOIN regions rp ON rp.id = rg.parent_id
        WHERE ${where.join(' AND ')}
-       ORDER BY t.side, c.name, oa.code, da.code NULLS LAST, t.destination_region, t.tow_type, t.valid_from DESC`,
+       ORDER BY t.side, c.name, oa.code, da.code NULLS LAST, rg.code NULLS LAST, t.tow_type, t.valid_from DESC`,
       args,
     );
   }
@@ -86,15 +90,23 @@ export class TransportFinanceService {
       );
       if (addresses.length !== ids.length || addresses.some((x) => x.customer_id !== customer.id))
         throw new BadRequestException('发货地和门店必须是该客户已维护的地点');
-      const region = d.destinationRegion?.trim() || null;
+      if (!!d.destinationId === !!d.destinationRegionId)
+        throw new BadRequestException('请指定收货门店或目的区域（二选一）');
+      const region = d.destinationRegionId ?? null;
+      if (region) {
+        // 区域必须是客户所属机构国家的行政区划
+        const [ok] = await m.query<{ id: string }[]>(
+          `SELECT r.id FROM regions r JOIN organizations o ON o.country_code = r.country_code
+           WHERE r.id = $1 AND o.id = $2 AND r.is_active`,
+          [region, customer.organization_id],
+        );
+        if (!ok) throw new BadRequestException('区域不存在，或不属于该客户所在机构的国家');
+      }
       let carrierId: string | null = null;
       if (d.side === 'RECEIVABLE') {
-        if (!d.destinationId) throw new BadRequestException('应收报价必须指定收货门店');
-        if (region || d.carrierId) throw new BadRequestException('应收报价不区分物流商和区域');
+        if (d.carrierId) throw new BadRequestException('应收报价不区分物流商');
       } else {
         if (!d.carrierId) throw new BadRequestException('应付报价必须指定物流商');
-        if (!!d.destinationId === !!region)
-          throw new BadRequestException('应付报价请指定收货门店或目的区域（二选一）');
         const [carrier] = await m.query<{ organization_id: string }[]>(
           'SELECT organization_id FROM carriers WHERE id = $1',
           [d.carrierId],
@@ -109,7 +121,7 @@ export class TransportFinanceService {
       const same = await m.query<TariffRow[]>(
         `SELECT id, valid_from::text valid_from, valid_to::text valid_to FROM transport_tariffs
          WHERE side = $1 AND customer_id = $2 AND carrier_id IS NOT DISTINCT FROM $3 AND origin_id = $4
-           AND destination_id IS NOT DISTINCT FROM $5 AND destination_region IS NOT DISTINCT FROM $6
+           AND destination_id IS NOT DISTINCT FROM $5 AND destination_region_id IS NOT DISTINCT FROM $6
            AND tow_type = $7 AND id IS DISTINCT FROM $8
          FOR UPDATE`,
         [d.side, customer.id, carrierId, d.originId, d.destinationId ?? null, region, towType, id ?? null],
@@ -142,7 +154,7 @@ export class TransportFinanceService {
         const [saved] = await this.access.rows<TariffRow>(
           m,
           `UPDATE transport_tariffs SET organization_id=$1, side=$2, customer_id=$3, carrier_id=$4, origin_id=$5,
-             destination_id=$6, destination_region=$7, tow_type=$8, price=$9, currency=$10, valid_from=$11,
+             destination_id=$6, destination_region_id=$7, tow_type=$8, price=$9, currency=$10, valid_from=$11,
              valid_to=$12, remark=$13, updated_at=now()
            WHERE id = $14 AND organization_id = ANY($15::uuid[])
            RETURNING *, valid_from::text valid_from, valid_to::text valid_to`,
@@ -153,7 +165,7 @@ export class TransportFinanceService {
       }
       const [saved] = await m.query<TariffRow[]>(
         `INSERT INTO transport_tariffs(organization_id, side, customer_id, carrier_id, origin_id, destination_id,
-           destination_region, tow_type, price, currency, valid_from, valid_to, remark, created_by)
+           destination_region_id, tow_type, price, currency, valid_from, valid_to, remark, created_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          RETURNING *, valid_from::text valid_from, valid_to::text valid_to`,
         [...values, a.user.userId],
@@ -181,19 +193,24 @@ export class TransportFinanceService {
     trip: TripRow,
     serviceDate: string,
   ): Promise<{ tariffId: string | null; amount: string; pricing: 'TARIFF' | 'UNPRICED' }> {
-    const args: unknown[] = [side, line.customer_id, line.origin_id, trip.tow_type, serviceDate];
-    let sql = `SELECT id, price FROM transport_tariffs
-      WHERE side = $1 AND customer_id = $2 AND origin_id = $3 AND tow_type = $4
-        AND valid_from <= $5 AND (valid_to IS NULL OR valid_to >= $5)`;
-    if (side === 'RECEIVABLE') {
-      args.push(line.destination_id);
-      sql += ` AND destination_id = $6 ORDER BY valid_from DESC LIMIT 1`;
-    } else {
-      args.push(trip.carrier_id, line.destination_id);
-      sql += ` AND carrier_id = $6 AND (destination_id = $7 OR (destination_id IS NULL AND destination_region =
-        (SELECT region FROM customer_addresses WHERE id = $7)))
-        ORDER BY (destination_id IS NOT NULL) DESC, valid_from DESC LIMIT 1`;
+    // 门店所属区域及其上级区域，depth 越小越具体：门店价 > 县/市价 > 省价
+    const args: unknown[] = [side, line.customer_id, line.origin_id, trip.tow_type, serviceDate, line.destination_id];
+    let carrierFilter = '';
+    if (side === 'PAYABLE') {
+      args.push(trip.carrier_id);
+      carrierFilter = `AND t.carrier_id = $${args.length}`;
     }
+    const sql = `WITH RECURSIVE chain AS (
+        SELECT r.id, r.parent_id, 1 depth FROM customer_addresses a JOIN regions r ON r.id = a.region_id WHERE a.id = $6
+        UNION ALL
+        SELECT p.id, p.parent_id, c.depth + 1 FROM regions p JOIN chain c ON p.id = c.parent_id
+      )
+      SELECT t.id, t.price FROM transport_tariffs t LEFT JOIN chain c ON c.id = t.destination_region_id
+      WHERE t.side = $1 AND t.customer_id = $2 AND t.origin_id = $3 AND t.tow_type = $4
+        AND t.valid_from <= $5 AND (t.valid_to IS NULL OR t.valid_to >= $5) ${carrierFilter}
+        AND (t.destination_id = $6 OR c.id IS NOT NULL)
+      ORDER BY (t.destination_id IS NOT NULL) DESC, c.depth NULLS FIRST, t.valid_from DESC
+      LIMIT 1`;
     const [tariff] = await m.query<{ id: string; price: string }[]>(sql, args);
     return tariff
       ? { tariffId: tariff.id, amount: tariff.price, pricing: 'TARIFF' }
@@ -228,6 +245,37 @@ export class TransportFinanceService {
         ],
       );
     }
+  }
+
+  /**
+   * 更正趟次物流商后：本趟未确认的应付改到新物流商，按新物流商的报价重算（手工价是给原物流商的，一并重算）。
+   * 调用方已确认没有已确认的应付。
+   */
+  async repriceTripPayables(m: EntityManager, a: Actor, trip: TripRow, reason: string): Promise<number> {
+    const charges = await m.query<ChargeRow[]>(
+      `SELECT ch.*, ch.service_date::text service_date FROM transport_charges ch
+       WHERE ch.trip_id = $1 AND ch.side = 'PAYABLE' AND ch.status = 'PENDING' ORDER BY ch.id FOR UPDATE`,
+      [trip.id],
+    );
+    for (const ch of charges) {
+      const [line] = await m.query<LineRow[]>('SELECT * FROM transport_lines WHERE id = $1', [ch.line_id]);
+      const p = await this.price(m, 'PAYABLE', line, trip, ch.service_date);
+      await m.query(
+        `UPDATE transport_charges SET carrier_id = $1, amount = $2, pricing = $3, tariff_id = $4, manual_reason = NULL,
+           updated_by = $5, updated_at = now() WHERE id = $6`,
+        [trip.carrier_id, p.amount, p.pricing, p.tariffId, a.user.userId, ch.id],
+      );
+      await this.access.event(m, a, {
+        organizationId: ch.organization_id,
+        tripId: ch.trip_id,
+        lineId: ch.line_id,
+        vin: line.vin,
+        action: 'CHARGE_RECALCULATED',
+        reason,
+        payload: { side: 'PAYABLE', fromCarrierId: ch.carrier_id, toCarrierId: trip.carrier_id, from: ch.amount, to: p.amount, pricing: p.pricing },
+      });
+    }
+    return charges.length;
   }
 
   /** 报价调整后重算未确认的费用；默认不覆盖手工调整过的金额。 */

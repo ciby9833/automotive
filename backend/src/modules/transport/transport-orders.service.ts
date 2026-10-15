@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { EntityManager } from 'typeorm';
 import { Actor, TransportAccess } from './transport.access';
 import {
@@ -12,11 +13,13 @@ import {
   CancelLinesDto,
   CreateTransportOrderDto,
   ImportTransportDto,
+  SetGroupDto,
   SupplementVinsDto,
   UpdateLineDto,
 } from './transport.dto';
 import { AddressRow, LineRow, OrderRow } from './transport.rows';
 import {
+  DEFAULT_CAPACITY,
   TowType,
   deriveOrderStatus,
   normalizeTransportVin,
@@ -33,6 +36,8 @@ interface NewLine {
   vehicleColor: string;
   towType: TowType | null;
   carrierId: string | null;
+  /** 派车组：导入时填的 Group，与本次导入批次一起确定一组 */
+  dispatchGroup?: string | null;
 }
 interface NewOrder {
   customerRequestNo: string;
@@ -161,6 +166,8 @@ export class TransportOrdersService {
       destinationId?: string;
       towType?: string;
       tripId?: string;
+      groupBatchId?: string;
+      group?: string;
       /** 日期维度：计划提货 / 计划到达 / 实际提货 / 签收 */
       dateField?: string;
       from?: string;
@@ -184,6 +191,8 @@ export class TransportOrdersService {
       [q.destinationId, 'l.destination_id'],
       [q.towType, 'l.tow_type'],
       [q.tripId, 'l.trip_id'],
+      [q.groupBatchId, 'l.group_batch_id'],
+      [q.group?.trim().toUpperCase(), 'l.dispatch_group'],
     ];
     for (const [value, col] of eq) {
       if (!value) continue;
@@ -231,6 +240,86 @@ export class TransportOrdersService {
       args,
     );
     return { items, total };
+  }
+
+  /**
+   * 派车组：一组一行。默认只列还有车待派的组（待分配 / 待派车），派完的组从列表里消失。
+   * pendingLineIds 就是“按组派车”要派的明细。
+   */
+  async groups(a: Actor, q: { all?: boolean; search?: string }) {
+    const args: unknown[] = [];
+    const where = [this.access.lineFilter(a, 'l', args), 'l.group_batch_id IS NOT NULL', `l.status <> 'CANCELLED'`];
+    if (q.search?.trim()) {
+      args.push(`%${q.search.trim()}%`);
+      where.push(`l.dispatch_group ILIKE $${args.length}`);
+    }
+    return this.db.query(
+      `WITH g AS (
+         SELECT l.group_batch_id, l.dispatch_group, min(l.created_at) created_at,
+           count(*)::int line_count,
+           count(*) FILTER (WHERE l.status = 'UNALLOCATED')::int unallocated_count,
+           count(*) FILTER (WHERE l.vin IS NULL AND l.status IN ('UNALLOCATED','ALLOCATED'))::int missing_vin_count,
+           array_agg(l.id ORDER BY l.order_id, l.line_no) FILTER (WHERE l.status IN ('UNALLOCATED','ALLOCATED')) pending_line_ids,
+           -- 拖车类型、物流商只看还待派的车：组里已派走的车不影响这次派车
+           array_agg(DISTINCT l.tow_type) FILTER (WHERE l.tow_type IS NOT NULL AND l.status IN ('UNALLOCATED','ALLOCATED')) tow_types,
+           array_agg(DISTINCT l.carrier_id) FILTER (WHERE l.carrier_id IS NOT NULL AND l.status IN ('UNALLOCATED','ALLOCATED')) carrier_ids,
+           array_agg(DISTINCT t.code) FILTER (WHERE t.code IS NOT NULL) trip_codes,
+           string_agg(DISTINCT c.name, ' / ') customers,
+           string_agg(DISTINCT oa."dealerName", ' / ') origins,
+           string_agg(DISTINCT da."dealerName", ' / ') destinations,
+           min(o.planned_pickup_date)::text planned_pickup_date
+         FROM transport_lines l
+         JOIN transport_orders o ON o.id = l.order_id
+         JOIN customers c ON c.id = l.customer_id
+         JOIN customer_addresses oa ON oa.id = l.origin_id
+         JOIN customer_addresses da ON da.id = l.destination_id
+         LEFT JOIN transport_trips t ON t.id = l.trip_id
+         WHERE ${where.join(' AND ')}
+         GROUP BY l.group_batch_id, l.dispatch_group
+         ${q.all ? '' : `HAVING count(*) FILTER (WHERE l.status IN ('UNALLOCATED','ALLOCATED')) > 0`}
+       )
+       SELECT g.*, coalesce(array_length(g.pending_line_ids, 1), 0) pending_count,
+         (SELECT string_agg(cr.name, ' / ') FROM carriers cr WHERE cr.id = ANY(g.carrier_ids)) carrier_names
+       FROM g ORDER BY g.created_at DESC, g.dispatch_group`,
+      args,
+    );
+  }
+
+  /** 手工建的单、或要重新分组的车：选中明细设为一组（新的一批），组号为空则取消分组 */
+  async setGroup(a: Actor, d: SetGroupDto) {
+    this.access.requireInternal(a);
+    const group = d.group?.trim().toUpperCase() || null;
+    return this.access.tx(async (m) => {
+      const lines = await this.lockLines(m, a, d.lineIds);
+      for (const l of lines)
+        if (!['UNALLOCATED', 'ALLOCATED'].includes(l.status))
+          throw new BadRequestException(`第 ${l.line_no} 行已派车或已结束，不能调整分组`);
+      if (group) {
+        const towTypes = new Set(lines.map((l) => l.tow_type));
+        if (towTypes.size !== 1 || !lines[0].tow_type)
+          throw new BadRequestException('同一组的车必须是同一种拖车类型，请先分配拖车类型');
+        const towType = lines[0].tow_type as TowType;
+        if (lines.length > DEFAULT_CAPACITY[towType])
+          throw new BadRequestException(`一组最多 ${DEFAULT_CAPACITY[towType]} 台（${towType}），已选 ${lines.length} 台`);
+        if (new Set(lines.map((l) => l.carrier_id).filter(Boolean)).size > 1)
+          throw new BadRequestException('同一组的车只能分配给一个物流商');
+      }
+      const batch = group ? randomUUID() : null;
+      await m.query(
+        `UPDATE transport_lines SET dispatch_group = $1, group_batch_id = $2, updated_at = now() WHERE id = ANY($3::uuid[])`,
+        [group, batch, lines.map((l) => l.id)],
+      );
+      for (const l of lines)
+        await this.access.event(m, a, {
+          organizationId: l.organization_id,
+          orderId: l.order_id,
+          lineId: l.id,
+          vin: l.vin,
+          action: 'LINE_GROUPED',
+          payload: { group, previous: l.dispatch_group },
+        });
+      return { updated: lines.length, group, groupBatchId: batch };
+    });
   }
 
   async vinHistory(a: Actor, rawVin: string) {
@@ -367,6 +456,8 @@ export class TransportOrdersService {
       }
 
     const groups = new Map<string, ImportGroup>();
+    // 派车组：一组 = 一趟车，跨订单、跨客户都可以
+    const dispatch = new Map<string, { rows: number[]; lines: NewLine[]; towTypes: Set<string>; carriers: Set<string> }>();
     for (const r of d.rows) {
       const fail = (message: string) => errors.push({ row: r.row, message });
       const customer = rowCustomers.get(r.row);
@@ -456,8 +547,21 @@ export class TransportOrdersService {
         o.plannedDeliveryDate ??= dates[1];
         if (!o.remark && r.remark?.trim()) o.remark = r.remark.trim();
       }
+      const dispatchGroup = r.group?.trim().toUpperCase() || null;
+      let bucket: ReturnType<typeof dispatch.get>;
+      if (dispatchGroup) {
+        if (!towType) fail(`填了 Group ${dispatchGroup} 时必须填写拖车类型（Armada）`);
+        bucket = dispatch.get(dispatchGroup);
+        if (!bucket) {
+          bucket = { rows: [], lines: [], towTypes: new Set(), carriers: new Set() };
+          dispatch.set(dispatchGroup, bucket);
+        }
+        bucket.rows.push(r.row);
+        if (towType) bucket.towTypes.add(towType);
+        if (carrierId) bucket.carriers.add(carrierId);
+      }
       for (let i = 0; i < quantity; i += 1) {
-        group.order.lines.push({
+        const line: NewLine = {
           vin,
           originId: origin.id,
           destinationId: dealer.id,
@@ -466,9 +570,30 @@ export class TransportOrdersService {
           vehicleColor: r.vehicleColor?.trim() ?? '',
           towType,
           carrierId,
-        });
+          dispatchGroup,
+        };
+        group.order.lines.push(line);
+        bucket?.lines.push(line);
         group.rows.push(r.row);
       }
+    }
+    const groupSummary: { group: string; towType: string | null; lines: number; carrierId: string | null }[] = [];
+    for (const [code, g] of dispatch) {
+      const first = Math.min(...g.rows);
+      if (g.towTypes.size > 1)
+        errors.push({ row: first, message: `Group ${code} 里拖车类型不一致（${[...g.towTypes].join(' / ')}），一组只能是一种拖车` });
+      if (g.carriers.size > 1)
+        errors.push({ row: first, message: `Group ${code} 里物流商不一致，一组只能派给一个物流商` });
+      const towType = [...g.towTypes][0] as TowType | undefined;
+      if (towType && g.lines.length > DEFAULT_CAPACITY[towType])
+        errors.push({
+          row: first,
+          message: `Group ${code} 有 ${g.lines.length} 台，超过 ${towType} 的载量 ${DEFAULT_CAPACITY[towType]} 台`,
+        });
+      // 组里只有部分行填了 Vendor：没填的跟着组走
+      const carrier = g.carriers.size === 1 ? [...g.carriers][0] : null;
+      if (carrier) for (const l of g.lines) l.carrierId ??= carrier;
+      groupSummary.push({ group: code, towType: towType ?? null, lines: g.lines.length, carrierId: carrier });
     }
     const list = [...groups.values()];
     errors.push(...(await this.validate(this.db.manager, a, list)));
@@ -483,9 +608,9 @@ export class TransportOrdersService {
       plannedPickupDate: g.order.plannedPickupDate,
       plannedDeliveryDate: g.order.plannedDeliveryDate,
     }));
-    if (errors.length || d.dryRun) return { errors, orders: summary, created: [] };
-    const created = await this.access.tx((m) => this.insert(m, a, list, 'EXCEL'));
-    return { errors: [], orders: summary, created };
+    if (errors.length || d.dryRun) return { errors, orders: summary, groups: groupSummary, created: [] };
+    const created = await this.access.tx((m) => this.insert(m, a, list, 'EXCEL', randomUUID()));
+    return { errors: [], orders: summary, groups: groupSummary, created };
   }
 
   // ------------------------------------------------------------------ 明细维护
@@ -773,6 +898,7 @@ export class TransportOrdersService {
     a: Actor,
     groups: { customer: { id: string; organization_id: string }; order: NewOrder }[],
     source: 'MANUAL' | 'EXCEL',
+    groupBatchId: string | null = null,
   ) {
     const created: OrderRow[] = [];
     for (const { customer, order: o } of groups) {
@@ -796,8 +922,8 @@ export class TransportOrdersService {
       for (const [i, l] of o.lines.entries()) {
         const [line] = await m.query<{ id: string }[]>(
           `INSERT INTO transport_lines(order_id, organization_id, customer_id, line_no, vin, origin_id, destination_id,
-             vehicle_config, vehicle_model, vehicle_color, tow_type, carrier_id, status)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+             vehicle_config, vehicle_model, vehicle_color, tow_type, carrier_id, status, dispatch_group, group_batch_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,
           [
             order.id,
             customer.organization_id,
@@ -812,6 +938,8 @@ export class TransportOrdersService {
             l.towType,
             l.carrierId,
             l.carrierId ? 'ALLOCATED' : 'UNALLOCATED',
+            l.dispatchGroup ?? null,
+            l.dispatchGroup ? groupBatchId : null,
           ],
         );
         if (l.vin || l.carrierId)

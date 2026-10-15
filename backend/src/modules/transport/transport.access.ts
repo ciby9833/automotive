@@ -119,6 +119,9 @@ export class TransportAccess {
       if (a.driver && a.driverId) {
         args.push(a.driverId);
         sql += ` AND ${alias}.driver_id = $${args.length}`;
+      } else if (a.driver) {
+        // 还没指派车辆的趟次只给业务员看，司机端不出现
+        sql += ` AND ${alias}.driver_id IS NOT NULL`;
       }
       return sql;
     }
@@ -173,6 +176,7 @@ export class TransportAccess {
     }
     if (a.carrierId && trip.carrier_id === a.carrierId) {
       if (a.driver) {
+        if (!trip.driver_id) throw new ForbiddenException('该趟次还没有指派车辆');
         if (a.driverId && trip.driver_id !== a.driverId)
           throw new ForbiddenException('该趟次没有派给你');
         if (right === 'MANAGE')

@@ -31,6 +31,7 @@ import { TransportFinanceService } from './transport-finance.service';
 import {
   AdjustChargeDto,
   AllocateLinesDto,
+  BatchTripsDto,
   CancelLinesDto,
   ChargeIdsDto,
   CreateTransportOrderDto,
@@ -40,10 +41,12 @@ import {
   LineIdsDto,
   PickupScanDto,
   ReasonDto,
+  ReassignTripDto,
   RecalculateDto,
   RecordExceptionDto,
   RemoveTripLinesDto,
   ResolveExceptionDto,
+  SetGroupDto,
   SignScanDto,
   SupplementVinsDto,
   TariffDto,
@@ -142,6 +145,8 @@ export class TransportController {
     @Query('destinationId') destinationId?: string,
     @Query('towType') towType?: string,
     @Query('tripId') tripId?: string,
+    @Query('groupBatchId') groupBatchId?: string,
+    @Query('group') group?: string,
     @Query('dateField') dateField?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
@@ -158,6 +163,8 @@ export class TransportController {
       destinationId,
       towType,
       tripId,
+      groupBatchId,
+      group,
       dateField,
       from,
       to,
@@ -174,6 +181,22 @@ export class TransportController {
     @CurrentUser() u: AuthenticatedUser,
   ) {
     return this.orders.updateLine(await this.access.actor(u), id, d);
+  }
+
+  @Permissions(Permission.TRANSPORT_VIEW)
+  @Get('groups')
+  async groups(
+    @CurrentUser() u: AuthenticatedUser,
+    @Query('all') all?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.orders.groups(await this.access.actor(u), { all: all === 'true', search });
+  }
+
+  @Permissions(Permission.TRANSPORT_DISPATCH)
+  @Post('lines/group')
+  async setGroup(@Body() d: SetGroupDto, @CurrentUser() u: AuthenticatedUser) {
+    return this.orders.setGroup(await this.access.actor(u), d);
   }
 
   @Permissions(Permission.TRANSPORT_DISPATCH)
@@ -211,10 +234,16 @@ export class TransportController {
     @CurrentUser() u: AuthenticatedUser,
     @Query('status') status?: string,
     @Query('search') search?: string,
+    @Query('unassigned') unassigned?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.trips.list(await this.access.actor(u), { status, search, ...paging(page, pageSize) });
+    return this.trips.list(await this.access.actor(u), {
+      status,
+      search,
+      unassigned: unassigned === 'true',
+      ...paging(page, pageSize),
+    });
   }
 
   @Permissions(Permission.TRANSPORT_VIEW)
@@ -284,6 +313,32 @@ export class TransportController {
     @CurrentUser() u: AuthenticatedUser,
   ) {
     return this.trips.forcePickup(await this.access.actor(u), id, d);
+  }
+
+  @Permissions(Permission.TRANSPORT_DISPATCH)
+  @Post('trips/batch')
+  async createTrips(@Body() d: BatchTripsDto, @CurrentUser() u: AuthenticatedUser) {
+    return this.trips.createBatch(await this.access.actor(u), d);
+  }
+
+  @Permissions(Permission.TRANSPORT_DISPATCH)
+  @Post('trips/:id/reassign')
+  async reassign(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() d: ReassignTripDto,
+    @CurrentUser() u: AuthenticatedUser,
+  ) {
+    return this.trips.reassign(await this.access.actor(u), id, d);
+  }
+
+  @Permissions(Permission.TRANSPORT_DISPATCH)
+  @Post('trips/:id/correct-carrier')
+  async correctCarrier(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() d: ReassignTripDto,
+    @CurrentUser() u: AuthenticatedUser,
+  ) {
+    return this.trips.correctCarrier(await this.access.actor(u), id, d);
   }
 
   @Permissions(Permission.TRANSPORT_DISPATCH)

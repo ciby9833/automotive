@@ -25,6 +25,8 @@ describe('transport rules', () => {
   it('maps offline armada spellings', () => {
     expect(parseTowType('tansa')).toBe('TANSYA');
     expect(parseTowType('Towing')).toBe('TOWING');
+    expect(parseTowType('Double Drop')).toBe('DD');
+    expect(parseTowType('dd')).toBe('DD');
     expect(parseTowType(' cc ')).toBe('CC');
     expect(parseTowType('')).toBeNull();
     expect(() => parseTowType('truck')).toThrow();
@@ -34,6 +36,7 @@ describe('transport rules', () => {
     expect(vehicleCapacity('CC', null)).toBe(6);
     expect(vehicleCapacity('TANSYA', undefined)).toBe(4);
     expect(vehicleCapacity('TOWING', null)).toBe(1);
+    expect(vehicleCapacity('DD', null)).toBe(3);
     expect(vehicleCapacity('CC', 8)).toBe(8);
   });
 

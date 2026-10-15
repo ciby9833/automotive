@@ -230,6 +230,7 @@ export function DriverVehiclePicker({
                 { value: 'CC', label: 'CC' },
                 { value: 'TOWING', label: 'TOWING' },
                 { value: 'TANSYA', label: 'TANSYA' },
+                { value: 'DD', label: 'DD (Double Drop)' },
               ]}
             />
           </Form.Item>

@@ -1,7 +1,7 @@
 import { apiClient, unwrap } from './client';
 import type { Paginated } from './pagination';
 
-export type VehicleTowType = 'CC' | 'TOWING' | 'TANSYA';
+export type VehicleTowType = 'CC' | 'TOWING' | 'TANSYA' | 'DD';
 
 export interface OutboundVinRow {
   vin: string;

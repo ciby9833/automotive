@@ -6,11 +6,13 @@ import { Order } from '../orders/entities/order.entity';
 import { CustomersService } from './customers.service';
 import { CustomersController } from './customers.controller';
 import { TrackingModule } from '../tracking/tracking.module';
+import { RegionsModule } from '../regions/regions.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Customer, CustomerAddress, Order]),
     TrackingModule,
+    RegionsModule,
   ],
   controllers: [CustomersController],
   providers: [CustomersService],

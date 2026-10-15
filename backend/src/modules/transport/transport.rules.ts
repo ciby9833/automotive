@@ -1,12 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
 
-export const TOW_TYPES = ['CC', 'TANSYA', 'TOWING'] as const;
+export const TOW_TYPES = ['CC', 'TANSYA', 'DD', 'TOWING'] as const;
 export type TowType = (typeof TOW_TYPES)[number];
 
-/** 业务确认的默认载量：CC 6 台、TANSYA 4 台、TOWING 1 台；单车可在主数据覆盖。 */
+/** 业务确认的默认载量：CC 6 台、TANSYA 4 台、DD（Double Drop）3 台、TOWING 1 台；单车可在主数据覆盖。 */
 export const DEFAULT_CAPACITY: Record<TowType, number> = {
   CC: 6,
   TANSYA: 4,
+  DD: 3,
   TOWING: 1,
 };
 
@@ -32,8 +33,9 @@ export function parseTowType(input: string | null | undefined): TowType | null {
   if (!raw) return null;
   if (raw === 'CC' || raw === 'CARCARRIER') return 'CC';
   if (raw === 'TANSA' || raw === 'TANSYA') return 'TANSYA';
+  if (raw === 'DD' || raw === 'DOUBLEDROP') return 'DD';
   if (raw === 'TOWING' || raw === 'TOW') return 'TOWING';
-  throw new BadRequestException(`拖车类型 ${input} 无法识别，应为 CC / TANSYA / TOWING`);
+  throw new BadRequestException(`拖车类型 ${input} 无法识别，应为 CC / TANSYA / DD / TOWING`);
 }
 
 export function vehicleCapacity(

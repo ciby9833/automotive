@@ -37,9 +37,11 @@ export interface LineRow {
   vehicle_config: string;
   vehicle_model: string;
   vehicle_color: string;
-  tow_type: 'CC' | 'TANSYA' | 'TOWING' | null;
+  tow_type: 'CC' | 'TANSYA' | 'DD' | 'TOWING' | null;
   carrier_id: string | null;
   trip_id: string | null;
+  dispatch_group: string | null;
+  group_batch_id: string | null;
   status: LineStatus;
   picked_up_at: Date | null;
   picked_up_by: string | null;
@@ -66,9 +68,10 @@ export interface TripRow {
   code: string;
   organization_id: string;
   carrier_id: string;
-  driver_id: string;
-  vehicle_id: string;
-  tow_type: 'CC' | 'TANSYA' | 'TOWING';
+  /** 按组确认生成的趟次先只有物流商，司机和拖车之后指派 */
+  driver_id: string | null;
+  vehicle_id: string | null;
+  tow_type: 'CC' | 'TANSYA' | 'DD' | 'TOWING';
   capacity: number;
   status: TripStatus;
   created_by: string;
@@ -114,8 +117,8 @@ export interface TariffRow {
   carrier_id: string | null;
   origin_id: string;
   destination_id: string | null;
-  destination_region: string | null;
-  tow_type: 'CC' | 'TANSYA' | 'TOWING';
+  destination_region_id: string | null;
+  tow_type: 'CC' | 'TANSYA' | 'DD' | 'TOWING';
   price: string;
   currency: string;
   valid_from: string;

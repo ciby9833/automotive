@@ -2,6 +2,8 @@ import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
+  IsOptional,
   IsNotEmpty,
   IsString,
   IsUUID,
@@ -9,6 +11,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { Currency } from '../../../common/enums/currency.enum';
+import { REGION_COUNTRIES } from '../../../database/data/admin-regions';
 
 export class CreateOrganizationDto {
   @ApiProperty()
@@ -32,6 +35,11 @@ export class CreateOrganizationDto {
   @ApiProperty({ enum: Currency })
   @IsEnum(Currency)
   defaultCurrency: Currency;
+
+  @ApiProperty({ required: false, enum: REGION_COUNTRIES, description: '所在国家，决定可选的行政区划' })
+  @IsOptional()
+  @IsIn(REGION_COUNTRIES)
+  countryCode?: string | null;
 
   // 根机构由 seed 创建，业务接口只创建子机构。
   @ApiProperty()

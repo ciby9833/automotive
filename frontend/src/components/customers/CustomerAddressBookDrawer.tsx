@@ -36,6 +36,7 @@ import { parseDealerExcel } from '@/lib/customers/parse-dealer-excel';
 import { downloadCustomerAddressTemplate } from '@/lib/customers/generate-address-template';
 import { useTranslation } from '@/i18n/useTranslation';
 import { Permission, usePermission } from '@/lib/auth/permissions';
+import { RegionSelect } from '@/components/regions/RegionSelect';
 
 interface Props {
   customerId: string | null;
@@ -55,6 +56,7 @@ export function CustomerAddressBookDrawer({
   const { t } = useTranslation();
   const canManage = usePermission(Permission.PARTNER_CUSTOMER_CRUD);
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
+  const [organizationId, setOrganizationId] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState<CustomerAddress | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -73,6 +75,7 @@ export function CustomerAddressBookDrawer({
     try {
       const c = await customersApi.get(customerId);
       setAddresses(c.addresses ?? []);
+      setOrganizationId(c.organizationId);
     } catch {
       message.error(t('customers.addressBook.loadFailed'));
     } finally {
@@ -156,8 +159,10 @@ export function CustomerAddressBookDrawer({
     setAddOpen(true);
   };
 
-  const submitAddOrEdit = async (values: CustomerAddressPayload) => {
+  const submitAddOrEdit = async (form: CustomerAddressPayload) => {
     if (!customerId) return;
+    // 清空区域要显式传 null
+    const values = { ...form, regionId: form.regionId ?? null };
     try {
       if (editing) {
         await customersApi.updateAddress(editing.id, values);
@@ -387,8 +392,8 @@ export function CustomerAddressBookDrawer({
               }))}
             />
           </Form.Item>
-          <Form.Item label={t('customers.addressBook.region')} name="region">
-            <Input placeholder="GREATER JAKARTA" />
+          <Form.Item label={t('customers.addressBook.region')} name="regionId">
+            <RegionSelect organizationId={organizationId} placeholder="Kota Bekasi" />
           </Form.Item>
           <Form.Item
             label={t('customers.addressBook.code')}

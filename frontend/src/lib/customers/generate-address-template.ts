@@ -16,7 +16,7 @@ export function downloadCustomerAddressTemplate() {
       DealerName: 'BYD Jakarta Central',
       Address: 'Jl. Example No. 1, Jakarta',
       DealerGroup: 'Arista',
-      Region: 'GREATER JAKARTA',
+      Region: 'Kota Administrasi Jakarta Pusat',
       ContactName: 'Budi',
       ContactPhone: '081234567890',
     },

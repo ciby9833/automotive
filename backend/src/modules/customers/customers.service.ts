@@ -21,6 +21,7 @@ import { ScopeService } from '../../common/scope/scope.service';
 import { AuditService } from '../tracking/audit.service';
 import { OperationType } from '../../common/enums/operation-type.enum';
 import { PartnerStatus } from '../../common/enums/partner-status.enum';
+import { RegionsService } from '../regions/regions.service';
 
 @Injectable()
 export class CustomersService {
@@ -33,6 +34,7 @@ export class CustomersService {
     private readonly ordersRepository: Repository<Order>,
     private readonly scopeService: ScopeService,
     private readonly audit: AuditService,
+    private readonly regions: RegionsService,
   ) {}
 
   async options(scope: EffectiveScope) {
@@ -223,11 +225,13 @@ export class CustomersService {
     dto: CreateCustomerAddressDto,
     scope: EffectiveScope,
   ): Promise<CustomerAddress> {
-    await this.findOne(customerId, scope);
+    const customer = await this.findOne(customerId, scope);
     const normalizedCode = this.normalizeAddressCode(dto.code);
     await this.assertAddressCodeUnique(customerId, normalizedCode);
+    const [region] = await this.regionPatches(customer.organizationId, [dto]);
     const address = this.addressesRepository.create({
       ...dto,
+      ...region,
       code: normalizedCode,
       customerId,
     });
@@ -243,14 +247,15 @@ export class CustomersService {
       where: { id: addressId },
     });
     if (!address) throw new NotFoundException('地址不存在');
-    await this.findOne(address.customerId, scope);
+    const customer = await this.findOne(address.customerId, scope);
     const normalizedCode = this.normalizeAddressCode(dto.code ?? address.code);
     await this.assertAddressCodeUnique(
       address.customerId,
       normalizedCode,
       address.id,
     );
-    Object.assign(address, dto, { code: normalizedCode });
+    const [region] = await this.regionPatches(customer.organizationId, [dto]);
+    Object.assign(address, dto, region, { code: normalizedCode });
     return this.addressesRepository.save(address);
   }
 
@@ -269,7 +274,7 @@ export class CustomersService {
     dto: ImportCustomerAddressesDto,
     scope: EffectiveScope,
   ): Promise<{ created: number; updated: number; skipped: number }> {
-    await this.findOne(customerId, scope);
+    const customer = await this.findOne(customerId, scope);
 
     // code 是地址簿业务键：导入内重复直接拒绝，避免“最后一行覆盖前一行”。
     const seen = new Set<string>();
@@ -289,6 +294,8 @@ export class CustomersService {
     if (rows.length === 0) {
       throw new BadRequestException('导入的地址列表为空');
     }
+    const regionPatches = await this.regionPatches(customer.organizationId, rows);
+    rows.forEach((row, i) => Object.assign(row, regionPatches[i]));
 
     // 查已存在的 code
     const codes = rows.map((r) => r.code.toUpperCase());
@@ -332,6 +339,45 @@ export class CustomersService {
       updated,
       skipped: 0,
     };
+  }
+
+  /**
+   * 表单传 regionId，Excel 传区域文字；统一落成 regionId + 区域名称。
+   * 区域只能是客户所属机构国家的行政区划；对不上的文字一次性列出来。
+   */
+  private async regionPatches(
+    organizationId: string,
+    rows: Array<{ regionId?: string | null; region?: string | null }>,
+  ): Promise<Array<{ regionId?: string | null; region?: string | null }>> {
+    if (!rows.some((r) => r.regionId !== undefined || r.region !== undefined))
+      return rows.map(() => ({}));
+    const country = await this.regions.countryOf(organizationId);
+    const list = country ? await this.regions.list(country) : [];
+    const unknown = new Set<string>();
+    const patches = rows.map((r) => {
+      if (r.regionId !== undefined) {
+        if (r.regionId === null) return { regionId: null, region: null };
+        const hit = list.find((x) => x.id === r.regionId);
+        if (!hit)
+          throw new BadRequestException('区域不存在，或不属于该客户所在机构的国家');
+        return { regionId: hit.id, region: hit.name };
+      }
+      const text = r.region?.trim();
+      if (!text) return { regionId: null, region: null };
+      if (!country)
+        throw new BadRequestException('客户所属机构还没有设置国家，不能填写区域，请先在机构管理里设置');
+      const hit = this.regions.resolveIn(list, country, text);
+      if (!hit) {
+        unknown.add(text);
+        return {};
+      }
+      return { regionId: hit.id, region: hit.name };
+    });
+    if (unknown.size)
+      throw new BadRequestException(
+        `以下区域不在 ${country} 的行政区划里：${[...unknown].join('、')}。请填写省或县/市的标准名称或代码`,
+      );
+    return patches;
   }
 
   private normalizeAddressCode(code: string | null | undefined): string {

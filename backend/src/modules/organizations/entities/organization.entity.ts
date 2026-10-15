@@ -26,6 +26,10 @@ export class Organization extends BaseEntity {
   @Column({ type: 'enum', enum: Currency })
   defaultCurrency: Currency;
 
+  // 所在国家（ISO 3166-1），决定客户地点、运输报价可选的行政区划；总部等非国家节点可为空
+  @Column({ name: 'country_code', type: 'varchar', length: 2, nullable: true })
+  countryCode: string | null;
+
   // 自引用父节点：HQ 根节点为 null，其它节点必填。
   @ManyToOne(() => Organization, { nullable: true, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'parent_id' })

@@ -32,7 +32,7 @@ import {
   type TransportTrip,
   type TripDetail,
 } from "@/lib/api/transport";
-import { AttachmentLink } from '@/components/evidence/SignedAttachments';
+import { AttachmentFiles } from '@/components/evidence/SignedAttachments';
 import { uploadFile } from '@/lib/api/storage';
 import { Permission, usePermission } from '@/lib/auth/permissions';
 import { LineTable, ReasonModal } from "./OrdersTab";
@@ -416,11 +416,12 @@ export function TripDrawer({
                         {t("lineCount")} {leg.lines} · {t("loaded")} {leg.loaded} · {t("delivered")} {leg.delivered}
                       </Typography.Text>
                       <Space wrap>
-                        {leg.documents.map((d) => (
-                          <AttachmentLink key={d.id} fileKey={d.file_key}>
-                            {d.file_name}
-                          </AttachmentLink>
-                        ))}
+                        {leg.documents.length > 0 && (
+                          <AttachmentFiles
+                            size={64}
+                            files={leg.documents.map((d) => ({ key: d.file_key, name: d.file_name, mime: d.mime_type }))}
+                          />
+                        )}
                         {canExecute && trip.status !== "CANCELLED" && leg.loaded > 0 && (
                           <Upload
                             accept="application/pdf,image/jpeg"

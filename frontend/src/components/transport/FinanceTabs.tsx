@@ -16,6 +16,7 @@ import {
   Select,
   Space,
   Statistic,
+  Switch,
   Table,
   Tag,
   Typography,
@@ -45,6 +46,8 @@ export function TariffsTab() {
   const t = useTransportText();
   const customers = useCustomers(true);
   const [side, setSide] = useState<string>("");
+  // 默认只看今天有效的报价，历史价格多了会把列表淹没
+  const [withExpired, setWithExpired] = useState(false);
   const [customerId, setCustomerId] = useState<string>();
   const [rows, setRows] = useState<Tariff[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,13 +56,19 @@ export function TariffsTab() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setRows(await transportApi.tariffs({ side, customerId }));
+      setRows(
+        await transportApi.tariffs({
+          side,
+          customerId,
+          activeOn: withExpired ? undefined : dayjs().format("YYYY-MM-DD"),
+        }),
+      );
     } catch (e) {
       notifyError(e);
     } finally {
       setLoading(false);
     }
-  }, [side, customerId]);
+  }, [side, customerId, withExpired]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -89,6 +98,10 @@ export function TariffsTab() {
           onChange={setCustomerId}
           options={customers.map((c) => ({ value: c.id, label: c.name }))}
         />
+        <Space size={6}>
+          <Switch size="small" checked={withExpired} onChange={setWithExpired} />
+          <Typography.Text type="secondary">{t("withExpired")}</Typography.Text>
+        </Space>
         <Button disabled={!canWrite} type="primary" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
           {t("newTariff")}
         </Button>

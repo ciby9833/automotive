@@ -74,6 +74,12 @@ export interface TransportLine {
   delivered_at: string | null;
   delivery_photos: string[];
   end_reason: string | null;
+  /** 以下仅在 timeline=true 时返回（运输明细页） */
+  order_created_at?: string;
+  allocated_at?: string | null;
+  dispatched_at?: string | null;
+  departed_at?: string | null;
+  pod_documents?: { key: string; name: string; mime?: string }[];
 }
 
 export interface TransportEvent {
@@ -345,6 +351,30 @@ export const transportApi = {
   cancelOrder: (orderId: string, reason: string) =>
     unwrap<{ cancelled: number }>(apiClient.post(`/transport/orders/${orderId}/cancel`, { reason })),
 
+  /** 运输明细导出：后端生成 Excel（签收照片嵌缩略图），条件同列表，最多 1000 台 */
+  exportLines: async (q: Query, lang: string) => {
+    try {
+      const res = await apiClient.get<Blob>("/transport/lines/export", {
+        params: clean({ ...q, lang }),
+        responseType: "blob",
+        timeout: 300_000,
+      });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `transport-lines-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // 报错时响应体也是 Blob，转回 JSON 取后端的提示
+      const data = (e as { response?: { data?: unknown } }).response?.data;
+      if (data instanceof Blob) {
+        const body = JSON.parse(await data.text()) as { message?: string };
+        throw new Error(body.message ?? "Export failed");
+      }
+      throw e;
+    }
+  },
   lines: (q: Query) =>
     unwrap<Paged<TransportLine>>(apiClient.get("/transport/lines", { params: clean(q) })),
   updateLine: (id: string, d: { vin?: string | null; vehicleConfig?: string; vehicleModel?: string; vehicleColor?: string }) =>

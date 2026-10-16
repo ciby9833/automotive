@@ -33,7 +33,7 @@
 3. **派车**分两步（内部或承运商业务员）：
    - **按组确认**：导入时 Group 相同的车是一组，一组一张卡片、按导入批次分区。点选卡片后在底部浮动栏一键生成趟次——这一步只定物流商（组里没填 Vendor 的统一选一次），趟次状态为「待指派车辆」，载量先按拖车类型默认。
    - **指派车辆**：已确认的趟次按物流商分组列出，每趟在行内选司机和拖车（校验拖车类型和实车载量；拖车上还有未签收的车只提示）。现在多由 J&T 代物流商指派，物流商业务员登录后只看到自己的趟次。没指派的趟次不能提货、发车；司机端（App）也看不到。
-   - **按明细**：逐台勾选、直接带司机和拖车派车，或把选中的车「设为组」，用于例外情况。
+   - **按明细**：逐台勾选、直接带司机和拖车派车，或把选中的车「设为组」，用于例外情况。可按组号筛选，一次选一个或多个组。
 4. **提货**（司机 App / 网页）：扫 VIN。装车前校验拖车：同一拖车在别的趟次还有“已装车未签收”的车时，本趟不能装（提示占用的趟次号）。
    - 命中计划 VIN → 提货；
    - 本趟有空 VIN 明细 → 只有一条路线时自动绑定，多条路线时让司机选门店；
@@ -92,12 +92,19 @@
 全部在 `/transport` 下，Swagger：`/api-docs`。
 
 - 需求单：`GET/POST /orders`、`GET /orders/:id`、`POST /orders/import`（`dryRun` 预览）、`POST /orders/:id/vins`、`POST /orders/:id/cancel`
-- 明细：`GET /lines`（支持 `tripId`、`dateField`=plannedPickup/plannedDelivery/pickedUp/delivered + `from`/`to`、客户、起点、终点、物流商、状态；网页“运输明细”页签按这些条件导出 Excel）、`PATCH /lines/:id`、`POST /lines/allocate`、`POST /lines/cancel`、`POST /lines/:id/close`、`GET /vins/:vin/history`
+- 明细：`GET /lines`（支持 `tripId`、`group`（可多个，逗号分隔）、`dateField`=orderCreated/plannedPickup/plannedDelivery/pickedUp/delivered + `from`/`to`、客户、起点、终点、物流商、状态；`timeline=true` 时带上需求单、分配、派车、发车时间和回单）、`GET /lines/export`（同样的条件，后端生成 Excel，最多 1000 台）、`PATCH /lines/:id`、`POST /lines/allocate`、`POST /lines/cancel`、`POST /lines/:id/close`、`GET /vins/:vin/history`
 - 分组：`GET /groups`（待派车的组）、`POST /lines/group`（设为组 / 取消分组）
 - 趟次：`GET/POST /trips`（`unassigned=true` 列出待指派车辆的趟次）、`POST /trips/batch`（按组确认，只给物流商即可，每组各自成败）、`/reassign`（指派车辆 / 提货前更换）、`/correct-carrier`（提货后更正并重算应付）、`GET /trips/:id`、`POST /trips/:id/lines`、`/lines/remove`、`/cancel`、`/pickup`、`/depart`、`/sign`、`/force-pickup`、`/force-sign`、`/exceptions`、`/documents`
 - 异常：`GET /exceptions`、`POST /exceptions/:id/resolve`
 - 区域：`GET /regions?organizationId=`（该机构所在国家的区域，前端按 `parent_id` 组树）
 - 报价与费用：`GET/POST /tariffs`（`destinationId` 与 `destinationRegionId` 二选一）、`PATCH/DELETE /tariffs/:id`、`GET /charges`、`PATCH /charges/:id`、`POST /charges/confirm`、`POST /charges/recalculate`
+
+## 运输明细与导出
+
+- 运输明细默认只看最近 30 天的需求单（按需求单日期），清空日期可看全部；「已签收」列显示签收时间，点「照片 / 回单」才加载签收照片和该段的回单。
+- 导出由后端按当前筛选生成：需求单号、客户订单号、客户、VIN、始发地、目的地、供应商、拖车类型、趟次、状态、需求单时间、分配物流商、派车、提货、发车、签收时间、回单文件名，以及最多 3 张签收照片。
+- 照片从存储里取原图、压成约 200×150 的缩略图**嵌在表格里**（预览链接只有 15 分钟，放链接会过期）；单张失败只留空，不影响整张表。
+- 一次最多 1000 台，超过会提示缩小日期范围；时间按机构运营时区显示；表头跟随界面语言（中文 / English / Indonesia）。
 
 ## Excel 模板
 
@@ -124,7 +131,9 @@
 
 ## 部署与验证
 
-迁移：`1789600000000-PureTransport.ts`（会清掉早期原型的 `transport_tasks / planned_vins / actual_vins` 表，这些表从未上线）、`1790500000000-TransportFeedback0930.ts`（客户编号字段与唯一索引；删掉“一辆拖车/一个司机只能有一个未完成趟次”的唯一索引）、`1790600000000-RegionsAndDoubleDrop.ts`（区域表与种子数据、地点/报价改挂 region_id、机构国家、DD）、`1790700000000-TransportDispatchGroups.ts`（明细的派车组与批次）、`1790800000000-TripVehicleAssignment.ts`（趟次的司机、拖车可以先空着，提货前必须指派）。保持 `DB_SYNCHRONIZE=false`，先备份再执行：
+迁移：`1789600000000-PureTransport.ts`（会清掉早期原型的 `transport_tasks / planned_vins / actual_vins` 表，这些表从未上线）、`1790500000000-TransportFeedback0930.ts`（客户编号字段与唯一索引；删掉“一辆拖车/一个司机只能有一个未完成趟次”的唯一索引）、`1790600000000-RegionsAndDoubleDrop.ts`（区域表与种子数据、地点/报价改挂 region_id、机构国家、DD）、`1790700000000-TransportDispatchGroups.ts`（明细的派车组与批次）、`1790800000000-TripVehicleAssignment.ts`（趟次的司机、拖车可以先空着，提货前必须指派）、`1790900000000-TransportEventLineIndex.ts`（按车查动作时间的索引）。
+
+后端新增依赖 `exceljs`（生成带图片的 Excel）和 `sharp`（缩略图）：部署时需要在服务器上执行 `npm install`，`sharp` 会按服务器平台下载预编译包。保持 `DB_SYNCHRONIZE=false`，先备份再执行：
 
 ```sh
 cd backend

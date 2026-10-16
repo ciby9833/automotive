@@ -1,25 +1,26 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button, DatePicker, Input, Select, Space, Typography, message } from "antd";
+import { Button, DatePicker, Input, Modal, Select, Space, Typography } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
-import type { Dayjs } from "dayjs";
-import * as XLSX from "xlsx";
+import dayjs, { type Dayjs } from "dayjs";
+import { useTranslation } from "@/i18n/useTranslation";
+import { AttachmentFiles } from "@/components/evidence/SignedAttachments";
 import { transportApi, type TransportLine } from "@/lib/api/transport";
 import { LineTable } from "./OrdersTab";
 import {
   TOW_OPTIONS,
   addressOptions,
+  fmtTime,
   notifyError,
   useCarriers,
   useCustomerAddresses,
   useCustomers,
   useTransportText,
 } from "./shared";
-import type { TransportT } from "./copy";
 
 const PAGE_SIZE = 100;
-const DATE_FIELDS = ["plannedPickup", "plannedDelivery", "pickedUp", "delivered"] as const;
+const DATE_FIELDS = ["orderCreated", "plannedPickup", "plannedDelivery", "pickedUp", "delivered"] as const;
 const STATUSES = [
   "UNALLOCATED",
   "ALLOCATED",
@@ -34,6 +35,7 @@ const STATUSES = [
 /** 全状态的按台明细：业务要按不同日期维度查，并导出给客户或内部对账 */
 export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void }) {
   const t = useTransportText();
+  const { locale } = useTranslation();
   const customers = useCustomers(true);
   const carriers = useCarriers(true);
   const [customerId, setCustomerId] = useState<string>();
@@ -44,8 +46,10 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
   const [destinationId, setDestinationId] = useState<string>();
   const [status, setStatus] = useState<string>();
   const [towType, setTowType] = useState<string>();
-  const [dateField, setDateField] = useState<(typeof DATE_FIELDS)[number]>("plannedPickup");
-  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(null);
+  // 默认只看最近 30 天的需求单，避免一打开就扫全量；清空日期即可看全部
+  const [dateField, setDateField] = useState<(typeof DATE_FIELDS)[number]>("orderCreated");
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(() => [dayjs().subtract(29, "day"), dayjs()]);
+  const [photosOf, setPhotosOf] = useState<TransportLine | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<TransportLine[]>([]);
@@ -74,7 +78,7 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
     const n = ++seq.current;
     setLoading(true);
     try {
-      const r = await transportApi.lines({ ...query(), page, pageSize: PAGE_SIZE });
+      const r = await transportApi.lines({ ...query(), timeline: "true", page, pageSize: PAGE_SIZE });
       if (n === seq.current) {
         setRows(r.items);
         setTotal(r.total);
@@ -97,19 +101,8 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
   const exportExcel = async () => {
     setExporting(true);
     try {
-      // 分页拉全量：导出的是当前筛选，不只是当前页
-      const all: TransportLine[] = [];
-      for (let p = 1; ; p += 1) {
-        const r = await transportApi.lines({ ...query(), page: p, pageSize: 500 });
-        all.push(...r.items);
-        if (all.length >= r.total || !r.items.length) break;
-      }
-      if (!all.length) {
-        message.warning(t("exportEmpty"));
-        return;
-      }
-      writeLinesWorkbook(all, t, `transport-lines-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      message.success(t("exportDone", { n: all.length }));
+      // 后端按当前筛选生成，签收照片嵌缩略图；超过 1000 台会提示缩小范围
+      await transportApi.exportLines(query(), locale);
     } catch (e) {
       notifyError(e);
     } finally {
@@ -216,57 +209,43 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
             width: 110,
             render: (v: string | null) => v ?? "-",
           },
+          {
+            title: t("delivered"),
+            width: 150,
+            render: (_: unknown, l: TransportLine) =>
+              l.delivered_at ? (
+                <Space direction="vertical" size={0}>
+                  <span>{fmtTime(l.delivered_at)}</span>
+                  {(l.delivery_photos.length > 0 || !!l.pod_documents?.length) && (
+                    <a onClick={() => setPhotosOf(l)}>
+                      {t("photoCount", { n: l.delivery_photos.length + (l.pod_documents?.length ?? 0) })}
+                    </a>
+                  )}
+                </Space>
+              ) : (
+                "-"
+              ),
+          },
         ]}
       />
+      {/* 照片点开才加载，列表本身不拉图片 */}
+      {photosOf && (
+        <Modal
+          open
+          footer={null}
+          width={720}
+          title={`${photosOf.vin ?? ""} · ${t("deliveryProof")}`}
+          onCancel={() => setPhotosOf(null)}
+        >
+          {/* 签收照片和回单里的图片在同一个预览组里，点开可以左右切换；PDF 在新标签页打开 */}
+          <AttachmentFiles
+            files={[
+              ...photosOf.delivery_photos.map((key) => ({ key })),
+              ...(photosOf.pod_documents ?? []).map((d) => ({ key: d.key, name: d.name, mime: d.mime })),
+            ]}
+          />
+        </Modal>
+      )}
     </>
   );
-}
-
-/** 导出列与明细表一致，财务/客户都按这张表对账 */
-export function writeLinesWorkbook(lines: TransportLine[], t: TransportT, fileName: string) {
-  const header = [
-    t("orderCode"),
-    t("requestNo"),
-    t("customer"),
-    t("vin"),
-    t("origin"),
-    t("destination"),
-    t("region"),
-    t("model"),
-    t("color"),
-    t("towType"),
-    t("carrier"),
-    t("tripCode"),
-    t("status"),
-    t("pickupDate"),
-    t("deliveryDate"),
-    t("pickedUpAt"),
-    t("deliveredAt"),
-    t("reason"),
-  ];
-  const body = lines.map((l) => [
-    l.order_code,
-    l.customer_request_no,
-    l.customer_name,
-    l.vin ?? "",
-    [l.origin_code, l.origin_name].filter(Boolean).join(" "),
-    [l.destination_code, l.destination_name].filter(Boolean).join(" "),
-    l.destination_region ?? "",
-    l.vehicle_model,
-    l.vehicle_color,
-    l.tow_type ?? "",
-    l.carrier_short_name ?? l.carrier_name ?? "",
-    l.trip_code ?? "",
-    t(`L_${l.status}`),
-    l.planned_pickup_date ?? "",
-    l.planned_delivery_date ?? "",
-    l.picked_up_at ? l.picked_up_at.slice(0, 19).replace("T", " ") : "",
-    l.delivered_at ? l.delivered_at.slice(0, 19).replace("T", " ") : "",
-    l.end_reason ?? "",
-  ]);
-  const ws = XLSX.utils.aoa_to_sheet([header, ...body]);
-  ws["!cols"] = header.map((h, i) => ({ wch: Math.max(12, i === 3 ? 20 : h.length + 4) }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "Lines");
-  XLSX.writeFile(wb, fileName);
 }

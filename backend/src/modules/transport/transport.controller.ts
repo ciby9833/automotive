@@ -9,11 +9,13 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -28,6 +30,7 @@ import { TransportAccess } from './transport.access';
 import { TransportOrdersService } from './transport-orders.service';
 import { TransportTripsService } from './transport-trips.service';
 import { TransportFinanceService } from './transport-finance.service';
+import { TransportExportService } from './transport-export.service';
 import {
   AdjustChargeDto,
   AllocateLinesDto,
@@ -39,6 +42,7 @@ import {
   ForceStatusDto,
   ImportTransportDto,
   LineIdsDto,
+  LineQueryDto,
   PickupScanDto,
   ReasonDto,
   ReassignTripDto,
@@ -73,6 +77,7 @@ export class TransportController {
     private readonly trips: TransportTripsService,
     private readonly finance: TransportFinanceService,
     private readonly storage: StorageService,
+    private readonly exporter: TransportExportService,
   ) {}
 
   // ---------------------------------------------------------------- 需求单
@@ -135,42 +140,28 @@ export class TransportController {
   // ---------------------------------------------------------------- 明细
   @Permissions(Permission.TRANSPORT_VIEW)
   @Get('lines')
-  async lines(
-    @CurrentUser() u: AuthenticatedUser,
-    @Query('status') status?: string,
-    @Query('orderId') orderId?: string,
-    @Query('customerId') customerId?: string,
-    @Query('carrierId') carrierId?: string,
-    @Query('originId') originId?: string,
-    @Query('destinationId') destinationId?: string,
-    @Query('towType') towType?: string,
-    @Query('tripId') tripId?: string,
-    @Query('groupBatchId') groupBatchId?: string,
-    @Query('group') group?: string,
-    @Query('dateField') dateField?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('search') search?: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-  ) {
+  async lines(@CurrentUser() u: AuthenticatedUser, @Query() q: LineQueryDto) {
+    const { page, pageSize, timeline, lang: _lang, ...filters } = q;
     return this.orders.lines(await this.access.actor(u), {
-      status,
-      orderId,
-      customerId,
-      carrierId,
-      originId,
-      destinationId,
-      towType,
-      tripId,
-      groupBatchId,
-      group,
-      dateField,
-      from,
-      to,
-      search,
+      ...filters,
+      timeline: timeline === 'true',
       ...paging(page, pageSize, 500),
     });
+  }
+
+  /** 运输明细导出 Excel（签收照片嵌缩略图），条件与列表一致，最多 1000 台 */
+  @Permissions(Permission.TRANSPORT_VIEW)
+  @Get('lines/export')
+  async exportLines(@CurrentUser() u: AuthenticatedUser, @Query() q: LineQueryDto, @Res() res: Response) {
+    const { page: _p, pageSize: _s, timeline: _t, lang, ...filters } = q;
+    const file = await this.exporter.lines(await this.access.actor(u), filters, lang ?? 'zh');
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="transport-lines-${new Date().toISOString().slice(0, 10)}.xlsx"`,
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(file);
   }
 
   @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
@@ -388,11 +379,13 @@ export class TransportController {
     const jpg = file?.buffer[0] === 0xff && file?.buffer[1] === 0xd8 && file?.buffer[2] === 0xff;
     if (!file || !((file.mimetype === 'application/pdf' && pdf) || (file.mimetype === 'image/jpeg' && jpg)))
       throw new BadRequestException('请上传 20 MB 以内的 PDF 或 JPG');
-    const uploaded = await this.storage.upload(file.buffer, file.originalname, file.mimetype, u);
+    // multer 按 latin1 解析表单里的文件名，中文名会乱码，这里还原成 UTF-8
+    const name = Buffer.from(file.originalname, 'latin1').toString('utf8');
+    const uploaded = await this.storage.upload(file.buffer, name, file.mimetype, u);
     try {
       return await this.trips.addDocument(actor, id, originId, destinationId, {
         key: uploaded.key,
-        name: file.originalname,
+        name,
         mime: file.mimetype,
       });
     } catch (e) {

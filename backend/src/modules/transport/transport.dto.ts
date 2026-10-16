@@ -247,3 +247,28 @@ export class ChargeIdsDto {
   @IsUUID('all', { each: true })
   ids: string[];
 }
+
+/** 运输明细的查询条件：列表和导出共用 */
+export class LineQueryDto {
+  @IsOptional() @IsString() @MaxLength(200) status?: string;
+  @IsOptional() @IsUUID() orderId?: string;
+  @IsOptional() @IsUUID() customerId?: string;
+  @IsOptional() @IsUUID() carrierId?: string;
+  @IsOptional() @IsUUID() originId?: string;
+  @IsOptional() @IsUUID() destinationId?: string;
+  @IsOptional() @IsIn(TOW_TYPES) towType?: string;
+  @IsOptional() @IsUUID() tripId?: string;
+  @IsOptional() @IsUUID() groupBatchId?: string;
+  /** 组号，可多个，逗号分隔 */
+  @IsOptional() @IsString() @MaxLength(500) group?: string;
+  @IsOptional() @IsIn(['orderCreated', 'plannedPickup', 'plannedDelivery', 'pickedUp', 'delivered']) dateField?: string;
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  /** 带上时间线和回单（运输明细页用） */
+  @IsOptional() @IsIn(['true', 'false']) timeline?: string;
+  @IsOptional() @IsString() page?: string;
+  @IsOptional() @IsString() pageSize?: string;
+  /** 导出表头语言 */
+  @IsOptional() @IsIn(['zh', 'en', 'id']) lang?: 'zh' | 'en' | 'id';
+}

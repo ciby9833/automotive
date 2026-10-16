@@ -57,6 +57,8 @@ function LinePool({ internal, onOpenTrip }: Props) {
   const [customerId, setCustomerId] = useState<string>();
   const [carrierId, setCarrierId] = useState<string>();
   const [towType, setTowType] = useState<string>();
+  const [groupCodes, setGroupCodes] = useState<string[]>([]);
+  const [groupOptions, setGroupOptions] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [rows, setRows] = useState<TransportLine[]>([]);
@@ -72,7 +74,16 @@ function LinePool({ internal, onOpenTrip }: Props) {
     const n = ++seq.current;
     setLoading(true);
     try {
-      const r = await transportApi.lines({ status, customerId, carrierId, towType, search, page, pageSize: 100 });
+      const r = await transportApi.lines({
+        status,
+        customerId,
+        carrierId,
+        towType,
+        group: groupCodes.join(","),
+        search,
+        page,
+        pageSize: 100,
+      });
       if (n === seq.current) {
         setRows(r.items);
         setTotal(r.total);
@@ -83,10 +94,17 @@ function LinePool({ internal, onOpenTrip }: Props) {
     } finally {
       if (n === seq.current) setLoading(false);
     }
-  }, [status, customerId, carrierId, towType, search, page]);
+  }, [status, customerId, carrierId, towType, groupCodes, search, page]);
   useEffect(() => {
     void load();
   }, [load]);
+  // 组号候选：还有车待派的组；也可以直接输入任意组号
+  useEffect(() => {
+    transportApi
+      .groups({})
+      .then((r) => setGroupOptions([...new Set(r.map((g) => g.dispatch_group))].sort()))
+      .catch(() => undefined);
+  }, []);
 
   const chosen = useMemo(() => rows.filter((l) => selected.includes(l.id)), [rows, selected]);
   const dispatchable =
@@ -159,6 +177,20 @@ function LinePool({ internal, onOpenTrip }: Props) {
             setTowType(v);
           }}
           options={TOW_OPTIONS}
+        />
+        <Select
+          mode="tags"
+          allowClear
+          maxTagCount="responsive"
+          tokenSeparators={[",", " "]}
+          placeholder={t("group")}
+          style={{ width: 200 }}
+          value={groupCodes}
+          onChange={(v: string[]) => {
+            setPage(1);
+            setGroupCodes(v.map((x) => x.trim().toUpperCase()).filter(Boolean));
+          }}
+          options={groupOptions.map((g) => ({ value: g, label: g }))}
         />
         <Input.Search
           allowClear

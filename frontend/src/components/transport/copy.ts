@@ -165,7 +165,10 @@ const copy = {
   unplannedScanned: ["{vin} 不在计划内，已提交内部处理", "{vin} is not planned; sent for review", "{vin} di luar rencana; dikirim untuk ditinjau"],
 
   // 运输明细
-  linesHint: ["按台查全流程明细，可按日期类型筛选后导出 Excel", "Every car across all statuses. Filter by a date type, then export to Excel", "Semua unit di semua status. Saring menurut jenis tanggal, lalu ekspor ke Excel"],
+  linesHint: ["按台查全流程明细，默认最近 30 天；导出 Excel 含各环节时间和签收照片，一次最多 1000 台", "Every car across all statuses, last 30 days by default. Export includes each step's time and delivery photos, up to 1000 cars", "Semua unit, default 30 hari terakhir. Ekspor berisi waktu tiap tahap dan foto terima, maks 1000 unit"],
+  dateOrderCreated: ["需求单日期", "Order date", "Tgl. pesanan"],
+  deliveryProof: ["签收照片与回单", "Delivery photos & POD", "Foto terima & POD"],
+  photoCount: ["照片 / 回单 {n}", "Photos / POD {n}", "Foto / POD {n}"],
   dateField: ["日期类型", "Date type", "Jenis tanggal"],
   datePlannedPickup: ["计划提货日", "Planned pickup", "Rencana ambil"],
   datePlannedDelivery: ["计划到达日", "Planned delivery", "Rencana tiba"],
@@ -208,6 +211,7 @@ const copy = {
   storeOrRegion: ["门店或区域（二选一）", "Store or region (one of)", "Dealer atau wilayah (salah satu)"],
   storesWithoutRegion: ["该客户有 {n} 个门店还没设置区域，区域价对它们不生效，请在客户地址簿补上", "{n} stores of this customer have no region, so region prices won't apply to them. Set it in the address book", "{n} dealer pelanggan ini belum punya wilayah, jadi harga wilayah tidak berlaku. Atur di buku alamat"],
   tariffHint: ["应收按“客户+发货地+门店或区域+拖车类型”，应付再加物流商。门店价优先，没有就按门店所属区域（县/市→省）找。币种为机构默认币种。", "Receivable: customer + origin + store or region + armada; payable adds the vendor. A store price wins; otherwise the store's region (city/regency, then province) applies. Currency follows the organization.", "Piutang: pelanggan + asal + dealer atau wilayah + armada; hutang menambah vendor. Harga dealer didahulukan; jika tidak ada, dipakai wilayah dealer (kab/kota, lalu provinsi). Mata uang ikut organisasi."],
+  withExpired: ["含已过期", "Include expired", "Termasuk kedaluwarsa"],
   deleteConfirm: ["确认删除？已生成的费用不受影响", "Delete? Existing charges keep their amounts", "Hapus? Biaya yang ada tidak berubah"],
 
   // 费用

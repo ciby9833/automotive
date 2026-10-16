@@ -167,7 +167,10 @@ export class TransportOrdersService {
       towType?: string;
       tripId?: string;
       groupBatchId?: string;
+      /** 组号，可多个（逗号分隔） */
       group?: string;
+      /** 带上时间线（运输明细、导出用） */
+      timeline?: boolean;
       /** 日期维度：计划提货 / 计划到达 / 实际提货 / 签收 */
       dateField?: string;
       from?: string;
@@ -192,15 +195,20 @@ export class TransportOrdersService {
       [q.towType, 'l.tow_type'],
       [q.tripId, 'l.trip_id'],
       [q.groupBatchId, 'l.group_batch_id'],
-      [q.group?.trim().toUpperCase(), 'l.dispatch_group'],
     ];
     for (const [value, col] of eq) {
       if (!value) continue;
       args.push(value);
       where.push(`${col} = $${args.length}`);
     }
+    const groups = (q.group ?? '').split(',').map((g) => g.trim().toUpperCase()).filter(Boolean);
+    if (groups.length) {
+      args.push(groups);
+      where.push(`l.dispatch_group = ANY($${args.length}::varchar[])`);
+    }
     if (q.from || q.to) {
       const columns: Record<string, string> = {
+        orderCreated: 'o.created_at::date',
         plannedPickup: 'o.planned_pickup_date',
         plannedDelivery: 'o.planned_delivery_date',
         pickedUp: 'l.picked_up_at::date',
@@ -234,7 +242,7 @@ export class TransportOrdersService {
     );
     args.push(q.pageSize, (q.page - 1) * q.pageSize);
     const items = await this.db.query(
-      `${LINE_SELECT} WHERE ${filter}
+      `${q.timeline ? lineSelect(LINE_TIMELINE) : LINE_SELECT} WHERE ${filter}
        ORDER BY o.planned_pickup_date NULLS LAST, o.created_at, l.line_no
        LIMIT $${args.length - 1} OFFSET $${args.length}`,
       args,
@@ -253,6 +261,10 @@ export class TransportOrdersService {
       args.push(`%${q.search.trim()}%`);
       where.push(`l.dispatch_group ILIKE $${args.length}`);
     }
+    // 只看还有车待派的批次，历史上派完的组不再参与聚合（数据会越积越多）
+    if (!q.all)
+      where.push(`l.group_batch_id IN (SELECT p.group_batch_id FROM transport_lines p
+        WHERE p.group_batch_id IS NOT NULL AND p.status IN ('UNALLOCATED','ALLOCATED'))`);
     return this.db.query(
       `WITH g AS (
          SELECT l.group_batch_id, l.dispatch_group, min(l.created_at) created_at,
@@ -1006,9 +1018,24 @@ export class TransportOrdersService {
   }
 }
 
-/** 明细 + 需求单、客户、地点、物流商、趟次的展示字段。 */
-export const LINE_SELECT = `
-  SELECT l.*, o.code order_code, o.customer_request_no, o.planned_pickup_date::text planned_pickup_date, o.planned_delivery_date::text planned_delivery_date,
+/**
+ * 运输明细 / 导出用的时间线：需求单创建、分配物流商、派车、发车，以及该车所在段的回单。
+ * 提货、签收时间本来就在明细上（picked_up_at / delivered_at）。导入时就指定了物流商的车没有单独的分配记录，按建单时间算。
+ */
+export const LINE_TIMELINE = `
+    o.created_at order_created_at,
+    coalesce(
+      (SELECT max(e.created_at) FROM transport_events e WHERE e.line_id = l.id AND e.action = 'LINE_ALLOCATED'),
+      CASE WHEN l.carrier_id IS NOT NULL THEN l.created_at END
+    ) allocated_at,
+    (SELECT max(e.created_at) FROM transport_events e WHERE e.line_id = l.id AND e.action = 'LINE_DISPATCHED') dispatched_at,
+    t.departed_at,
+    (SELECT coalesce(jsonb_agg(jsonb_build_object('key', d.file_key, 'name', d.file_name, 'mime', d.mime_type) ORDER BY d.created_at), '[]'::jsonb)
+       FROM transport_documents d
+      WHERE d.trip_id = l.trip_id AND d.origin_id = l.origin_id AND d.destination_id = l.destination_id) pod_documents,`;
+
+export const lineSelect = (extra = '') => `
+  SELECT l.*, ${extra} o.code order_code, o.customer_request_no, o.planned_pickup_date::text planned_pickup_date, o.planned_delivery_date::text planned_delivery_date,
     c.name customer_name,
     oa.code origin_code, oa."dealerName" origin_name, oa.kind origin_kind,
     da.code destination_code, da."dealerName" destination_name, da.region destination_region, da.kind destination_kind,
@@ -1021,3 +1048,6 @@ export const LINE_SELECT = `
   JOIN customer_addresses da ON da.id = l.destination_id
   LEFT JOIN carriers cr ON cr.id = l.carrier_id
   LEFT JOIN transport_trips t ON t.id = l.trip_id`;
+
+/** 明细 + 需求单、客户、地点、物流商、趟次的展示字段。 */
+export const LINE_SELECT = lineSelect();

@@ -271,4 +271,30 @@ export class LineQueryDto {
   @IsOptional() @IsString() pageSize?: string;
   /** 导出表头语言 */
   @IsOptional() @IsIn(['zh', 'en', 'id']) lang?: 'zh' | 'en' | 'id';
+  /** 导出是否嵌签收照片（默认嵌；调度明细导出传 false） */
+  @IsOptional() @IsIn(['true', 'false']) photos?: string;
+}
+
+/** 需求单列表 / 导出的查询条件 */
+export class OrderQueryDto {
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  @IsOptional() @IsIn(['OPEN', 'COMPLETED', 'CANCELLED']) status?: string;
+  @IsOptional() @IsUUID() customerId?: string;
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsString() page?: string;
+  @IsOptional() @IsString() pageSize?: string;
+  @IsOptional() @IsIn(['zh', 'en', 'id']) lang?: 'zh' | 'en' | 'id';
+}
+
+/** 趟次列表 / 导出的查询条件 */
+export class TripQueryDto {
+  @IsOptional() @IsString() @MaxLength(200) status?: string;
+  @IsOptional() @IsString() @MaxLength(100) search?: string;
+  @IsOptional() @IsIn(['true', 'false']) unassigned?: string;
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsString() page?: string;
+  @IsOptional() @IsString() pageSize?: string;
+  @IsOptional() @IsIn(['zh', 'en', 'id']) lang?: 'zh' | 'en' | 'id';
 }

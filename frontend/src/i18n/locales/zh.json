@@ -158,7 +158,8 @@
     "myWaybills": "我的运单",
     "pickup": "提货扫描",
     "myCarrierUsers": "账号管理",
-    "myCarrierFleet": "司机车辆"
+    "myCarrierFleet": "司机车辆",
+    "setupRegions": "行政区划"
   },
   "appDownload": {
     "brand": "汽车物流移动端",
@@ -1652,6 +1653,45 @@
     "custom": "自定义",
     "noCountry": "所属机构未设置国家，请先在机构管理里设置",
     "country": "所在国家",
-    "countryHint": "决定客户地点和运输报价可选的行政区划"
+    "countryHint": "决定客户地点和运输报价可选的行政区划",
+    "title": "行政区划",
+    "subtitle": "各国省 / 州、县 / 市，以及自定义区域；客户地点和运输报价从这里选区域",
+    "add": "新增区域",
+    "edit": "编辑区域",
+    "name": "名称",
+    "code": "代码",
+    "codeHint": "选填，不填自动生成；建议填官方代码（如 32.75）",
+    "parent": "上级区域",
+    "parentHint": "不选就是一级区域；自定义区域可以独立存在",
+    "type": "类型",
+    "usage": "使用情况",
+    "usageText": "{addresses} 个客户地点 · {tariffs} 条报价",
+    "kind": "类别",
+    "kindOfficial": "行政区划",
+    "kindCustom": "自定义区域",
+    "customTag": "自定义",
+    "manualTag": "手工新增",
+    "search": "名称 / 代码",
+    "inUse": "还有下级、客户地点或报价在用，不能删除",
+    "deleteConfirm": "确定删除「{name}」？",
+    "deleted": "已删除",
+    "saved": "已保存",
+    "loadFailed": "加载区域失败",
+    "saveFailed": "保存失败",
+    "types": {
+      "PROVINSI": "省",
+      "KABUPATEN": "县",
+      "KOTA": "市",
+      "STATE": "州",
+      "FEDERAL_TERRITORY": "联邦直辖区",
+      "PROVINCE": "省",
+      "REGION": "大区",
+      "METROPOLITAN": "直辖市",
+      "SPECIAL_CITY": "特别市",
+      "CITY": "直辖市",
+      "ADMIN_1": "一级区划",
+      "ADMIN_2": "二级区划",
+      "CUSTOM": "自定义"
+    }
   }
 }

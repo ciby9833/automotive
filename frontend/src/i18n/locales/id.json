@@ -158,7 +158,8 @@
     "myWaybills": "Surat Jalan Saya",
     "pickup": "Scan Pickup",
     "myCarrierUsers": "Manajemen Akun",
-    "myCarrierFleet": "Sopir & Kendaraan"
+    "myCarrierFleet": "Sopir & Kendaraan",
+    "setupRegions": "Wilayah"
   },
   "appDownload": {
     "brand": "Mobile Logistik Otomotif",
@@ -1652,6 +1653,45 @@
     "custom": "kustom",
     "noCountry": "Organisasi belum punya negara. Atur dulu di Organisasi",
     "country": "Negara",
-    "countryHint": "Menentukan wilayah administratif untuk lokasi pelanggan dan tarif transportasi"
+    "countryHint": "Menentukan wilayah administratif untuk lokasi pelanggan dan tarif transportasi",
+    "title": "Wilayah",
+    "subtitle": "Provinsi / negara bagian, kabupaten / kota, dan wilayah kustom per negara; dipakai lokasi pelanggan dan tarif transportasi",
+    "add": "Tambah wilayah",
+    "edit": "Ubah wilayah",
+    "name": "Nama",
+    "code": "Kode",
+    "codeHint": "Opsional; dibuat otomatis jika kosong. Sebaiknya kode resmi (mis. 32.75)",
+    "parent": "Wilayah induk",
+    "parentHint": "Kosongkan untuk wilayah tingkat 1; wilayah kustom boleh berdiri sendiri",
+    "type": "Jenis",
+    "usage": "Dipakai",
+    "usageText": "{addresses} lokasi · {tariffs} tarif",
+    "kind": "Kategori",
+    "kindOfficial": "Wilayah administratif",
+    "kindCustom": "Wilayah kustom",
+    "customTag": "Kustom",
+    "manualTag": "Ditambahkan",
+    "search": "Nama / kode",
+    "inUse": "Masih punya sub-wilayah, lokasi, atau tarif; tidak bisa dihapus",
+    "deleteConfirm": "Hapus \"{name}\"?",
+    "deleted": "Dihapus",
+    "saved": "Tersimpan",
+    "loadFailed": "Gagal memuat wilayah",
+    "saveFailed": "Gagal menyimpan",
+    "types": {
+      "PROVINSI": "Provinsi",
+      "KABUPATEN": "Kabupaten",
+      "KOTA": "Kota",
+      "STATE": "Negara bagian",
+      "FEDERAL_TERRITORY": "Wilayah persekutuan",
+      "PROVINCE": "Provinsi",
+      "REGION": "Region",
+      "METROPOLITAN": "Metropolitan",
+      "SPECIAL_CITY": "Kota khusus",
+      "CITY": "Kota",
+      "ADMIN_1": "Tingkat 1",
+      "ADMIN_2": "Tingkat 2",
+      "CUSTOM": "Kustom"
+    }
   }
 }

@@ -274,3 +274,10 @@ export class TransportAccess {
       throw new ConflictException(`VIN ${vin} 在场地库存中，请走出库流程`);
   }
 }
+
+/**
+ * 时间戳按机构运营时区取“哪一天”。数据库默认按 UTC 取日期，印尼凌晨的单会被算到前一天，按日期筛选时会漏。
+ * orgCol 是该行所属机构的列，如 o.organization_id。
+ */
+export const localDate = (col: string, orgCol: string) =>
+  `(${col} AT TIME ZONE coalesce((SELECT p.timezone FROM organization_operating_policies p WHERE p.organization_id = ${orgCol}), 'UTC'))::date`;

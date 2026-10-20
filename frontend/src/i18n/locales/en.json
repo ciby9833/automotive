@@ -158,7 +158,8 @@
     "myWaybills": "My Waybills",
     "pickup": "Pickup Scan",
     "myCarrierUsers": "Accounts",
-    "myCarrierFleet": "Drivers & Vehicles"
+    "myCarrierFleet": "Drivers & Vehicles",
+    "setupRegions": "Regions"
   },
   "appDownload": {
     "brand": "Automotive Logistics Mobile",
@@ -1652,6 +1653,45 @@
     "custom": "custom",
     "noCountry": "The organization has no country set. Set it in Organizations first",
     "country": "Country",
-    "countryHint": "Determines which administrative regions customer sites and transport tariffs can use"
+    "countryHint": "Determines which administrative regions customer sites and transport tariffs can use",
+    "title": "Regions",
+    "subtitle": "Provinces / states, cities / regencies and custom regions per country, used by customer sites and transport tariffs",
+    "add": "Add region",
+    "edit": "Edit region",
+    "name": "Name",
+    "code": "Code",
+    "codeHint": "Optional; generated if blank. Prefer the official code (e.g. 32.75)",
+    "parent": "Parent region",
+    "parentHint": "Leave blank for a top-level region; custom regions can stand alone",
+    "type": "Type",
+    "usage": "In use",
+    "usageText": "{addresses} sites · {tariffs} tariffs",
+    "kind": "Kind",
+    "kindOfficial": "Administrative",
+    "kindCustom": "Custom region",
+    "customTag": "Custom",
+    "manualTag": "Added",
+    "search": "Name / code",
+    "inUse": "Has sub-regions, sites or tariffs; cannot delete",
+    "deleteConfirm": "Delete \"{name}\"?",
+    "deleted": "Deleted",
+    "saved": "Saved",
+    "loadFailed": "Failed to load regions",
+    "saveFailed": "Save failed",
+    "types": {
+      "PROVINSI": "Province",
+      "KABUPATEN": "Regency",
+      "KOTA": "City",
+      "STATE": "State",
+      "FEDERAL_TERRITORY": "Federal territory",
+      "PROVINCE": "Province",
+      "REGION": "Region",
+      "METROPOLITAN": "Metropolitan",
+      "SPECIAL_CITY": "Special city",
+      "CITY": "City",
+      "ADMIN_1": "Level 1",
+      "ADMIN_2": "Level 2",
+      "CUSTOM": "Custom"
+    }
   }
 }

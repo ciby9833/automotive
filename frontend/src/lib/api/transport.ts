@@ -338,6 +338,26 @@ type Query = Record<string, string | number | undefined>;
 const clean = (q: Query) =>
   Object.fromEntries(Object.entries(q).filter(([, v]) => v !== undefined && v !== ""));
 
+/** 导出：按列表同样的条件由后端生成 Excel 并下载；报错时响应体是 Blob，转回 JSON 取后端提示 */
+async function downloadExport(path: string, name: string, q: Query, lang: string) {
+  try {
+    const res = await apiClient.get<Blob>(path, { params: clean({ ...q, lang }), responseType: "blob", timeout: 300_000 });
+    const url = URL.createObjectURL(res.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${name}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    const data = (e as { response?: { data?: unknown } }).response?.data;
+    if (data instanceof Blob) {
+      const body = JSON.parse(await data.text()) as { message?: string };
+      throw new Error(body.message ?? "Export failed");
+    }
+    throw e;
+  }
+}
+
 export const transportApi = {
   orders: (q: Query) =>
     unwrap<Paged<TransportOrder>>(apiClient.get("/transport/orders", { params: clean(q) })),
@@ -351,30 +371,10 @@ export const transportApi = {
   cancelOrder: (orderId: string, reason: string) =>
     unwrap<{ cancelled: number }>(apiClient.post(`/transport/orders/${orderId}/cancel`, { reason })),
 
-  /** 运输明细导出：后端生成 Excel（签收照片嵌缩略图），条件同列表，最多 1000 台 */
-  exportLines: async (q: Query, lang: string) => {
-    try {
-      const res = await apiClient.get<Blob>("/transport/lines/export", {
-        params: clean({ ...q, lang }),
-        responseType: "blob",
-        timeout: 300_000,
-      });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `transport-lines-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      // 报错时响应体也是 Blob，转回 JSON 取后端的提示
-      const data = (e as { response?: { data?: unknown } }).response?.data;
-      if (data instanceof Blob) {
-        const body = JSON.parse(await data.text()) as { message?: string };
-        throw new Error(body.message ?? "Export failed");
-      }
-      throw e;
-    }
-  },
+  /** 运输明细导出：后端生成 Excel（默认嵌签收照片，photos=false 不嵌），条件同列表 */
+  exportLines: (q: Query, lang: string) => downloadExport("/transport/lines/export", "transport-lines", q, lang),
+  exportOrders: (q: Query, lang: string) => downloadExport("/transport/orders/export", "transport-orders", q, lang),
+  exportTrips: (q: Query, lang: string) => downloadExport("/transport/trips/export", "transport-trips", q, lang),
   lines: (q: Query) =>
     unwrap<Paged<TransportLine>>(apiClient.get("/transport/lines", { params: clean(q) })),
   updateLine: (id: string, d: { vin?: string | null; vehicleConfig?: string; vehicleModel?: string; vehicleColor?: string }) =>

@@ -10,6 +10,11 @@ type Node = { value: string; title: string; children?: Node[] };
 // 同一机构的区域只拉一次，地址簿、报价弹窗共用
 const cache = new Map<string, Promise<{ country: string | null; items: Region[] }>>();
 
+/** 维护页改了区划后调用，让各处的区域选择器重新拉取 */
+export function clearRegionCache() {
+  cache.clear();
+}
+
 export function useRegions(organizationId: string | undefined) {
   const [data, setData] = useState<{ org: string; country: string | null; items: Region[] } | null>(null);
   useEffect(() => {

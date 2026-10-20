@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   Card,
+  DatePicker,
   Descriptions,
   Drawer,
   Form,
@@ -24,7 +25,9 @@ import {
   Upload,
   message,
 } from "antd";
-import { ScanOutlined, UploadOutlined } from "@ant-design/icons";
+import { DownloadOutlined, ScanOutlined, UploadOutlined } from "@ant-design/icons";
+import type { Dayjs } from "dayjs";
+import { useTranslation } from "@/i18n/useTranslation";
 import {
   transportApi,
   type TransportException,
@@ -39,7 +42,18 @@ import { LineTable, ReasonModal } from "./OrdersTab";
 import { ResolveModal } from "./ExceptionsTab";
 import { CarrierChangeModal } from "./DispatchModals";
 import { useAuthStore } from "@/lib/auth/store";
-import { Place, TripStatusTag, Vin, fmtTime, notifyError, useCarriers, useTransportText } from "./shared";
+import {
+  DEFAULT_PAGE_SIZE,
+  Place,
+  TripStatusTag,
+  Vin,
+  fmtTime,
+  lastMonth,
+  notifyError,
+  pager,
+  useCarriers,
+  useTransportText,
+} from "./shared";
 
 interface Props {
   internal: boolean;
@@ -51,17 +65,27 @@ export function TripsTab({ onOpenTrip }: Props) {
   const t = useTransportText();
   const [status, setStatus] = useState("PLANNED,LOADING,IN_TRANSIT");
   const [search, setSearch] = useState("");
+  // 默认只看最近一个月建的趟次，清空日期看全部
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(lastMonth);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [exporting, setExporting] = useState(false);
+  const { locale } = useTranslation();
   const [rows, setRows] = useState<TransportTrip[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const seq = useRef(0);
 
+  const query = useCallback(
+    () => ({ status, search, from: range?.[0]?.format("YYYY-MM-DD"), to: range?.[1]?.format("YYYY-MM-DD") }),
+    [status, search, range],
+  );
+
   const load = useCallback(async () => {
     const n = ++seq.current;
     setLoading(true);
     try {
-      const r = await transportApi.trips({ status, search, page, pageSize: 20 });
+      const r = await transportApi.trips({ ...query(), page, pageSize });
       if (n === seq.current) {
         setRows(r.items);
         setTotal(r.total);
@@ -71,14 +95,32 @@ export function TripsTab({ onOpenTrip }: Props) {
     } finally {
       if (n === seq.current) setLoading(false);
     }
-  }, [status, search, page]);
+  }, [query, page, pageSize]);
   useEffect(() => {
     void load();
   }, [load]);
 
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      await transportApi.exportTrips(query(), locale);
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <Space wrap style={{ marginBottom: 12 }}>
+        <DatePicker.RangePicker
+          value={range}
+          onChange={(v) => {
+            setPage(1);
+            setRange((v as [Dayjs, Dayjs]) ?? null);
+          }}
+        />
         <Select
           style={{ width: 200 }}
           value={status}
@@ -103,13 +145,19 @@ export function TripsTab({ onOpenTrip }: Props) {
           }}
         />
         <Button onClick={() => void load()}>{t("refresh")}</Button>
+        <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportExcel()}>
+          {t("export")}
+        </Button>
       </Space>
       <Table<TransportTrip>
         rowKey="id"
         loading={loading}
         dataSource={rows}
         onRow={(r) => ({ onClick: () => onOpenTrip(r.id), style: { cursor: "pointer" } })}
-        pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
+        pagination={pager(page, pageSize, total, (p, size) => {
+          setPage(p);
+          setPageSize(size);
+        })}
         columns={[
           {
             title: t("tripCode"),

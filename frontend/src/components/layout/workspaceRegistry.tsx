@@ -25,6 +25,7 @@ import YardSetupPage from "@/app/(dashboard)/settings/yards/page";
 import SlotSetupPage from "@/app/(dashboard)/settings/slots/page";
 import AppReleasesPage from "@/app/(dashboard)/settings/app-releases/page";
 import OrganizationsPage from "@/app/(dashboard)/settings/organizations/page";
+import RegionsPage from "@/app/(dashboard)/settings/regions/page";
 import UsersPage from "@/app/(dashboard)/users/page";
 import RolesPage from "@/app/(dashboard)/settings/roles/page";
 import PickupScanPage from "@/app/(dashboard)/pickup/page";
@@ -59,6 +60,7 @@ const WORKSPACE_PAGE_REGISTRY: Record<string, ComponentType> = {
   "/settings/slots": SlotSetupPage,
   "/settings/app-releases": AppReleasesPage,
   "/settings/organizations": OrganizationsPage,
+  "/settings/regions": RegionsPage,
   "/users": UsersPage,
   "/settings/roles": RolesPage,
   "/pickup": PickupScanPage,

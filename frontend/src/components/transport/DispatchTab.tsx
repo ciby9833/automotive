@@ -2,7 +2,10 @@
 import { Permission, usePermission } from '@/lib/auth/permissions';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Form, Input, Modal, Radio, Segmented, Select, Space, Typography, message } from "antd";
+import { Alert, Button, DatePicker, Form, Input, Modal, Radio, Segmented, Select, Space, Typography, message } from "antd";
+import { DownloadOutlined } from "@ant-design/icons";
+import type { Dayjs } from "dayjs";
+import { useTranslation } from "@/i18n/useTranslation";
 import { useAuthStore } from "@/lib/auth/store";
 import { carriersApi, type Driver, type Vehicle } from "@/lib/api/carriers";
 import {
@@ -15,7 +18,16 @@ import { LineTable } from "./OrdersTab";
 import { DEFAULT_CAPACITY } from "./DispatchModals";
 import { GroupBoard } from "./GroupBoard";
 import { AssignBoard } from "./AssignBoard";
-import { TOW_OPTIONS, notifyError, useCarriers, useCustomers, useTransportText } from "./shared";
+import {
+  DEFAULT_PAGE_SIZE,
+  TOW_OPTIONS,
+  lastMonth,
+  notifyError,
+  pager,
+  useCarriers,
+  useCustomers,
+  useTransportText,
+} from "./shared";
 
 interface Props {
   internal: boolean;
@@ -60,7 +72,12 @@ function LinePool({ internal, onOpenTrip }: Props) {
   const [groupCodes, setGroupCodes] = useState<string[]>([]);
   const [groupOptions, setGroupOptions] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  // 默认只看最近一个月的需求单（按需求单日期），清空日期看全部
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(lastMonth);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [exporting, setExporting] = useState(false);
+  const { locale } = useTranslation();
   const [rows, setRows] = useState<TransportLine[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -70,20 +87,26 @@ function LinePool({ internal, onOpenTrip }: Props) {
   const [groupOpen, setGroupOpen] = useState(false);
   const seq = useRef(0);
 
+  const query = useCallback(
+    () => ({
+      status,
+      customerId,
+      carrierId,
+      towType,
+      group: groupCodes.join(","),
+      search,
+      dateField: range ? "orderCreated" : undefined,
+      from: range?.[0]?.format("YYYY-MM-DD"),
+      to: range?.[1]?.format("YYYY-MM-DD"),
+    }),
+    [status, customerId, carrierId, towType, groupCodes, search, range],
+  );
+
   const load = useCallback(async () => {
     const n = ++seq.current;
     setLoading(true);
     try {
-      const r = await transportApi.lines({
-        status,
-        customerId,
-        carrierId,
-        towType,
-        group: groupCodes.join(","),
-        search,
-        page,
-        pageSize: 100,
-      });
+      const r = await transportApi.lines({ ...query(), page, pageSize });
       if (n === seq.current) {
         setRows(r.items);
         setTotal(r.total);
@@ -94,10 +117,22 @@ function LinePool({ internal, onOpenTrip }: Props) {
     } finally {
       if (n === seq.current) setLoading(false);
     }
-  }, [status, customerId, carrierId, towType, groupCodes, search, page]);
+  }, [query, page, pageSize]);
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 导出与列表同条件；调度明细还没签收，不嵌照片
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      await transportApi.exportLines({ ...query(), photos: "false" }, locale);
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setExporting(false);
+    }
+  };
   // 组号候选：还有车待派的组；也可以直接输入任意组号
   useEffect(() => {
     transportApi
@@ -119,6 +154,13 @@ function LinePool({ internal, onOpenTrip }: Props) {
         {t("poolHint")}
       </Typography.Paragraph>
       <Space wrap style={{ marginBottom: 12 }}>
+        <DatePicker.RangePicker
+          value={range}
+          onChange={(v) => {
+            setPage(1);
+            setRange((v as [Dayjs, Dayjs]) ?? null);
+          }}
+        />
         <Select
           style={{ width: 160 }}
           value={status}
@@ -201,6 +243,9 @@ function LinePool({ internal, onOpenTrip }: Props) {
             setSearch(v);
           }}
         />
+        <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportExcel()}>
+          {t("export")}
+        </Button>
       </Space>
       <Space wrap style={{ marginBottom: 12 }}>
         <Typography.Text>{t("selected", { n: selected.length })}</Typography.Text>
@@ -225,6 +270,10 @@ function LinePool({ internal, onOpenTrip }: Props) {
         lines={rows}
         loading={loading}
         onOpenTrip={onOpenTrip}
+        pagination={pager(page, pageSize, total, (p, size) => {
+          setPage(p);
+          setPageSize(size);
+        })}
         selection={{
           selectedRowKeys: selected,
           onChange: (keys) => setSelected(keys as string[]),
@@ -237,19 +286,6 @@ function LinePool({ internal, onOpenTrip }: Props) {
           { title: t("pickupDate"), dataIndex: "planned_pickup_date", width: 110, render: (v: string | null) => v ?? "-" },
         ]}
       />
-      {total > rows.length && (
-        <Space style={{ marginTop: 8 }}>
-          <Button disabled={page === 1} onClick={() => setPage(page - 1)}>
-            ‹
-          </Button>
-          <span>
-            {page} / {Math.ceil(total / 100)}
-          </span>
-          <Button disabled={page * 100 >= total} onClick={() => setPage(page + 1)}>
-            ›
-          </Button>
-        </Space>
-      )}
       {allocateOpen && (
         <AllocateModal
           lineIds={selected}

@@ -75,6 +75,7 @@
 - 客户地点挂 `region_id`；地址簿里按「省 → 县/市」树选择。Excel 导入的 Region 列可以填全称、代码（如 `32.75`）或常见简称（`DKI Jakarta`、`Bangkok`），重名（Kota/Kabupaten Bekasi）会要求写全称。`customer_addresses.region` 只是后端写入的区域名称，供老运单/出库页面显示。
 - 迁移前的自由文本区域：能对上标准名称的直接挂上，对不上的（如 `GREATER JAKARTA`）保留为该国的「自定义区域」，原有报价照常生效；建议逐步把门店改挂到具体的县/市。
 - 机构已有地点挂了区域后，不能再更换国家。
+- 维护入口「系统管理 → 行政区划」（权限 `setup:region-manage`）：总部可维护所有国家，机构管理员只能维护本机构所在国家。可新增一级 / 二级行政区划（如新设立的县市）和自定义区域（可独立，也可挂在一级区域下），可改名；标准区划只能改名，不能改代码和层级。最多两级。有下级、有客户地点或报价在用的不能删除。改名会同步到客户地点上冗余的区域名称。上线时该菜单已自动授予有「机构管理」菜单的总部角色，机构管理员需在角色管理里授予。
 
 ## 对主数据和老流程的改动
 
@@ -99,6 +100,12 @@
 - 区域：`GET /regions?organizationId=`（该机构所在国家的区域，前端按 `parent_id` 组树）
 - 报价与费用：`GET/POST /tariffs`（`destinationId` 与 `destinationRegionId` 二选一）、`PATCH/DELETE /tariffs/:id`、`GET /charges`、`PATCH /charges/:id`、`POST /charges/confirm`、`POST /charges/recalculate`
 
+## 列表查询与导出
+
+- 需求单、调度（按明细）、趟次、运输明细四个列表默认只查最近一个月（需求单 / 调度 / 运输明细按需求单日期，趟次按趟次创建日期），清空日期即可查全部；日期按机构运营时区算。
+- 每页 20 / 50 / 100 / 300 条可选，默认 50。
+- 每个列表都能导出 Excel，条件与当前查询一致：需求单、趟次、调度明细一次最多 5000 行；运输明细带签收照片，一次最多 1000 台。
+
 ## 运输明细与导出
 
 - 运输明细默认只看最近 30 天的需求单（按需求单日期），清空日期可看全部；「已签收」列显示签收时间，点「照片 / 回单」才加载签收照片和该段的回单。
@@ -113,6 +120,7 @@
 - 一行一台车；没有 VIN 时填 Quantity（1–500）。
 - Origin / Dealer 填客户地址簿编码；Vendor 填物流商简称或名称；Armada 接受 `CC / TANSYA / tansa / DD / Double Drop / TOWING`。
 - 填了 Vendor 必须同时填 Armada。
+- PlannedPickupDate / PlannedDeliveryDate：填了就按填的，没填就留空。Excel 日期格子按日期序列号直接换算（不受时区影响）；文本认 `2026-10-21`、`2026/10/21`、`21/10/2026`、`21-10-2026`（斜杠 / 横线前面两位是日），带时间的只取日期；不存在的日期（如 2026-02-30）逐行报错。
 - Group（如 CC1、CC2、TANSYA1）：同组 = 同一趟车，可跨订单号、跨客户。同组必须同一拖车类型（填了 Group 必须填 Armada）、同一物流商（只有部分行填了 Vendor 的，其余跟着组走），台数不超过该类型默认载量（CC 6 / TANSYA 4 / DD 3 / TOWING 1），否则报错。组号只在本次导入内有效，每天都可以从 CC1 开始写。
 - Customer 填客户编号或客户名称；留空时用导入弹窗里选的默认客户。一个文件可以同时导多个客户、多个订单号。
 - 同一（客户 + CustomerRequestNo）合并为一张需求单；客户订单号在同一客户下重复会拒绝。
@@ -131,7 +139,7 @@
 
 ## 部署与验证
 
-迁移：`1789600000000-PureTransport.ts`（会清掉早期原型的 `transport_tasks / planned_vins / actual_vins` 表，这些表从未上线）、`1790500000000-TransportFeedback0930.ts`（客户编号字段与唯一索引；删掉“一辆拖车/一个司机只能有一个未完成趟次”的唯一索引）、`1790600000000-RegionsAndDoubleDrop.ts`（区域表与种子数据、地点/报价改挂 region_id、机构国家、DD）、`1790700000000-TransportDispatchGroups.ts`（明细的派车组与批次）、`1790800000000-TripVehicleAssignment.ts`（趟次的司机、拖车可以先空着，提货前必须指派）、`1790900000000-TransportEventLineIndex.ts`（按车查动作时间的索引）。
+迁移：`1789600000000-PureTransport.ts`（会清掉早期原型的 `transport_tasks / planned_vins / actual_vins` 表，这些表从未上线）、`1790500000000-TransportFeedback0930.ts`（客户编号字段与唯一索引；删掉“一辆拖车/一个司机只能有一个未完成趟次”的唯一索引）、`1790600000000-RegionsAndDoubleDrop.ts`（区域表与种子数据、地点/报价改挂 region_id、机构国家、DD）、`1790700000000-TransportDispatchGroups.ts`（明细的派车组与批次）、`1790800000000-TripVehicleAssignment.ts`（趟次的司机、拖车可以先空着，提货前必须指派）、`1790900000000-TransportEventLineIndex.ts`（按车查动作时间的索引）、`1791000000000-TransportDocumentNames.ts`（修正乱码的回单文件名）、`1791100000000-RegionManageMenu.ts`（行政区划菜单授予总部角色）。
 
 后端新增依赖 `exceljs`（生成带图片的 Excel）和 `sharp`（缩略图）：部署时需要在服务器上执行 `npm install`，`sharp` 会按服务器平台下载预编译包。保持 `DB_SYNCHRONIZE=false`，先备份再执行：
 

@@ -14,11 +14,28 @@ export interface RegionRow {
 
 // 常见简称 → 标准代码（Excel、线下表里经常这么写）
 const ALIASES: Record<string, Record<string, string>> = {
-  ID: { 'DKI JAKARTA': '31', JAKARTA: '31', 'DAERAH KHUSUS JAKARTA': '31', DIY: '34', YOGYAKARTA: '34' },
+  ID: {
+    'DKI JAKARTA': '31',
+    JAKARTA: '31',
+    'DAERAH KHUSUS JAKARTA': '31',
+    DIY: '34',
+    YOGYAKARTA: '34',
+  },
   TH: { BANGKOK: 'TH-10', PATTAYA: 'TH-S' },
-  MY: { KL: 'MY-14', 'KUALA LUMPUR': 'MY-14', PUTRAJAYA: 'MY-16', LABUAN: 'MY-15' },
+  MY: {
+    KL: 'MY-14',
+    'KUALA LUMPUR': 'MY-14',
+    PUTRAJAYA: 'MY-16',
+    LABUAN: 'MY-15',
+  },
   PH: { NCR: 'PH-00', 'METRO MANILA': 'PH-00' },
-  VN: { HCMC: 'VN-SG', 'HO CHI MINH CITY': 'VN-SG', SAIGON: 'VN-SG', HANOI: 'VN-HN', HUE: 'VN-26' },
+  VN: {
+    HCMC: 'VN-SG',
+    'HO CHI MINH CITY': 'VN-SG',
+    SAIGON: 'VN-SG',
+    HANOI: 'VN-HN',
+    HUE: 'VN-26',
+  },
 };
 // 名称前缀不参与比较：“Kota Bekasi”“Bekasi”都能认，但重名（Kota/Kabupaten Bekasi）要求写全称
 const PREFIXES = [
@@ -54,7 +71,10 @@ function stripPrefix(s: string): string {
 export class RegionsService {
   constructor(@InjectDataSource() private readonly db: DataSource) {}
 
-  async countryOf(organizationId: string, m: EntityManager = this.db.manager): Promise<string | null> {
+  async countryOf(
+    organizationId: string,
+    m: EntityManager = this.db.manager,
+  ): Promise<string | null> {
     const [org] = await m.query<{ country_code: string | null }[]>(
       'SELECT country_code FROM organizations WHERE id = $1',
       [organizationId],
@@ -62,7 +82,10 @@ export class RegionsService {
     return org?.country_code ?? null;
   }
 
-  list(country: string, m: EntityManager = this.db.manager): Promise<RegionRow[]> {
+  list(
+    country: string,
+    m: EntityManager = this.db.manager,
+  ): Promise<RegionRow[]> {
     return m.query<RegionRow[]>(
       `SELECT id, country_code, code, name, type, parent_id, is_system FROM regions
        WHERE country_code = $1 AND is_active ORDER BY is_system DESC, code`,
@@ -70,7 +93,10 @@ export class RegionsService {
     );
   }
 
-  async get(id: string, m: EntityManager = this.db.manager): Promise<RegionRow | null> {
+  async get(
+    id: string,
+    m: EntityManager = this.db.manager,
+  ): Promise<RegionRow | null> {
     const [row] = await m.query<RegionRow[]>(
       'SELECT id, country_code, code, name, type, parent_id, is_system FROM regions WHERE id = $1 AND is_active',
       [id],
@@ -79,7 +105,11 @@ export class RegionsService {
   }
 
   /** 按 id 取区域并校验属于该国 */
-  async requireInCountry(id: string, country: string | null, m?: EntityManager): Promise<RegionRow> {
+  async requireInCountry(
+    id: string,
+    country: string | null,
+    m?: EntityManager,
+  ): Promise<RegionRow> {
     const region = await this.get(id, m);
     if (!region || region.country_code !== country)
       throw new BadRequestException('区域不存在，或不属于该机构所在国家');
@@ -90,17 +120,25 @@ export class RegionsService {
    * 把 Excel/表单里填的区域文字对到标准区域：代码、全称、常见简称、去掉 Kota/Kabupaten 等前缀后的名称。
    * 返回 null 表示没对上；重名时抛错让用户写全称。
    */
-  resolveIn(regions: RegionRow[], country: string, text: string): RegionRow | null {
+  resolveIn(
+    regions: RegionRow[],
+    country: string,
+    text: string,
+  ): RegionRow | null {
     const raw = text.trim();
     if (!raw) return null;
     const upper = raw.toUpperCase();
     const alias = ALIASES[country]?.[normalizeRegionName(raw).toUpperCase()];
-    const byCode = regions.find((r) => r.code.toUpperCase() === upper || (alias && r.code === alias));
+    const byCode = regions.find(
+      (r) => r.code.toUpperCase() === upper || (alias && r.code === alias),
+    );
     if (byCode) return byCode;
     const key = normalizeRegionName(raw);
     const exact = regions.filter((r) => normalizeRegionName(r.name) === key);
     if (exact.length === 1) return exact[0];
-    const loose = regions.filter((r) => stripPrefix(normalizeRegionName(r.name)) === stripPrefix(key));
+    const loose = regions.filter(
+      (r) => stripPrefix(normalizeRegionName(r.name)) === stripPrefix(key),
+    );
     if (loose.length === 1) return loose[0];
     if (loose.length > 1 || exact.length > 1)
       throw new BadRequestException(

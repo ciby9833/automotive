@@ -20,6 +20,8 @@ export const ACTIONS: Record<P, ActionDefinition> = {
   [P.SETUP_USER_MEMBERSHIP]: { types: hqOrg, requires: [P.SETUP_USER_VIEW] },
   [P.ORG_VIEW]: { types: internal },
   [P.ORG_CRUD]: { types: [R.HQ_ADMIN], requires: [P.ORG_VIEW] },
+  // 机构管理员只能维护自己机构所在国家的区划（服务层校验）
+  [P.REGION_MANAGE]: { types: hqOrg, requires: [P.ORG_VIEW] },
   [P.YARD_VIEW_BOARD]: { types: internal },
   [P.YARD_VIEW_VIN_INVENTORY]: { types: [...internal, R.CUSTOMER] },
   [P.YARD_ASSIGN_SLOT]: {
@@ -469,6 +471,17 @@ export const MENUS: MenuDefinition[] = [
     [R.HQ_ADMIN],
     [P.ORG_VIEW],
     [P.ORG_CRUD],
+  ),
+  menu(
+    'setup-regions',
+    '/settings/regions',
+    'setup',
+    '系统管理',
+    '行政区划',
+    'nav.setupRegions',
+    hqOrg,
+    [P.ORG_VIEW],
+    [P.REGION_MANAGE],
   ),
   menu(
     'setup-yards',

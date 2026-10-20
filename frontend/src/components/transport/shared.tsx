@@ -180,6 +180,25 @@ export function addressOptions(
     }));
 }
 
+/** 列表分页：可选每页条数与默认值（需求单、调度明细、趟次、运输明细统一） */
+export const PAGE_SIZE_OPTIONS = [20, 50, 100, 300];
+export const DEFAULT_PAGE_SIZE = 50;
+
+/** 列表默认只查最近一个月（含今天），清空日期即可看全部 */
+export const lastMonth = (): [dayjs.Dayjs, dayjs.Dayjs] => [dayjs().subtract(29, "day"), dayjs()];
+
+/** antd 分页配置：带每页条数选择 */
+export function pager(page: number, pageSize: number, total: number, onChange: (page: number, pageSize: number) => void) {
+  return {
+    current: page,
+    pageSize,
+    total,
+    showSizeChanger: true,
+    pageSizeOptions: PAGE_SIZE_OPTIONS,
+    onChange: (p: number, s: number) => onChange(s !== pageSize ? 1 : p, s),
+  };
+}
+
 export const TOW_OPTIONS = [
   { value: "CC", label: "CC · 6" },
   { value: "TANSYA", label: "TANSYA · 4" },

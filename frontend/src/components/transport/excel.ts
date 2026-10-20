@@ -53,15 +53,34 @@ function headerKey(raw: string): (typeof TRANSPORT_COLUMNS)[number] | undefined 
 }
 
 function cellText(v: unknown): string {
-  if (v instanceof Date) {
-    const d = new Date(v.getTime() - v.getTimezoneOffset() * 60000);
-    return d.toISOString().slice(0, 10);
-  }
   return String(v ?? "").trim();
 }
 
+const pad = (n: number) => String(n).padStart(2, "0");
+
+/**
+ * 日期列统一成 YYYY-MM-DD。
+ * - Excel 日期格子：按日期序列号直接换算年月日。不能让 SheetJS 转成 Date——它按本地时区（含历史时区偏移）换算，
+ *   雅加达时区下会变成前一天 23:59:48，导致日期整整早一天。
+ * - 文本：认 2026-10-21 / 2026/10/21 / 2026.10.21，以及印尼常用的日在前写法 21/10/2026、21-10-2026、21.10.2026；
+ *   带时间的只取日期部分。认不出的原样交给后端报错，不猜。
+ */
+export function dateCell(v: unknown): string {
+  if (typeof v === "number" && v > 0) {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (d) return `${d.y}-${pad(d.m)}-${pad(d.d)}`;
+  }
+  const text = cellText(v).split(/[ T]/)[0];
+  let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(text);
+  if (m) return `${m[1]}-${pad(Number(m[2]))}-${pad(Number(m[3]))}`;
+  m = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/.exec(text);
+  if (m) return `${m[3]}-${pad(Number(m[2]))}-${pad(Number(m[1]))}`;
+  return text;
+}
+
 export async function readTransportExcel(file: File): Promise<ImportRow[]> {
-  const wb = XLSX.read(await file.arrayBuffer(), { cellDates: true });
+  // 不开 cellDates：日期保留为序列号，由 dateCell 换算，避免时区把日期推前一天
+  const wb = XLSX.read(await file.arrayBuffer());
   const sheet = wb.Sheets[wb.SheetNames[0]];
   const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: true, blankrows: false });
   if (matrix.length < 2) throw new Error("Excel 没有数据行");
@@ -71,6 +90,10 @@ export async function readTransportExcel(file: File): Promise<ImportRow[]> {
     const get = (col: (typeof TRANSPORT_COLUMNS)[number]) => {
       const idx = header.indexOf(col);
       return idx < 0 ? "" : cellText((cells as unknown[])[idx]);
+    };
+    const date = (col: "PlannedPickupDate" | "PlannedDeliveryDate") => {
+      const idx = header.indexOf(col);
+      return idx < 0 ? "" : dateCell((cells as unknown[])[idx]);
     };
     if (!TRANSPORT_COLUMNS.some((c) => get(c))) return;
     rows.push({
@@ -87,8 +110,8 @@ export async function readTransportExcel(file: File): Promise<ImportRow[]> {
       armada: get("Armada") || undefined,
       vendor: get("Vendor") || undefined,
       group: get("Group") || undefined,
-      plannedPickupDate: get("PlannedPickupDate") || undefined,
-      plannedDeliveryDate: get("PlannedDeliveryDate") || undefined,
+      plannedPickupDate: date("PlannedPickupDate") || undefined,
+      plannedDeliveryDate: date("PlannedDeliveryDate") || undefined,
       remark: get("Remark") || undefined,
     });
   });

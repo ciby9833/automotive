@@ -36,14 +36,18 @@ import {
   type TransportOrder,
 } from "@/lib/api/transport";
 import { AttachmentLink } from '@/components/evidence/SignedAttachments';
+import { useTranslation } from "@/i18n/useTranslation";
 import { Permission, usePermission } from '@/lib/auth/permissions';
 import {
   LineStatusTag,
   OrderStatusTag,
   Place,
   TOW_OPTIONS,
+  DEFAULT_PAGE_SIZE,
   Vin,
   addressOptions,
+  lastMonth,
+  pager,
   errorText,
   fmtTime,
   notifyError,
@@ -66,7 +70,12 @@ export function OrdersTab({ internal, onOpenTrip }: Props) {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("OPEN");
   const [customerId, setCustomerId] = useState<string>();
+  // 默认只看最近一个月的需求单（按需求单日期），清空日期看全部
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(lastMonth);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [exporting, setExporting] = useState(false);
+  const { locale } = useTranslation();
   const [rows, setRows] = useState<TransportOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -75,11 +84,22 @@ export function OrdersTab({ internal, onOpenTrip }: Props) {
   const [importOpen, setImportOpen] = useState(false);
   const seq = useRef(0);
 
+  const query = useCallback(
+    () => ({
+      search,
+      status,
+      customerId,
+      from: range?.[0]?.format("YYYY-MM-DD"),
+      to: range?.[1]?.format("YYYY-MM-DD"),
+    }),
+    [search, status, customerId, range],
+  );
+
   const load = useCallback(async () => {
     const n = ++seq.current;
     setLoading(true);
     try {
-      const r = await transportApi.orders({ search, status, customerId, page, pageSize: 20 });
+      const r = await transportApi.orders({ ...query(), page, pageSize });
       if (n === seq.current) {
         setRows(r.items);
         setTotal(r.total);
@@ -89,15 +109,33 @@ export function OrdersTab({ internal, onOpenTrip }: Props) {
     } finally {
       if (n === seq.current) setLoading(false);
     }
-  }, [search, status, customerId, page]);
+  }, [query, page, pageSize]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
+  const exportExcel = async () => {
+    setExporting(true);
+    try {
+      await transportApi.exportOrders(query(), locale);
+    } catch (e) {
+      notifyError(e);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <>
       <Space wrap style={{ marginBottom: 12 }}>
+        <DatePicker.RangePicker
+          value={range}
+          onChange={(v) => {
+            setPage(1);
+            setRange((v as [Dayjs, Dayjs]) ?? null);
+          }}
+        />
         <Input.Search
           allowClear
           placeholder={`${t("orderCode")} / ${t("requestNo")} / VIN`}
@@ -149,6 +187,9 @@ export function OrdersTab({ internal, onOpenTrip }: Props) {
             </Button>
           </>
         )}
+        <Button icon={<DownloadOutlined />} loading={exporting} onClick={() => void exportExcel()}>
+          {t("export")}
+        </Button>
       </Space>
       <Table<TransportOrder>
         rowKey="id"
@@ -156,7 +197,10 @@ export function OrdersTab({ internal, onOpenTrip }: Props) {
         loading={loading}
         dataSource={rows}
         onRow={(r) => ({ onClick: () => setOpenId(r.id), style: { cursor: "pointer" } })}
-        pagination={{ current: page, pageSize: 20, total, onChange: setPage, showSizeChanger: false }}
+        pagination={pager(page, pageSize, total, (p, size) => {
+          setPage(p);
+          setPageSize(size);
+        })}
         columns={[
           { title: t("orderCode"), dataIndex: "code", width: 150 },
           { title: t("customer"), dataIndex: "customer_name" },

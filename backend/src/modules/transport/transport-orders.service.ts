@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { EntityManager } from 'typeorm';
-import { Actor, TransportAccess } from './transport.access';
+import { Actor, TransportAccess, localDate } from './transport.access';
 import {
   AllocateLinesDto,
   CancelLinesDto,
@@ -77,10 +77,28 @@ export class TransportOrdersService {
   // ------------------------------------------------------------------ 查询
   async list(
     a: Actor,
-    q: { search?: string; status?: string; customerId?: string; page: number; pageSize: number },
+    q: {
+      search?: string;
+      status?: string;
+      customerId?: string;
+      /** 需求单日期（按机构时区）范围 */
+      from?: string;
+      to?: string;
+      page: number;
+      pageSize: number;
+    },
   ) {
     const args: unknown[] = [];
     const where = [this.access.orderFilter(a, 'o', args)];
+    const created = localDate('o.created_at', 'o.organization_id');
+    if (q.from) {
+      args.push(q.from);
+      where.push(`${created} >= $${args.length}`);
+    }
+    if (q.to) {
+      args.push(q.to);
+      where.push(`${created} <= $${args.length}`);
+    }
     if (q.status) {
       args.push(q.status);
       where.push(`o.status = $${args.length}`);
@@ -208,11 +226,11 @@ export class TransportOrdersService {
     }
     if (q.from || q.to) {
       const columns: Record<string, string> = {
-        orderCreated: 'o.created_at::date',
+        orderCreated: localDate('o.created_at', 'l.organization_id'),
         plannedPickup: 'o.planned_pickup_date',
         plannedDelivery: 'o.planned_delivery_date',
-        pickedUp: 'l.picked_up_at::date',
-        delivered: 'l.delivered_at::date',
+        pickedUp: localDate('l.picked_up_at', 'l.organization_id'),
+        delivered: localDate('l.delivered_at', 'l.organization_id'),
       };
       const column = columns[q.dateField ?? 'plannedPickup'];
       if (!column) throw new BadRequestException('日期类型不正确');
@@ -529,8 +547,11 @@ export class TransportOrdersService {
         ['PlannedDeliveryDate', r.plannedDeliveryDate],
       ] as const) {
         const v = value?.trim() || null;
-        if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) fail(`${label} 必须是 YYYY-MM-DD`);
-        dates.push(v);
+        // 既要格式对，也要是真实存在的日期（2026-13-45 这种会让入库直接报错）
+        const t = v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? Date.parse(`${v}T00:00:00Z`) : NaN;
+        const real = !!v && !Number.isNaN(t) && new Date(t).toISOString().startsWith(v);
+        if (v && !real) fail(`${label} ${v} 不是有效日期，请写成 YYYY-MM-DD 或 DD/MM/YYYY`);
+        dates.push(real ? v : null);
       }
       if (!origin || !dealer) continue;
       const key = `${customer.id}|${requestNo}`;

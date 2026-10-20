@@ -3,23 +3,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, DatePicker, Input, Modal, Select, Space, Typography } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
-import dayjs, { type Dayjs } from "dayjs";
+import type { Dayjs } from "dayjs";
 import { useTranslation } from "@/i18n/useTranslation";
 import { AttachmentFiles } from "@/components/evidence/SignedAttachments";
 import { transportApi, type TransportLine } from "@/lib/api/transport";
 import { LineTable } from "./OrdersTab";
 import {
+  DEFAULT_PAGE_SIZE,
   TOW_OPTIONS,
   addressOptions,
   fmtTime,
+  lastMonth,
   notifyError,
+  pager,
   useCarriers,
   useCustomerAddresses,
   useCustomers,
   useTransportText,
 } from "./shared";
 
-const PAGE_SIZE = 100;
 const DATE_FIELDS = ["orderCreated", "plannedPickup", "plannedDelivery", "pickedUp", "delivered"] as const;
 const STATUSES = [
   "UNALLOCATED",
@@ -48,10 +50,11 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
   const [towType, setTowType] = useState<string>();
   // 默认只看最近 30 天的需求单，避免一打开就扫全量；清空日期即可看全部
   const [dateField, setDateField] = useState<(typeof DATE_FIELDS)[number]>("orderCreated");
-  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(() => [dayjs().subtract(29, "day"), dayjs()]);
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>(lastMonth);
   const [photosOf, setPhotosOf] = useState<TransportLine | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [rows, setRows] = useState<TransportLine[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -78,7 +81,7 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
     const n = ++seq.current;
     setLoading(true);
     try {
-      const r = await transportApi.lines({ ...query(), timeline: "true", page, pageSize: PAGE_SIZE });
+      const r = await transportApi.lines({ ...query(), timeline: "true", page, pageSize });
       if (n === seq.current) {
         setRows(r.items);
         setTotal(r.total);
@@ -88,7 +91,7 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
     } finally {
       if (n === seq.current) setLoading(false);
     }
-  }, [query, page]);
+  }, [query, page, pageSize]);
   useEffect(() => {
     void load();
   }, [load]);
@@ -199,7 +202,10 @@ export function LinesTab({ onOpenTrip }: { onOpenTrip: (tripId: string) => void 
         lines={rows}
         loading={loading}
         onOpenTrip={onOpenTrip}
-        pagination={{ current: page, pageSize: PAGE_SIZE, total, onChange: setPage, showSizeChanger: false }}
+        pagination={pager(page, pageSize, total, (p, size) => {
+          setPage(p);
+          setPageSize(size);
+        })}
         extraColumns={[
           { title: t("orderCode"), dataIndex: "order_code", width: 140 },
           { title: t("customer"), dataIndex: "customer_name", width: 140 },

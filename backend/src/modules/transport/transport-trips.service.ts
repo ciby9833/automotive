@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { EntityManager } from 'typeorm';
-import { Actor, TransportAccess } from './transport.access';
+import { Actor, TransportAccess, localDate } from './transport.access';
 import {
   BatchTripsDto,
   CreateTripDto,
@@ -49,10 +49,28 @@ export class TransportTripsService {
   // ------------------------------------------------------------------ 查询
   async list(
     a: Actor,
-    q: { status?: string; search?: string; unassigned?: boolean; page: number; pageSize: number },
+    q: {
+      status?: string;
+      search?: string;
+      unassigned?: boolean;
+      /** 趟次创建日期（按机构时区）范围 */
+      from?: string;
+      to?: string;
+      page: number;
+      pageSize: number;
+    },
   ) {
     const args: unknown[] = [];
     const where = [this.access.tripFilter(a, 't', args)];
+    const created = localDate('t.created_at', 't.organization_id');
+    if (q.from) {
+      args.push(q.from);
+      where.push(`${created} >= $${args.length}`);
+    }
+    if (q.to) {
+      args.push(q.to);
+      where.push(`${created} <= $${args.length}`);
+    }
     if (q.unassigned) where.push(`t.status = 'PLANNED' AND t.driver_id IS NULL`);
     if (q.status) {
       args.push(q.status.split(',').map((s) => s.trim()).filter(Boolean));

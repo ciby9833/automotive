@@ -43,6 +43,8 @@ import {
   ImportTransportDto,
   LineIdsDto,
   LineQueryDto,
+  OrderQueryDto,
+  TripQueryDto,
   PickupScanDto,
   ReasonDto,
   ReassignTripDto,
@@ -65,6 +67,13 @@ function paging(page?: string, pageSize?: string, max = 200) {
   return { page: p, pageSize: s };
 }
 
+function sendXlsx(res: Response, name: string, file: Buffer) {
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(file);
+}
+
 @ApiTags('transport')
 @ApiBearerAuth()
 @Controller('transport')
@@ -83,20 +92,17 @@ export class TransportController {
   // ---------------------------------------------------------------- 需求单
   @Permissions(Permission.TRANSPORT_VIEW)
   @Get('orders')
-  async listOrders(
-    @CurrentUser() u: AuthenticatedUser,
-    @Query('search') search?: string,
-    @Query('status') status?: string,
-    @Query('customerId') customerId?: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-  ) {
-    return this.orders.list(await this.access.actor(u), {
-      search,
-      status,
-      customerId,
-      ...paging(page, pageSize),
-    });
+  async listOrders(@CurrentUser() u: AuthenticatedUser, @Query() q: OrderQueryDto) {
+    const { page, pageSize, lang: _lang, ...filters } = q;
+    return this.orders.list(await this.access.actor(u), { ...filters, ...paging(page, pageSize, 300) });
+  }
+
+  /** 需求单导出：条件与列表一致（要声明在 orders/:id 之前） */
+  @Permissions(Permission.TRANSPORT_VIEW)
+  @Get('orders/export')
+  async exportOrders(@CurrentUser() u: AuthenticatedUser, @Query() q: OrderQueryDto, @Res() res: Response) {
+    const { page: _p, pageSize: _s, lang, ...filters } = q;
+    sendXlsx(res, 'transport-orders', await this.exporter.orderList(await this.access.actor(u), filters, lang ?? 'zh'));
   }
 
   @Permissions(Permission.TRANSPORT_VIEW)
@@ -141,7 +147,7 @@ export class TransportController {
   @Permissions(Permission.TRANSPORT_VIEW)
   @Get('lines')
   async lines(@CurrentUser() u: AuthenticatedUser, @Query() q: LineQueryDto) {
-    const { page, pageSize, timeline, lang: _lang, ...filters } = q;
+    const { page, pageSize, timeline, lang: _lang, photos: _photos, ...filters } = q;
     return this.orders.lines(await this.access.actor(u), {
       ...filters,
       timeline: timeline === 'true',
@@ -153,15 +159,9 @@ export class TransportController {
   @Permissions(Permission.TRANSPORT_VIEW)
   @Get('lines/export')
   async exportLines(@CurrentUser() u: AuthenticatedUser, @Query() q: LineQueryDto, @Res() res: Response) {
-    const { page: _p, pageSize: _s, timeline: _t, lang, ...filters } = q;
-    const file = await this.exporter.lines(await this.access.actor(u), filters, lang ?? 'zh');
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="transport-lines-${new Date().toISOString().slice(0, 10)}.xlsx"`,
-    );
-    res.setHeader('Cache-Control', 'no-store');
-    res.send(file);
+    const { page: _p, pageSize: _s, timeline: _t, lang, photos, ...filters } = q;
+    const file = await this.exporter.lines(await this.access.actor(u), filters, lang ?? 'zh', photos !== 'false');
+    sendXlsx(res, 'transport-lines', file);
   }
 
   @Permissions(Permission.TRANSPORT_ORDER_MANAGE)
@@ -221,20 +221,26 @@ export class TransportController {
   // ---------------------------------------------------------------- 趟次
   @Permissions(Permission.TRANSPORT_VIEW)
   @Get('trips')
-  async listTrips(
-    @CurrentUser() u: AuthenticatedUser,
-    @Query('status') status?: string,
-    @Query('search') search?: string,
-    @Query('unassigned') unassigned?: string,
-    @Query('page') page?: string,
-    @Query('pageSize') pageSize?: string,
-  ) {
+  async listTrips(@CurrentUser() u: AuthenticatedUser, @Query() q: TripQueryDto) {
+    const { page, pageSize, unassigned, lang: _lang, ...filters } = q;
     return this.trips.list(await this.access.actor(u), {
-      status,
-      search,
+      ...filters,
       unassigned: unassigned === 'true',
-      ...paging(page, pageSize),
+      ...paging(page, pageSize, 300),
     });
+  }
+
+  /** 趟次导出：条件与列表一致（要声明在 trips/:id 之前） */
+  @Permissions(Permission.TRANSPORT_VIEW)
+  @Get('trips/export')
+  async exportTrips(@CurrentUser() u: AuthenticatedUser, @Query() q: TripQueryDto, @Res() res: Response) {
+    const { page: _p, pageSize: _s, unassigned, lang, ...filters } = q;
+    const file = await this.exporter.tripList(
+      await this.access.actor(u),
+      { ...filters, unassigned: unassigned === 'true' },
+      lang ?? 'zh',
+    );
+    sendXlsx(res, 'transport-trips', file);
   }
 
   @Permissions(Permission.TRANSPORT_VIEW)

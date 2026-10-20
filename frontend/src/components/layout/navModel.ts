@@ -121,6 +121,7 @@ const NAV_ICONS: Record<string, ReactNode> = {
   setup: createElement(SettingOutlined),
   "setup-yards": createElement(BankOutlined),
   "setup-organizations": createElement(PartitionOutlined),
+  "setup-regions": createElement(GlobalOutlined),
   "setup-slots": createElement(ToolOutlined),
   "app-releases": createElement(MobileOutlined),
   users: createElement(UserOutlined),

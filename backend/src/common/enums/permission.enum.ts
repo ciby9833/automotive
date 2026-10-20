@@ -62,6 +62,8 @@ export enum Permission {
   // 组织
   ORG_VIEW = 'org:view',
   ORG_CRUD = 'org:crud',
+  // 行政区划维护：各国区划的新增、改名、删除，以及自定义区域
+  REGION_MANAGE = 'setup:region-manage',
 
   // 轨迹
   TRACKING_VIEW = 'tracking:view',

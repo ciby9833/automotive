@@ -75,9 +75,55 @@ export class CarriersService {
     return carrier;
   }
 
-  create(dto: CreateCarrierDto, scope: EffectiveScope): Promise<Carrier> {
+  async create(dto: CreateCarrierDto, scope: EffectiveScope): Promise<Carrier> {
     this.scopeService.assertOrgWritable(scope, dto.organizationId);
-    return this.carriersRepository.save(this.carriersRepository.create(dto));
+    const shortName = dto.shortName?.trim() || null;
+    if (shortName) await this.assertShortNameFree(dto.organizationId, shortName);
+    return this.carriersRepository.save(
+      this.carriersRepository.create({ ...dto, shortName }),
+    );
+  }
+
+  /**
+   * 纯运输导入按“简称或全称”匹配物流商：同一机构内，简称不能和别家的简称或全称重复，否则导入会对不上。
+   */
+  private async assertShortNameFree(organizationId: string, shortName: string, exceptId?: string) {
+    const [hit] = await this.carriersRepository.manager.query<{ name: string }[]>(
+      `SELECT name FROM carriers
+       WHERE organization_id = $1 AND id IS DISTINCT FROM $3
+         AND (lower(btrim(short_name)) = lower($2) OR lower(btrim(name)) = lower($2))
+       LIMIT 1`,
+      [organizationId, shortName, exceptId ?? null],
+    );
+    if (hit) throw new ConflictException(`简称 ${shortName} 与「${hit.name}」重复，导入时会对不上`);
+  }
+
+  /** 同一物流商内车牌唯一（忽略空格和大小写），停用的车也算在内：同一辆车应启用而不是重建 */
+  private async assertPlateFree(carrierId: string, plate: string, exceptId?: string) {
+    const [hit] = await this.vehiclesRepository.manager.query<{ plateNumber: string; isActive: boolean }[]>(
+      `SELECT "plateNumber", "isActive" FROM carrier_vehicles
+       WHERE carrier_id = $1 AND id IS DISTINCT FROM $3
+         AND upper(regexp_replace("plateNumber", '\\s', '', 'g')) = upper(regexp_replace($2, '\\s', '', 'g'))
+       LIMIT 1`,
+      [carrierId, plate, exceptId ?? null],
+    );
+    if (hit)
+      throw new ConflictException(
+        hit.isActive ? `车牌 ${hit.plateNumber} 已存在` : `车牌 ${hit.plateNumber} 已存在（已停用），请直接启用`,
+      );
+  }
+
+  /** 车辆 / 司机的业务记录：有就只能停用，不能删（删了会撞纯运输外键，或清空历史运单上的车辆和司机） */
+  private async usage(column: 'vehicle_id' | 'driver_id', id: string) {
+    const [row] = await this.vehiclesRepository.manager.query<{ trips: number; waybills: number }[]>(
+      `SELECT (SELECT count(*)::int FROM transport_trips WHERE ${column} = $1) trips,
+              (SELECT count(*)::int FROM waybills WHERE ${column} = $1) waybills`,
+      [id],
+    );
+    return [
+      row.trips && `${row.trips} 趟纯运输`,
+      row.waybills && `${row.waybills} 张运单`,
+    ].filter(Boolean) as string[];
   }
 
   // ============ 承运商主数据编辑 / 状态化启停 ============
@@ -101,7 +147,12 @@ export class CarriersService {
       email: carrier.email,
     };
     if (dto.name !== undefined) carrier.name = dto.name;
-    if (dto.shortName !== undefined) carrier.shortName = dto.shortName ?? null;
+    if (dto.shortName !== undefined) {
+      const shortName = dto.shortName?.trim() || null;
+      if (shortName && shortName !== carrier.shortName)
+        await this.assertShortNameFree(carrier.organizationId, shortName, carrier.id);
+      carrier.shortName = shortName;
+    }
     if (dto.type !== undefined) carrier.type = dto.type;
     if (dto.contactName !== undefined) carrier.contactName = (dto.contactName ?? null) as string;
     if (dto.contactPhone !== undefined) carrier.contactPhone = (dto.contactPhone ?? null) as string;
@@ -191,7 +242,9 @@ export class CarriersService {
   ): Promise<Vehicle> {
     this.assertCarrierUserManagable(scope);
     await this.findOne(carrierId, scope);
-    const vehicle = this.vehiclesRepository.create({ ...dto, carrierId });
+    const plateNumber = dto.plateNumber.trim();
+    await this.assertPlateFree(carrierId, plateNumber);
+    const vehicle = this.vehiclesRepository.create({ ...dto, plateNumber, carrierId });
     const saved = await this.vehiclesRepository.save(vehicle);
     await this.audit.log({
       operationType: OperationType.CARRIER_VEHICLE_CREATE,
@@ -308,14 +361,11 @@ export class CarriersService {
   ): Promise<void> {
     this.assertCarrierUserManagable(scope);
     const driver = await this.getDriverOrThrow(carrierId, driverId, scope);
-    const activeUsage = await this.waybillsRepository.count({
-      where: { driverId, status: WaybillStatus.NOT_ARRIVED },
-    });
-    if (activeUsage > 0) {
-      throw new BadRequestException(
-        `司机在 ${activeUsage} 张未到达运单里使用中，无法删除；请先撤销运单或改派`,
-      );
-    }
+    const used = await this.usage('driver_id', driver.id);
+    const account = await this.usersRepository.findOne({ where: { driverId: driver.id } });
+    if (account) used.push(`绑定的司机账号 ${account.username}`);
+    if (used.length)
+      throw new BadRequestException(`司机 ${driver.name} 已有 ${used.join('、')}，不能删除，请改为停用`);
     await this.driversRepository.delete(driver.id);
     await this.audit.log({
       operationType: OperationType.CARRIER_DRIVER_DELETE,
@@ -337,8 +387,13 @@ export class CarriersService {
       plateNumber: vehicle.plateNumber,
       towType: vehicle.towType,
     };
-    if (dto.plateNumber !== undefined) vehicle.plateNumber = dto.plateNumber;
-    if (dto.towType !== undefined) vehicle.towType = dto.towType ?? null;
+    if (dto.plateNumber !== undefined) {
+      const plateNumber = dto.plateNumber.trim();
+      if (!plateNumber) throw new BadRequestException('车牌号必填');
+      await this.assertPlateFree(carrierId, plateNumber, vehicle.id);
+      vehicle.plateNumber = plateNumber;
+    }
+    if (dto.towType !== undefined) vehicle.towType = dto.towType;
     if (dto.capacity !== undefined) vehicle.capacity = dto.capacity ?? null;
     const saved = await this.vehiclesRepository.save(vehicle);
     await this.audit.log({
@@ -377,14 +432,9 @@ export class CarriersService {
   ): Promise<void> {
     this.assertCarrierUserManagable(scope);
     const vehicle = await this.getVehicleOrThrow(carrierId, vehicleId, scope);
-    const activeUsage = await this.waybillsRepository.count({
-      where: { vehicleId, status: WaybillStatus.NOT_ARRIVED },
-    });
-    if (activeUsage > 0) {
-      throw new BadRequestException(
-        `拖车在 ${activeUsage} 张未到达运单里使用中，无法删除；请先撤销运单或改派`,
-      );
-    }
+    const used = await this.usage('vehicle_id', vehicle.id);
+    if (used.length)
+      throw new BadRequestException(`拖车 ${vehicle.plateNumber} 已有 ${used.join('、')}记录，不能删除，请改为停用`);
     await this.vehiclesRepository.delete(vehicle.id);
     await this.audit.log({
       operationType: OperationType.CARRIER_VEHICLE_DELETE,

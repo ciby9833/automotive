@@ -3,10 +3,11 @@ import { BadRequestException } from '@nestjs/common';
 export const TOW_TYPES = ['CC', 'TANSYA', 'DD', 'TOWING'] as const;
 export type TowType = (typeof TOW_TYPES)[number];
 
-/** 业务确认的默认载量：CC 6 台、TANSYA 4 台、DD（Double Drop）3 台、TOWING 1 台；单车可在主数据覆盖。 */
+/** 业务确认的默认载量：CC 6 台、TANSYA 5 台（10-27 由 4 改为 5）、DD（Double Drop）3 台、TOWING 1 台；单车可在主数据覆盖。
+ *  前端对应 frontend/src/lib/fleet/towTypes.ts，两处必须一致。 */
 export const DEFAULT_CAPACITY: Record<TowType, number> = {
   CC: 6,
-  TANSYA: 4,
+  TANSYA: 5,
   DD: 3,
   TOWING: 1,
 };

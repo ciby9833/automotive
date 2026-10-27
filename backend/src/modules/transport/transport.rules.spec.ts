@@ -34,9 +34,11 @@ describe('transport rules', () => {
 
   it('uses confirmed default capacities unless the vehicle overrides', () => {
     expect(vehicleCapacity('CC', null)).toBe(6);
-    expect(vehicleCapacity('TANSYA', undefined)).toBe(4);
+    expect(vehicleCapacity('TANSYA', undefined)).toBe(5);
     expect(vehicleCapacity('TOWING', null)).toBe(1);
     expect(vehicleCapacity('DD', null)).toBe(3);
+    expect(vehicleCapacity('TANSYA', null)).toBe(5);
+    expect(vehicleCapacity('TANSYA', 4)).toBe(4);
     expect(vehicleCapacity('CC', 8)).toBe(8);
   });
 

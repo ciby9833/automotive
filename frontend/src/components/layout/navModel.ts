@@ -92,6 +92,16 @@ export function resolveWorkspaceTab(
       };
     }
   }
+  const fleet = path.match(/^\/carriers\/([^/?#]+)\/fleet$/);
+  if (fleet && navigation.some((m) => m.path === "/carriers")) {
+    return {
+      key: "carrier-fleet",
+      path,
+      i18nKey: "carriers.fleetDrawerTitle",
+      closable: true,
+      params: { id: decodeURIComponent(fleet[1]) },
+    };
+  }
   return null;
 }
 const NAV_ICONS: Record<string, ReactNode> = {

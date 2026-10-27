@@ -7,6 +7,7 @@ import {
   Min,
   IsString,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { VehicleTowType } from '../../../common/enums/order-type.enum';
 
@@ -17,10 +18,11 @@ export class UpdateVehicleDto {
   @MaxLength(30)
   plateNumber?: string;
 
-  @ApiProperty({ enum: VehicleTowType, required: false, nullable: true })
-  @IsOptional()
+  // 可以改类型，但不能清空（IsOptional 会放过 null，这里只在没传时跳过校验）
+  @ApiProperty({ enum: VehicleTowType, required: false })
+  @ValidateIf((_, v) => v !== undefined)
   @IsEnum(VehicleTowType)
-  towType?: VehicleTowType | null;
+  towType?: VehicleTowType;
 
   @ApiProperty({ required: false, nullable: true })
   @IsOptional()

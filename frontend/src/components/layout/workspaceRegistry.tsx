@@ -11,6 +11,7 @@ import OutboundPlanPage from "@/app/(dashboard)/outbound/plan/page";
 import OutboundDeparturePage from "@/app/(dashboard)/outbound/departure/page";
 import DeliverySignPage from "@/app/(dashboard)/delivery/sign/page";
 import { OutboundOrderDetail } from "@/app/(dashboard)/outbound/orders/[id]/page";
+import { CarrierFleetDetail } from "@/app/(dashboard)/carriers/[id]/fleet/page";
 import WaybillsPage from "@/app/(dashboard)/waybills/page";
 import YardBoardPage from "@/app/(dashboard)/yards/page";
 import YardBatchAssignPage from "@/app/(dashboard)/yards/batch-assign/page";
@@ -75,6 +76,9 @@ export function renderWorkspacePage(tab: WorkspaceTab) {
   }
   if (tab.key === "outbound-order-detail" && tab.params?.id) {
     return <OutboundOrderDetail id={tab.params.id} />;
+  }
+  if (tab.key === "carrier-fleet" && tab.params?.id) {
+    return <CarrierFleetDetail id={tab.params.id} />;
   }
 
   return null;

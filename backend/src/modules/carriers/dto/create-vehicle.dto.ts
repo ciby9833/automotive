@@ -16,10 +16,10 @@ export class CreateVehicleDto {
   @IsNotEmpty()
   plateNumber: string;
 
-  @ApiProperty({ enum: VehicleTowType, required: false })
-  @IsOptional()
+  // 拖车类型必填：纯运输派车、载量默认值都依赖它
+  @ApiProperty({ enum: VehicleTowType })
   @IsEnum(VehicleTowType)
-  towType?: VehicleTowType;
+  towType: VehicleTowType;
 
   @ApiProperty({ required: false, description: '载量（台），为空按拖车类型默认' })
   @IsOptional()

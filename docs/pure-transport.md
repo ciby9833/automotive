@@ -10,7 +10,7 @@
 | --- | --- |
 | `transport_orders` | 需求单：一次客户委托（客户、客户订单号、计划日期）。状态由明细汇总，不另存计数。 |
 | `transport_lines` | 明细：**一台车一行**。VIN 可空；发货地、收货地引用该客户的地点；车辆配置/型号/颜色；要求的拖车类型；按台分配的物流商；所属趟次。 |
-| `transport_trips` | 趟次：一辆拖车跑一趟。可跨发货地、跨收货地、跨客户。载量取自拖车（默认 CC 6 / TANSYA 4 / DD 3 / TOWING 1）。 |
+| `transport_trips` | 趟次：一辆拖车跑一趟。可跨发货地、跨收货地、跨客户。载量取自拖车（默认 CC 6 / TANSYA 5 / DD 3 / TOWING 1）。 |
 | `transport_exceptions` | 计划外 VIN（需内部处理）、货损、拒收（只记录）。 |
 | `transport_documents` | POD，挂在趟次的“段”上：趟次内每个（发货地，收货地）组合一张。 |
 | `transport_tariffs` / `transport_charges` | 报价与费用，和旧 `finance_records` 分开，互不影响。 |
@@ -121,7 +121,7 @@
 - Origin / Dealer 填客户地址簿编码；Vendor 填物流商简称或名称；Armada 接受 `CC / TANSYA / tansa / DD / Double Drop / TOWING`。
 - 填了 Vendor 必须同时填 Armada。
 - PlannedPickupDate / PlannedDeliveryDate：填了就按填的，没填就留空。Excel 日期格子按日期序列号直接换算（不受时区影响）；文本认 `2026-10-21`、`2026/10/21`、`21/10/2026`、`21-10-2026`（斜杠 / 横线前面两位是日），带时间的只取日期；不存在的日期（如 2026-02-30）逐行报错。
-- Group（如 CC1、CC2、TANSYA1）：同组 = 同一趟车，可跨订单号、跨客户。同组必须同一拖车类型（填了 Group 必须填 Armada）、同一物流商（只有部分行填了 Vendor 的，其余跟着组走），台数不超过该类型默认载量（CC 6 / TANSYA 4 / DD 3 / TOWING 1），否则报错。组号只在本次导入内有效，每天都可以从 CC1 开始写。
+- Group（如 CC1、CC2、TANSYA1）：同组 = 同一趟车，可跨订单号、跨客户。同组必须同一拖车类型（填了 Group 必须填 Armada）、同一物流商（只有部分行填了 Vendor 的，其余跟着组走），台数不超过该类型默认载量（CC 6 / TANSYA 5 / DD 3 / TOWING 1），否则报错。组号只在本次导入内有效，每天都可以从 CC1 开始写。
 - Customer 填客户编号或客户名称；留空时用导入弹窗里选的默认客户。一个文件可以同时导多个客户、多个订单号。
 - 同一（客户 + CustomerRequestNo）合并为一张需求单；客户订单号在同一客户下重复会拒绝。
 

@@ -106,7 +106,9 @@
     "statusUpdated": "合作方状态已更新",
     "pauseSuggestedTitle": "仍有未完成业务",
     "pauseInstead": "改为暂停新增",
-    "pausedWithInflight": "已暂停新增，{n} 条未完成业务可继续执行"
+    "pausedWithInflight": "已暂停新增，{n} 条未完成业务可继续执行",
+    "setStatus": "改为「{status}」",
+    "statusConfirm": "确认把「{name}」改为「{status}」？"
   },
   "nav": {
     "transport": "纯运输",
@@ -532,6 +534,7 @@
     "title": "供应商管理",
     "addCarrier": "新增供应商",
     "name": "名称",
+    "shortName": "简称",
     "type": "类型",
     "contactName": "联系人",
     "contactPhone": "联系电话",
@@ -648,7 +651,7 @@
     "plateNumber": "车牌号",
     "towType": "拖车类型",
     "capacity": "载量（台）",
-    "capacityHint": "留空按类型默认：CC 6、TANSYA 4、DD 3、TOWING 1",
+    "capacityDefault": "默认 {n}",
     "vehicleCreated": "车辆已新增",
     "vehicleUpdated": "车辆已更新",
     "vehicleDisabled": "车辆已禁用",
@@ -984,7 +987,8 @@
     "status": "状态",
     "action": "操作",
     "edit": "编辑",
-    "delete": "移除"
+    "delete": "移除",
+    "more": "更多"
   },
   "driverPicker": {
     "driver": "司机",

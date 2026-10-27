@@ -106,7 +106,9 @@
     "statusUpdated": "Status mitra diperbarui",
     "pauseSuggestedTitle": "Masih ada bisnis yang belum selesai",
     "pauseInstead": "Jeda bisnis baru",
-    "pausedWithInflight": "Dijeda; {n} data yang belum selesai dapat dilanjutkan"
+    "pausedWithInflight": "Dijeda; {n} data yang belum selesai dapat dilanjutkan",
+    "setStatus": "Ubah ke {status}",
+    "statusConfirm": "Ubah status \"{name}\" menjadi {status}?"
   },
   "nav": {
     "transport": "Transportasi langsung",
@@ -532,6 +534,7 @@
     "title": "Manajemen Vendor",
     "addCarrier": "Tambah Vendor",
     "name": "Nama",
+    "shortName": "Nama singkat",
     "type": "Jenis",
     "contactName": "Kontak",
     "contactPhone": "Telepon",
@@ -648,7 +651,7 @@
     "plateNumber": "No. Plat",
     "towType": "Jenis Tow",
     "capacity": "Kapasitas (unit)",
-    "capacityHint": "Kosong = default per tipe: CC 6, TANSYA 4, DD 3, TOWING 1",
+    "capacityDefault": "Default {n}",
     "vehicleCreated": "Kendaraan ditambahkan",
     "vehicleUpdated": "Kendaraan diperbarui",
     "vehicleDisabled": "Kendaraan dinonaktifkan",
@@ -984,7 +987,8 @@
     "status": "Status",
     "action": "Tindakan",
     "edit": "Ubah",
-    "delete": "Hapus"
+    "delete": "Hapus",
+    "more": "Lainnya"
   },
   "driverPicker": {
     "driver": "Sopir",

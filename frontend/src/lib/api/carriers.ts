@@ -8,6 +8,8 @@ export interface Carrier {
   organizationId: string;
   organization?: { id: string; code: string; name: string };
   name: string;
+  /** 简称：纯运输 Excel 导入的 Vendor 列按它匹配 */
+  shortName: string | null;
   type: CarrierType;
   contactName: string | null;
   contactPhone: string | null;
@@ -43,6 +45,8 @@ export const carriersApi = {
   create: (dto: {
     organizationId: string;
     name: string;
+    /** 简称：纯运输 Excel 导入的 Vendor 列按它匹配 */
+    shortName?: string;
     type: CarrierType;
     contactName?: string;
     contactPhone?: string;
@@ -120,13 +124,13 @@ export const carriersApi = {
     ),
   addVehicle: (
     carrierId: string,
-    dto: { plateNumber: string; towType?: string; capacity?: number },
+    dto: { plateNumber: string; towType: string; capacity?: number },
   ) =>
     unwrap<Vehicle>(apiClient.post(`/carriers/${carrierId}/vehicles`, dto)),
   updateVehicle: (
     carrierId: string,
     vehicleId: string,
-    dto: Partial<{ plateNumber: string; towType: string | null; capacity: number | null }>,
+    dto: Partial<{ plateNumber: string; towType: string; capacity: number | null }>,
   ) =>
     unwrap<Vehicle>(
       apiClient.patch(`/carriers/${carrierId}/vehicles/${vehicleId}`, dto),

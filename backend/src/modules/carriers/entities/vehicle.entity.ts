@@ -33,7 +33,7 @@ export class Vehicle extends BaseEntity {
   @Column({ default: true })
   isActive: boolean;
 
-  // 载量（台）；为空时按拖车类型默认：CC 6、TANSYA 4、TOWING 1
+  // 载量（台）；为空时按拖车类型默认（transport.rules.ts DEFAULT_CAPACITY：CC 6、TANSYA 5、DD 3、TOWING 1）
   @Column({ type: 'int', nullable: true })
   capacity: number | null;
 }

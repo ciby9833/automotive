@@ -23,11 +23,35 @@ const ROLE_OPTIONS_BY_TARGET: Record<InvitationTargetType, Role[]> = {
 
 export function GenerateInviteButton({ targetType, targetId, size = 'small' }: Props) {
   const [open, setOpen] = useState(false);
+  const { t } = useTranslation();
+  const canInvite = usePermission(Permission.PARTNER_INVITE);
+  if (!canInvite) return null;
+  return (
+    <>
+      <Button size={size} icon={<LinkOutlined />} onClick={() => setOpen(true)}>
+        {t('invitations.generate')}
+      </Button>
+      <InviteModal targetType={targetType} targetId={targetId} open={open} onClose={() => setOpen(false)} />
+    </>
+  );
+}
+
+/** 只有弹窗，供「更多」菜单之类的入口打开；调用方自己判断 PARTNER_INVITE 权限 */
+export function InviteModal({
+  targetType,
+  targetId,
+  open,
+  onClose,
+}: {
+  targetType: InvitationTargetType;
+  targetId: string;
+  open: boolean;
+  onClose: () => void;
+}) {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const { t } = useTranslation();
-  const canInvite = usePermission(Permission.PARTNER_INVITE);
 
   const onSubmit = async (values: { inviteeRole: Role; ttlDays?: number }) => {
     setSubmitting(true);
@@ -58,17 +82,13 @@ export function GenerateInviteButton({ targetType, targetId, size = 'small' }: P
     }
   };
 
-  if (!canInvite) return null;
   return (
     <>
-      <Button size={size} icon={<LinkOutlined />} onClick={() => setOpen(true)}>
-        {t('invitations.generate')}
-      </Button>
       <Modal
         title={t('invitations.generateTitle')}
         open={open}
         onCancel={() => {
-          setOpen(false);
+          onClose();
           setInviteUrl(null);
           form.resetFields();
         }}

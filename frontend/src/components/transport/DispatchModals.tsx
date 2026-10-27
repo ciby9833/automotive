@@ -6,7 +6,9 @@ import { carriersApi, type Driver, type Vehicle } from "@/lib/api/carriers";
 import { transportApi, type TowType, type TransportTrip } from "@/lib/api/transport";
 import { notifyError, useTransportText } from "./shared";
 
-export const DEFAULT_CAPACITY: Record<TowType, number> = { CC: 6, TANSYA: 4, DD: 3, TOWING: 1 };
+// 默认载量统一从 lib/fleet/towTypes 取，这里只是转出，方便调度相关组件引用
+export { DEFAULT_CAPACITY } from "@/lib/fleet/towTypes";
+import { DEFAULT_CAPACITY } from "@/lib/fleet/towTypes";
 
 type Fleet = { drivers: Driver[]; vehicles: Vehicle[] };
 

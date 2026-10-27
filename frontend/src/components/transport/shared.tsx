@@ -12,6 +12,7 @@ import {
 import { carriersApi, type Carrier } from "@/lib/api/carriers";
 import type { LineStatus, TripStatus } from "@/lib/api/transport";
 import { transportText, type TransportT } from "./copy";
+import { DEFAULT_CAPACITY, TOW_TYPES } from "@/lib/fleet/towTypes";
 
 export function useTransportText(): TransportT {
   const { locale } = useTranslation();
@@ -199,9 +200,4 @@ export function pager(page: number, pageSize: number, total: number, onChange: (
   };
 }
 
-export const TOW_OPTIONS = [
-  { value: "CC", label: "CC · 6" },
-  { value: "TANSYA", label: "TANSYA · 4" },
-  { value: "DD", label: "DD · 3" },
-  { value: "TOWING", label: "TOWING · 1" },
-];
+export const TOW_OPTIONS = TOW_TYPES.map((value) => ({ value, label: `${value} · ${DEFAULT_CAPACITY[value]}` }));

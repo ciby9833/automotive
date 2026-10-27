@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>运输业务与开放平台方案 · ALMS</title>
+<style>
+:root{color-scheme:light;--paper:#fff;--ink:#17252c;--muted:#56666f;--line:#dce3e6;--soft:#f3f6f7;--accent:#166761;--warn:#87551c}*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:84px}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.8 system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}header,main,footer{max-width:1120px;margin:auto;padding:36px 36px}header{padding-top:64px;padding-bottom:24px}.meta{font-size:13px;color:var(--muted);letter-spacing:.04em}h1{font-size:38px;line-height:1.35;letter-spacing:-.035em;margin:14px 0 22px}h2{font-size:25px;line-height:1.5;margin:0 0 22px}h3{font-size:19px;margin:26px 0 12px}p{margin:12px 0}a{color:var(--accent);text-underline-offset:4px}nav{position:sticky;top:0;z-index:2;background:rgba(255,255,255,.97);border-block:1px solid var(--line)}nav .nav-inner{max-width:1120px;margin:auto;display:flex;gap:24px;padding:14px 36px;overflow:auto;white-space:nowrap;font-size:14px}nav a{text-decoration:none}main{padding-top:0}section{padding:44px 0;border-bottom:1px solid var(--line)}.lead{font-size:21px;line-height:1.7;max-width:930px}.decision{padding-left:22px;border-left:4px solid var(--accent);margin:26px 0}.cols{display:grid;grid-template-columns:1fr 1fr;gap:32px}.table-wrap{overflow:auto;margin:18px 0}table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.7;text-align:left}th{font-weight:600;background:var(--soft)}th,td{padding:13px 15px;border-bottom:1px solid var(--line);vertical-align:top}th:first-child,td:first-child{padding-left:12px}td:first-child{min-width:120px}code{font:13px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere;background:var(--soft);padding:2px 5px;border-radius:3px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--soft);padding:22px;border-radius:6px;font:13px/1.7 ui-monospace,SFMono-Regular,Consolas,monospace}pre code{padding:0;background:none}.note,.evidence{font-size:13px;color:var(--muted)}.evidence{margin-top:16px}.warning{color:var(--warn)}.flow{display:flex;gap:8px;align-items:stretch;margin:18px 0;list-style:none;padding:0;flex-wrap:wrap}.flow li{flex:1;min-width:125px;background:var(--soft);padding:14px 13px;border-radius:5px}.flow li+li:before{content:"→";color:var(--accent);margin-right:8px}.flow strong{display:block;font-size:14px}.flow span{font-size:12px;color:var(--muted)}.flow li+li strong{display:inline}.stack{display:grid;grid-template-columns:1fr 36px 1fr 36px 1fr;align-items:center;gap:6px;margin:22px 0}.block{padding:22px;background:var(--soft);min-height:132px;border-radius:6px}.block p{font-size:13px;color:var(--muted);margin-bottom:0}.arrow{text-align:center;color:var(--accent)}ul,ol{padding-left:23px}li{margin:7px 0}details{border-top:1px solid var(--line);padding:15px 0}summary{cursor:pointer;font-weight:600}summary:focus-visible,a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:4px}button{font:inherit;border:1px solid var(--line);background:var(--paper);padding:7px 14px;border-radius:5px;cursor:pointer}.toolbar{display:flex;justify-content:space-between;align-items:center;gap:20px}.sources li{font-size:13px;margin:13px 0}.nowrap{white-space:nowrap}footer{color:var(--muted);font-size:13px;padding-bottom:60px}@media(max-width:760px){header,main,footer{padding-inline:20px}header{padding-top:34px}h1{font-size:29px}h2{font-size:22px}.lead{font-size:18px}nav .nav-inner{padding-inline:20px;gap:20px}.cols{grid-template-columns:1fr;gap:6px}.stack{grid-template-columns:1fr}.arrow{transform:rotate(90deg)}.block{min-height:0}.flow li{flex-basis:42%}table{min-width:620px}.toolbar{align-items:flex-start}.meta{font-size:12px}}@media print{nav,.toolbar button{display:none}header,main,footer{max-width:none;padding:15px 0}h1{font-size:28px}section{padding:24px 0}details{display:block}details>*{display:block}table{font-size:11px;min-width:0}tr,.block{break-inside:avoid}a{color:inherit;text-decoration:none}body{font-size:12px}h2,h3{break-after:avoid}.note,.evidence{font-size:11px}}
+.flow span{display:block;margin-top:6px}.flow li{position:relative}.flow li+li:before{position:absolute;left:13px;top:14px}.flow li+li strong{display:block;padding-left:23px}
+</style>
+</head>
+<body>
+<header>
+<div class="toolbar"><span class="meta">ALMS · 业务与架构评估 · 2026-10-22</span><button type="button" id="print-report">打印 / 保存 PDF</button></div>
+<h1>运输业务与开放平台</h1>
+<p class="lead">先统一运输事实、单号关系和交付机制，再用客户适配器承接不同接口。现有纯运输与库存作业继续负责各自的业务规则。</p>
+<div class="decision"><p><strong>建议第一步：</strong>以 OTWB 状态回传为首个接入，完成“真实业务节点 → 标准事件 → 客户报文 → 回执与补偿”的闭环；随后开放标准下单和查询接口。</p></div>
+<p class="note">依据：本地代码版本 <code>111b44a</code>、项目业务文档、客户 Excel《08.10 运输状态回传.xlsx》。这是设计评估，未访问生产数据库、未调用客户接口，运行环境和生产迁移状态尚未验证。下文明确区分“当前实现”“建议设计”和“客户待确认”。</p>
+</header>
+<nav aria-label="报告目录"><div class="nav-inner"><a href="#goal">目标</a><a href="#flows">业务现状</a><a href="#contract">客户接口</a><a href="#model">统一模型</a><a href="#platform">平台架构</a><a href="#delivery">可靠回传</a><a href="#roadmap">落地顺序</a><a href="#performance">性能验收</a><a href="#sources">依据</a></div></nav>
+<main>
+<section id="goal">
+<h2>01 / 真正需要解决的事</h2>
+<div class="cols"><div><h3>业务目标</h3><p>客户能提交运输委托、查到每台车的真实进度、收到可追溯的交付凭证。第二个客户接入时，复用同一套业务能力，只新增客户编码、协议和必要的差异映射。</p></div><div><h3>成功标准</h3><p>重复调用不重复建单；状态回传可重试、可对账；客户故障不拖慢场地作业；不同客户的数据隔离；接入新客户通常不修改提货、库存和签收核心规则。</p></div></div>
+<p>约束来自现有业务：按 VIN 作业、允许拆单拼车、部分纯运输需求没有 VIN、库存存在独立在场周期、运输跨机构和客户、客户 API 状态含义各不相同。不能只靠一张状态对照表解决这些问题。</p>
+</section>
+<section id="flows">
+<h2>02 / 当前系统的三段运输业务</h2>
+<h3>A. 纯运输：外部地点到外部地点</h3>
+<ol class="flow"><li><strong>客户需求</strong><span>transport_orders</span></li><li><strong>单车与分配</strong><span>transport_lines</span></li><li><strong>趟次与提货</strong><span>transport_trips</span></li><li><strong>发车与签收</strong><span>逐台完成</span></li><li><strong>POD / 费用</strong><span>凭证与签收分开</span></li></ol>
+<p>一台商品车一行，VIN 可以先空着。一张需求单能拆到多趟，一趟能拼多个客户、多个起终点。分组确认时可以只定承运商，司机和拖车后补；没有司机和拖车不能提货。</p>
+<p><strong>发车允许部分装载：</strong>至少一台已提货，未装上的明细退回待派车；计划外 VIN 必须先处理。逐台签收后生成应收应付，拒收/退回可以内部关闭；“趟次完成”可能包含关闭车辆，并不保证全部成功交付。POD 按趟次内的起终点组合上传，签收与上传没有强制先后闭环。</p>
+<p><code>UNALLOCATED → ALLOCATED → DISPATCHED → PICKED_UP → IN_TRANSIT → DELIVERED</code>；旁支为 <code>CANCELLED</code> 和 <code>CLOSED</code>。</p>
+<p class="evidence">当前实现：<a href="#s-pure">[1]</a>。在场库存车辆被禁止走纯运输，包含已经装车、尚未离场的车辆。</p>
+<h3>B. 库存前段：港口 / 工厂提货到场地</h3>
+<ol class="flow"><li><strong>入库订单</strong><span>orders · TRANSFER</span></li><li><strong>分派承运商</strong><span>可指定司机账号</span></li><li><strong>逐台提货</strong><span>order_vins.pickup*</span></li><li><strong>到场验收入库</strong><span>照片 / 车检 / 库位</span></li><li><strong>在场库存</strong><span>yard_inventory</span></li></ol>
+<p>当前是“订单级提货任务 + VIN 提货记录”。有提货人、时间、地点、GPS 和照片，但没有与纯运输等价的提货趟次、实际装车批次、车辆指派及独立发车节点。<code>pickupStatus=COMPLETED</code> 表示提货任务消化完成，不能当成运输已送达。</p>
+<p>允许其他物流商送车直入：没有本系统提货记录，也能按入库规则接收。<code>inbound_batches</code> 是到货分组，可跨订单，不天然等同于起点的实际装车批次。</p>
+<p><strong>必须补齐的事实：</strong>要回传这一段的 0–4 状态，需要显式提货批次、装车车辆、出发/到达与交接凭证；不能由订单号或司机当天的记录猜一个 <code>dispatchNo</code>。</p>
+<p class="evidence">当前实现：<a href="#s-pickup">[2]</a>。第三方直入只报告我们掌握的入库事实，不补造前段运输节点。</p>
+<h3>C. 库存后段：场地出库到经销商</h3>
+<ol class="flow"><li><strong>出库指令</strong><span>orders · DELIVERY</span></li><li><strong>开单派车</strong><span>waybills / waybill_vins</span></li><li><strong>逐台装车</strong><span>仍计在库</span></li><li><strong>整单启运</strong><span>实际扣减库存</span></li><li><strong>逐台签收</strong><span>全部签收后锁单</span></li></ol>
+<p>出库导入绑定已有 VIN 的 <code>outboundOrderId</code>，保留原入库单关系。可提前关联预计到仓车辆；真正开单要求车辆已到仓且有库位。同一运单限制同始发仓、同经销商、同出库单，创建时确定承运商、司机和运输车辆。</p>
+<p><strong>发车必须整单装齐：</strong>装车释放停车位，但库存转为 <code>LOADED</code>，仍在场；启运才关闭库存周期并写出库流水。签收不再扣库存。<code>waybills.ARRIVED</code> 在当前派送路径中由“全部 VIN 签收”触发，不是独立的车辆到达定位事件。</p>
+<p>当前没有统一的“多张旧运单共享一个实际装车批次”对象；旧运单签收附件保存在扫描日志中，没有与纯运输一致的独立 POD 生命周期。</p>
+<p class="evidence">当前实现：<a href="#s-outbound">[3]</a>、<a href="#s-inventory">[4]</a>。代码保留 <code>REALLOCATION</code> 等历史枚举，但不能据此认定跨场调拨运输已具备完整可执行闭环。</p>
+<details open><summary>三条链不能抹平的差别</summary><div class="table-wrap"><table><thead><tr><th>边界</th><th>纯运输</th><th>库存前段</th><th>库存后段</th></tr></thead><tbody>
+<tr><td>作业载体</td><td>单车明细 + 趟次</td><td>订单 + VIN 提货事实</td><td>出库单 + 派送运单</td></tr>
+<tr><td>装车与发车</td><td>两个节点；可部分发车</td><td>已有提货扫码，缺独立发车</td><td>两个节点；全部装齐后发车</td></tr>
+<tr><td>库存影响</td><td>不改库存；拒绝在场车辆</td><td>到场入库才 +1</td><td>装车 0；启运 −1；签收 0</td></tr>
+<tr><td>签收 / POD</td><td>逐台签收，分段 POD 独立上传</td><td>入库照片不自动等于客户认可的 POD</td><td>逐台签收日志有附件，尚无统一 POD 对象</td></tr>
+<tr><td>轨迹</td><td>有提货定位；现有持续定位 DTO 不含 tripId</td><td>定位可关联 inbound orderId</td><td>定位可关联 waybillId</td></tr>
+<tr><td>全生命周期查询</td><td>transport_events 自成一套</td><td colspan="2">tracking 合并 operation_logs 与 waybill_status_logs，未合并纯运输事件</td></tr>
+</tbody></table></div></details>
+</section>
+<section id="contract">
+<h2>03 / 客户接口实际要求什么</h2>
+<p><strong>方向是 ALMS / 3PL → OTWB-Global。</strong>附件是一份运输状态回传契约，不是完整开放平台接口集。未提供真实地址、HTTP 方法、鉴权签名、限流、幂等约定、重试规则或下单/库存接口。表头虽写支持“整车及备件货物明细”，实际字段和示例未见 VIN / 件号 / 数量明细结构。</p>
+<p>结构为一个 <code>dispatchNo</code> 携带多个 <code>shipmentList</code> 项；同一车辆、同一装车批次的多个运单应共享装车单号。<code>flag=0</code> 写的是“全量覆盖”，这直接决定我们需要保存客户可见的完整快照。</p>
+<p class="evidence">客户来源：Sheet3!A1:H36、A40:F44、B47、G47，见 <a href="#s-xlsx">[5]</a>。</p>
+<h3>状态不能直接照搬内部枚举</h3>
+<div class="table-wrap"><table><thead><tr><th>客户状态</th><th>纯运输候选事实</th><th>库存前段候选事实</th><th>库存后段候选事实</th><th>落地条件</th></tr></thead><tbody>
+<tr><td>0 配车</td><td>趟次已指派司机 / 拖车；仅有 DISPATCHED 不充分</td><td>分派承运商不等于配好车辆；缺批次 / 车辆</td><td>开单并确定司机 / 车辆</td><td>客户明确“配车”含义，且 ETD / ETA 齐全</td></tr>
+<tr><td>1 已取货</td><td>LINE_PICKED_UP</td><td>VIN pickedUpAt</td><td>逐台装车，可候选为场地交接</td><td>按客户 shipment 的覆盖车辆聚合；需确认场地装车是否算取货</td></tr>
+<tr><td>2 在途</td><td>TRIP_DEPARTED；departed_at</td><td>缺独立启运事实</td><td>DELIVERY_DEPARTURE 日志 + 库存 DEPARTURE</td><td>真实始发 ATD + 更新 ETA；不能用 pickedUpAt 替代</td></tr>
+<tr><td>3 已交货 / 已到达</td><td>有逐台 delivered_at，但没有独立到达时刻</td><td>到仓验收可表达入库事实，是否等于 ATA 待定</td><td>有 SIGNED；ARRIVED 是整单签收结果</td><td>文档对“交货”和“到达”自相矛盾；先确认再定义映射</td></tr>
+<tr><td>4 已收货 / POD 上传</td><td>POD_UPLOADED 与签收事实分别判断</td><td>缺规范化 POD 对象</td><td>签收附件需明确类型并转成授权交付凭证</td><td>不能仅因上传文件就宣告完成，也不能签收后无文件硬报 4</td></tr>
+</tbody></table></div>
+<p>内部建议独立记录“运输进度、交接结果、凭证状态”。拒收、退回、关闭和取消分别表达；<code>COMPLETED</code> 不直接映射成客户的“已交货”。同一客户 shipment 含多辆车时，默认所有覆盖车辆达到该节点才升级，部分进度留在明细；最终聚合规则须与客户确认。</p>
+<details open><summary>字段映射与缺口</summary><div class="table-wrap"><table><thead><tr><th>客户字段</th><th>当前可用来源</th><th>建议处理</th></tr></thead><tbody>
+<tr><td><code>flag</code></td><td>内部存在取消、撤销、关闭等不同操作</td><td>适配器显式生成 0 / 1；确认取消作用域，不能把任何内部取消都变成整批取消</td></tr>
+<tr><td><code>dispatchNo</code></td><td>纯运输有 trip.id / code；旧运单有 waybill.id / code；前段只有订单 / 到货批次</td><td>持久化外部装车单号；按真实批次创建，不按车牌 + 日期猜测。多旧运单共车需新增关联对象</td></tr>
+<tr><td><code>carrierCode / carrierName</code></td><td>carriers.name / shortName</td><td>建立客户承运商代码映射；先确认报的是我方合同承运商还是实际分包商，简称不能直接视为客户代码</td></tr>
+<tr><td><code>transportationMode</code></td><td>现有执行主要为道路拖车，towType 是拖车类型</td><td>明确保存 ROAD；适配为字符串 "0"。CC / DD 不是公路 / 铁路的同级枚举</td></tr>
+<tr><td><code>plateNumber</code></td><td>纯运输 / 出库车辆档案可取；前段未绑定车辆</td><td>可选字段，无事实时省略或按客户空值规则处理</td></tr>
+<tr><td><code>driver1 / driver1Contacts</code></td><td>纯运输 / 出库司机档案；前段主要是司机账号</td><td>按授权发送，形成节点时快照；不因后续档案修改而重写历史</td></tr>
+<tr><td><code>driver2 / driver2Contacts</code></td><td>当前运输模型无第二司机槽位</td><td>字段非必填，首期不造值；有真实双司机需求后扩展</td></tr>
+<tr><td><code>operTime</code></td><td>业务记录时间、事件或扫描日志时间</td><td>节点实际发生时间，UTC 毫秒；区分 recordedAt / sentAt，补录时间需显式输入并留审计</td></tr>
+<tr><td><code>zipCode / longitude / latitude</code></td><td>部分提货 GPS、司机位置点；无统一节点邮编</td><td>可选值按节点实际位置取；不能把旧 GPS 当当前位置；纯运输持续轨迹关联待补</td></tr>
+<tr><td><code>address</code></td><td>客户地点地址、场地 / 起点文本；不保证每个节点都有当前地址</td><td>必填且最长 50；按节点取真实地址，校验长度；在途地址来源与长度冲突需客户约定，不默截</td></tr>
+<tr><td><code>loadType</code></td><td>当前没有明确 FTL / LTL 商务字段</td><td>新增装载服务类型；不能按载量、车辆类型或拼客户自动推断</td></tr>
+<tr><td><code>mapurl</code></td><td>有定位采集基础，未发现可直接对外分享的统一轨迹链接</td><td>C 条件未说明；若必需，新增客户隔离、可撤销的轨迹访问方案</td></tr>
+<tr><td><code>add1 / add2 / add3</code></td><td>无既定语义</td><td>保持可选空值；不可擅自塞 VIN / 子单号来绕过协议缺项</td></tr>
+<tr><td><code>shipmentList</code></td><td>一张需求单可拆多趟，一趟可拼多客户；旧运单是更窄的派送单位</td><td>按接入应用、客户、dispatch 生成完整授权快照；不同客户绝不合进同一收件方 payload</td></tr>
+<tr><td><code>ShipmentNo / shipmentNo</code></td><td>customer_request_no、customerOrderNo、customerWaybillCode 都可能是候选</td><td>显式映射 SO / 子单 / DN；字段大小写及真实查找键待确认，不按名字相似自动选</td></tr>
+<tr><td><code>shipmentStatus</code></td><td>见上方状态矩阵</td><td>按 shipment / 运输段 / 车辆覆盖范围聚合，保留各单独立状态</td></tr>
+<tr><td><code>estimatedTimeOfDeparture / estimatedTimeOfArrival</code></td><td>纯运输为可空 DATE；入库有预计到货日、计划提货日；旧出库缺统一预计时刻</td><td>所有状态必填。新增时区明确的预计时刻和来源，允许人工维护；不能把日期补零点当真实预测</td></tr>
+<tr><td><code>actualTimeOfDeparture / actualTimeOfArrival</code></td><td>纯运输有趟次发车；出库有启运日志；前段缺发车；三条链均缺一致的独立到达事件</td><td>分段、分站保存实际时间；明确客户 ATD 是起点离开还是目的地离开，禁止随状态改写含义</td></tr>
+<tr><td><code>docUploadURL / docUploadTime</code></td><td>纯运输文件对象与创建时间；旧流程照片 key 和日志时间</td><td>规范化 Document 关联；生成客户可获取且有效期足够的 URL，保留上传时间，不能直接发送用户预览链接</td></tr>
+</tbody></table></div></details>
+<h3>联调前须由客户澄清的契约</h3>
+<ol>
+<li><strong>寻址与鉴权：</strong>测试 / 生产 URL、方法、Content-Type、token / 签名、时间偏差、超时和限流。附件没有这些信息。</li>
+<li><strong>标识与拆分：</strong><code>ShipmentNo</code> 表格大写而示例小写；G29 混用 ordersn、subordersn、deliveryNoteSn。SO 拆到多趟、多段时，客户按哪个组合键更新？缺子单维度时不能自行拼接订单号。</li>
+<li><strong>全量覆盖：</strong>覆盖整张 dispatch、列表内每个 shipment，还是全客户？未出现项是否删除？空串是否清空？首期按明确签字的覆盖范围实现。</li>
+<li><strong>取消粒度：</strong><code>flag=1</code> 撤销 dispatch、某个 shipment 还是上次状态？部分车辆换车 / 退组后如何表达，是否能撤销后重建？</li>
+<li><strong>状态 3 / 4：</strong>G30 同时写“已交货 / 已到达”和“已收货 / 文档上传”。是否要求交付与 POD 都完成？拒收、退回、部分签收如何回传？</li>
+<li><strong>实际时间：</strong>状态 3 要求目的地 ATA 和 ATD，但只提供一个 actualTimeOfDeparture；和状态 2 的始发 ATD 是否冲突？多起点、多目的地时 ETD / ETA 及头部地址如何表示？</li>
+<li><strong>数据前提：</strong>只有日期时是否接受估算？预计时刻由谁提供、多久更新？address 50 字符限制；mapurl、POD 等 C 条件的准确规则。</li>
+<li><strong>回执与幂等：</strong>E42 示例为 success，F42 定义成功码为 000000。业务成功判定、整批原子性 / 逐项结果、重复请求、超时结果查询、旧版本拦截规则是什么？</li>
+<li><strong>文件：</strong>客户立即下载还是保存 URL 延后读取？可用公网域名、下载认证、最长 URL 200、有效期、格式、多个 POD 的表示方式。</li>
+<li><strong>范围：</strong>本次接入是否只做整车道路运输？如果还做备件、铁路或水运，需要额外业务模型和协议；附件的“支持”不能视为 ALMS 已支持。</li>
+</ol>
+</section>
+<section id="model">
+<h2>04 / 对外统一什么</h2>
+<p>建议建立统一的对外资源模型，第一期以映射表和查询投影承接既有数据，不迁移两套运输表、不新建一套竞争性的内部状态机。缺失的提货批次和业务节点在所属模块补齐。</p>
+<div class="table-wrap"><table><thead><tr><th>标准对象</th><th>稳定含义</th><th>当前来源 / 新增边界</th></tr></thead><tbody>
+<tr><td>ServiceOrder<br>服务委托</td><td>客户买什么：纯运输、提货入库、出库派送；串联关系可选</td><td>映射 transport_orders 或 orders。库存订单不强制和前后运输共用一张单</td></tr>
+<tr><td>Shipment<br>客户可追踪运输单元</td><td>与客户确认的物流单 / 子单身份，关联车辆范围</td><td>独立 external_reference，不强认等于内部 order 或 waybill</td></tr>
+<tr><td>Item<br>商品车辆</td><td>itemId 稳定，VIN 是后补也可的业务属性</td><td>transport_line、order_vin、waybill_vin 通过关联表连到对应服务和运输段</td></tr>
+<tr><td>Leg / Stop<br>运输段 / 站点</td><td>有顺序的起终点、预计与实际到离时间</td><td>DIRECT、INBOUND_PICKUP、OUTBOUND_DELIVERY；一个客户运输单可有多段</td></tr>
+<tr><td>Dispatch<br>实际装车批次</td><td>一次真实车辆执行；关联被承运的 shipment / leg / items</td><td>纯运输映射 trip；库存前段新增执行批次；库存后段补共享装车批次关联</td></tr>
+<tr><td>InventoryStay<br>在场周期</td><td>每次入场至离场的事实，不是运输状态</td><td>yard_inventory + inventory_movements，保留独立账本</td></tr>
+<tr><td>Document / Event</td><td>有授权范围的凭证；带发生时间和版本的事实</td><td>统一 POD 关联；业务事件保留来源模块、原记录、车辆覆盖范围</td></tr>
+</tbody></table></div>
+<p><strong>关键关系：</strong>客户委托与实际装车是多对多关系。一个 SO 可以拆多趟，一趟可以承运多个 SO；一台车的前段提货与后段配送是不同 leg。VIN 不可作为唯一事件关联键，否则历史多次运输、返库再发运会混在一起。</p>
+<h3>一个具体例子</h3>
+<p>客户 A 的 SO-001 有 8 台车，分到 D1（6 台）和 D2（2 台）；D2 又装了客户 B 的 2 台。ALMS 对内保留这两个真实批次。给 A 的 D2 快照只含 A 的 2 台所属 shipment，给 B 的报文只含 B 的内容。若 OTWB 只能按 SO 单号覆盖、不能区分 D1 / D2，则必须先让客户确认子单或拆运聚合方案，不能先接上再修数据。</p>
+<p>同一 VIN 先“港口 → 场地”，再“场地 → 门店”，分别拥有 legId；两段中间是 InventoryStay。后一段开始时不把前一段“已到达”倒退成“配车”。</p>
+<details><summary>建议落库的集成侧数据</summary><div class="table-wrap"><table><thead><tr><th>表 / 职责</th><th>核心约束</th></tr></thead><tbody>
+<tr><td>integration_connections</td><td>连接、环境、客户授权范围、协议版本、凭据引用、限流与开关；凭据加密，日志不记录明文</td></tr>
+<tr><td>external_references</td><td>connection + org + customer + objectType + externalId 唯一；多对多拆分通过独立关联表表达，不在一个字段拼 ID</td></tr>
+<tr><td>dispatch / shipment / leg 关联投影</td><td>记录来源类型、来源 ID、客户单元与车辆覆盖；保留退组历史和成员版本，旧运单删除也不丢外部取消依据</td></tr>
+<tr><td>integration_outbox</td><td>业务事实与业务写入同事务；eventId 唯一，aggregateVersion 单调，payload 可重放</td></tr>
+<tr><td>integration_deliveries / attempts</td><td>每连接、客户 dispatch 和版本一条交付；不可变报文、payload hash、mappingVersion、状态、下次尝试时间和回执</td></tr>
+<tr><td>integration_inbox</td><td>开放下单时启用；app + operation + idempotencyKey 唯一；保存请求 hash 和处理结果</td></tr>
+<tr><td>document_grants</td><td>客户应用、documentId、授权范围、有效期 / 撤销与访问记录；与人员登录态分离</td></tr>
+</tbody></table></div></details>
+</section>
+<section id="platform">
+<h2>05 / 开放平台的最小架构</h2>
+<div class="stack"><div class="block"><strong>业务内核</strong><p>纯运输 / 提货 / 库存 / 出库<br>命令校验与事务事件</p></div><div class="arrow">→</div><div class="block"><strong>集成基础能力</strong><p>资源映射 / Outbox / 投影<br>鉴权 / 幂等 / 回执 / 对账</p></div><div class="arrow">→</div><div class="block"><strong>客户连接器</strong><p>OTWB 字段与状态协议<br>其他客户标准 Webhook / API</p></div></div>
+<p>运行上先复用 NestJS、PostgreSQL、Redis / BullMQ 和 MinIO。回传 worker 独立进程、独立并发预算，避免客户慢接口占用业务 API 资源。当前队列已有基础，但 notification processor 只是打印日志；Socket.IO 和数据库实时通知服务于界面刷新，不等于可靠外部交付。</p>
+<p class="evidence">当前实现：<a href="#s-infra">[6]</a>。Outbox 解决业务写入与通知的双写窗口；重复交付仍需幂等，参见 <a href="https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html">AWS 官方模式说明</a>。这里采用该模式，不要求使用 AWS 服务。</p>
+<h3>给后来客户的标准能力</h3>
+<div class="table-wrap"><table><thead><tr><th>建议接口（尚未实现）</th><th>职责</th><th>优先级</th></tr></thead><tbody>
+<tr><td><code>GET /open/v1/shipments/{id}</code><br><code>GET /open/v1/shipments/{id}/events</code></td><td>统一状态、分段进度、事件游标、凭证引用；只能访问应用授权客户</td><td>首期回传闭环后</td></tr>
+<tr><td><code>POST /open/v1/transport-orders</code></td><td>纯运输委托，稳定 externalId、itemId，支持无 VIN 需求后补</td><td>第二阶段</td></tr>
+<tr><td><code>POST /open/v1/inbound-orders</code><br><code>POST /open/v1/outbound-orders</code></td><td>入库 / 出库委托；复用对应业务命令，不让外部直接改库存数</td><td>第二阶段，按接入需求分批</td></tr>
+<tr><td><code>POST /open/v1/orders/{id}/cancel</code></td><td>带原因和预期版本取消；遵守提货、装车、启运后的限制</td><td>随对应下单开放</td></tr>
+<tr><td><code>GET /open/v1/inventory</code><br><code>GET /open/v1/inventory/movements</code></td><td>客户授权库存 / 流水；明确 asOf、时区、分页游标和在场口径</td><td>有库存对接需求时</td></tr>
+<tr><td><code>GET /open/v1/documents/{id}/download</code><br><code>GET /open/v1/operations/{id}</code></td><td>机器授权文件；异步批量请求处理结果</td><td>文件首期必需，异步受理随下单开放</td></tr>
+<tr><td>标准 Webhook 订阅</td><td>运输节点、凭证、库存收发、异常；事件回放与签名</td><td>复用首期交付引擎</td></tr>
+</tbody></table></div>
+<p>对外 API 单独版本化并发布 OpenAPI 契约。同步建单返回完成结果；大批量请求如返回 202，只表示已持久受理，必须提供 operationId 和逐项结果，不能把“已接收”写成“全部建单成功”。出库现有导入存在部分成功结果，适配后仍要明确逐行成败。</p>
+<h3>机器身份与业务权限</h3>
+<p>建议标准入口使用独立应用身份，采用 OAuth 2.0 client credentials 交换短期 token；适用于机密客户端的机器间授权，见 <a href="https://www.rfc-editor.org/rfc/rfc6749#section-4.4">RFC 6749 §4.4</a>。OTWB 出站鉴权按客户实际协议实现，不能假设客户也用 OAuth。</p>
+<p>应用绑定机构、客户、环境和 scopes（如 transport:write、shipment:read、inventory:read），服务端推导数据范围，不信任请求自报的 organizationId / customerId。内部服务需支持受限机器 actor；当前纯运输创建要求内部用户，不能简单给客户一个管理员 token。共享趟次的明细、POD、位置轨迹都要做客户切片。</p>
+<p>标准 Webhook 使用时间戳、deliveryId 和签名，支持密钥轮换与防重放。出站域名按连接配置约束，防止配置把请求或文件下载引向内部地址；日志保留脱敏诊断内容，不回传内部成本、其他客户订单或不必要的司机资料。</p>
+<details><summary>标准事件示例：与客户字段解耦</summary>
+<p>事件封装可采用 <a href="https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md">CloudEvents 1.0.2</a> 的 id / source / type / subject / time 结构；业务版本、客户范围和运输段放在自有 data 中。以下为建议示例，不是客户真实报文。</p>
+<pre><code>{
+  "specversion": "1.0",
+  "id": "evt-example-0001",
+  "source": "/alms/transport",
+  "type": "alms.transport.departed.v1",
+  "subject": "legs/leg-example-01",
+  "time": "2026-10-22T03:00:00Z",
+  "datacontenttype": "application/json",
+  "data": {
+    "organizationId": "org-example",
+    "customerId": "customer-a",
+    "shipmentId": "shipment-example-01",
+    "legId": "leg-example-01",
+    "dispatchId": "dispatch-example-01",
+    "aggregateVersion": 12,
+    "recordedAt": "2026-10-22T03:00:02Z",
+    "sourceRecord": {"kind": "transport_trip", "id": "trip-example"},
+    "itemIds": ["item-example-01", "item-example-02"]
+  }
+}</code></pre>
+<p>outbox 必须同时保存形成该业务事实所需的状态与关联快照，不能只留下 ID 再读取已经变化的业务表。适配投影确定处理到哪一个版本，交付报文记录该版本。发生时间、接收时间、发送时间分开；迟到事件保留事实，但不无条件回退当前状态。</p>
+</details>
+</section>
+<section id="delivery">
+<h2>06 / 状态回传必须可恢复</h2>
+<ol>
+<li><strong>业务事务：</strong>更新提货 / 启运 / 签收及必要审计，并写 outbox。事务失败一起回滚，事务内不发 HTTP。</li>
+<li><strong>可靠转交：</strong>relay 领取已提交 outbox，使用短事务租约和可恢复游标；提交后进入队列。交付任务先持久落库，Redis 丢任务后能由未完成记录恢复。</li>
+<li><strong>客户投影：</strong>按 connection + customer + dispatch 汇总当前已处理版本的完整 shipmentList，保留仍属于该批次的其他单据。映射版本固定，必填缺失进入“待补数据”，不造占位时间或地址。</li>
+<li><strong>有序发送：</strong>相同客户 dispatch 串行；还要检查客户实际覆盖键。若客户按 shipmentNo 跨 dispatch 覆盖，同一 SO 也须协调或阻止不支持的拆分。不同客户连接并发隔离。</li>
+<li><strong>判定成功：</strong>HTTP 与业务 code 一起检查；成功码待客户确认。保存请求摘要、每次响应、耗时与错误分类。批量接口若没有逐项回执，不能推定部分成功。</li>
+<li><strong>失败处理：</strong>网络错误、超时、429、可重试服务错误按退避加抖动重试；参数错误等待修正，认证错误暂停该连接并告警；人工补发有操作审计。</li>
+<li><strong>对账：</strong>有客户查询接口时核对外部状态；否则采用双方日志 / 业务清单核对，只能确认收到的回执，不能声称外部最终状态完全一致。</li>
+</ol>
+<div class="decision"><p><strong>特别处理“超时但客户已成功”。</strong>这是结果未知，不是确定失败。优先使用客户幂等键或查询确认；如果客户都不支持，至少保持同一版本报文重试、严格单流发送并隔离旧版本。单靠本地串行无法阻止客户异步处理旧请求覆盖新状态，此限制必须在联调中解决。</p></div>
+<p>“全量覆盖”的快照是该连接授权范围内的完整快照，绝不是整个内部跨客户趟次。业务取消时产生新的取消事实和 tombstone；旧运单目前会硬删除，所以取消载荷必须在删除同一事务里固化。撤销重建和部分退组要保留旧、新 dispatch 的关系。</p>
+<h3>入站幂等也要做在事务里</h3>
+<p>标准建单接收 Idempotency-Key：同应用、同操作、同 key、同请求 hash 返回原结果；同 key 不同内容返回冲突。外部订单号另设唯一约束防换 key 重复。持久 inbox、业务写入、external_reference 和结果需要同事务，或用明确可恢复的受理 / 执行状态机；不能“先查有没有，再建单”。</p>
+<p>现有业务 service 大多自己开启事务。实施时需抽出可复用命令并接受同一事务 manager，保留原有网页 / App 调用；权限 actor 明确区分人和应用。不能通过调用内部 HTTP 接口来假装具有跨表原子性。</p>
+<h3>POD 的交付</h3>
+<p>现有 <code>/storage/preview</code> 是相对路径，用户签名链接有效 15 分钟并依赖用户权限。它不适合直接写入客户长期保存的 docUploadURL。建议新增针对接入应用的 document grant，通过对外可达 HTTPS 地址交付；有效期覆盖客户下载和补偿窗口，可撤销并审计，URL 保持在客户 200 字符限制内。</p>
+<p>如果客户保存永久链接，则提供受控稳定入口或双方确认的文件推送方案；如果客户即时下载，则按约定发足够时长的授权链接。共享趟次 POD 还需按客户 / shipment 确认内容范围，多文件不得静默只取第一张。</p>
+<p class="evidence">现有文件机制：<a href="#s-storage">[7]</a>；硬删除与通知窗口：<a href="#s-outbound">[3]</a>。</p>
+</section>
+<section id="roadmap">
+<h2>07 / 按可验收结果推进</h2>
+<div class="table-wrap"><table><thead><tr><th>阶段</th><th>要完成的结果</th><th>过关条件</th></tr></thead><tbody>
+<tr><td>0 · 确认首条链</td><td>明确 OTWB 首批业务是纯运输、前段提货还是库存配送；冻结标识、状态、覆盖、回执、文件协议；采集真实业务样例</td><td>SO 多 VIN、拆趟、拼车、多段、部分取消均有双方认可报文；测试端点 / 凭据 / 限流已提供</td></tr>
+<tr><td>1 · 第一客户闭环</td><td>补齐该链的缺失事实；建立映射、outbox、worker、交付记录、文件授权；先用 mock 和影子报文，确认后接客户沙箱</td><td>配车到交付 / POD 可追溯；重试、停机恢复、混装客户隔离、撤销全部通过；业务操作不依赖客户在线</td></tr>
+<tr><td>2 · 标准对外能力</td><td>应用身份、统一查询、标准下单 / 取消、幂等 inbox、契约文档、沙箱和验收样例</td><td>新应用按文档独立走完委托、查询、回传；错误可定位到字段或明细；新增客户常规映射不改内核</td></tr>
+<tr><td>3 · 第二客户验证</td><td>复用连接器框架；按实际需求补齐其余运输链、库存接口和轨迹</td><td>用第二份不同协议验证复用；只有新业务语义需要扩展模型，其余通过配置和独立 adapter 完成</td></tr>
+</tbody></table></div>
+<p>从能力完整度看，纯运输最适合验证首条回传链；如果这位客户实际采购的是库存提货，应优先补前段批次和发车事实。业务范围决定首发链路，不能只选代码最方便的路径。第一期无需建设庞大开发者门户；先有连接配置、编码映射、失败处理和交付查询四个管理入口即可。</p>
+<h3>落到当前代码的位置</h3>
+<div class="table-wrap"><table><thead><tr><th>模块</th><th>建议改动</th></tr></thead><tbody>
+<tr><td><code>modules/integrations</code>（新增）</td><td>connection、external-reference、outbox、delivery、worker、otwb-adapter、document-grant；后续增加 inbox / open-api</td></tr>
+<tr><td><code>transport-trips / transport-orders</code></td><td>现有事务发标准事件；补时刻和到达事实；保留分组、部分发车、拒收关闭等规则；补机器 actor 与 API 来源</td></tr>
+<tr><td><code>inbound</code></td><td>新增提货实际批次与车辆关联、发车 / 到达事件；提货写入与事件同事务；修正提货统计重叠</td></tr>
+<tr><td><code>outbound / waybills</code></td><td>明确多运单共批次；启运 / 签收 / 撤销在当前事务写事件；删除前持久保存完整外部关联</td></tr>
+<tr><td><code>inventory</code></td><td>仍由账本决定实际在场；在同一库存事务内发收发事件，不由回传成功与否驱动扣库</td></tr>
+<tr><td><code>tracking / storage</code></td><td>纯运输 trip / leg 定位关联；统一查询投影；POD 对象与机器授权；当前位置设置采样时间和有效性</td></tr>
+<tr><td>数据库迁移与部署</td><td>增量建表 / 索引，先兼容发布再开连接开关；独立 worker；停用连接只暂停对外流量，不丢待交付任务</td></tr>
+</tbody></table></div>
+<details open><summary>接入前应处理的代码风险</summary>
+<ul>
+<li><strong>提货完成数重复扣减：</strong><code>remaining = total - pickedUp - arrived - cancelled</code> 中，已提货与已到仓重叠。3 台车中 A 已提且已到仓、B 已提、C 未提，现公式得到 0，实际剩余 1。建议改为逐 VIN 互斥条件计数，并核对受影响订单。已用独立样例验证算式，未在业务库复现或修复。</li>
+<li><strong>提货事务不统一：</strong><code>pickupOrderScan</code> 分别保存 VIN、订单状态和 best-effort 审计；旧 <code>pickupScan</code> 又是另一入口。事件化前收口到同一业务命令、并发锁和事务，避免事实写成而事件丢失。</li>
+<li><strong>通知不是交付：</strong>旧运单提交后才发队列通知，失败仅记录日志；队列处理器目前不调用客户。不能沿用这一点位并宣称绝不漏报。</li>
+<li><strong>文件授权不能照搬：</strong>人员预览 token、内部相对链接、跨客户拼车的段级 POD 都需要面向客户应用重新约束。</li>
+<li><strong>完成与历史时间：</strong>纯运输“完成”允许 CLOSED；部分代录使用当前服务器时间。对外必须保留真实结果和节点时间来源，不由最终状态倒推不存在的历史事实。</li>
+</ul><p class="evidence">依据：<a href="#s-pickup">[2]</a>、<a href="#s-infra">[6]</a>、<a href="#s-storage">[7]</a>。本轮只记录发现，未变更业务代码。</p>
+</details>
+<h3>后来每家客户怎么接</h3>
+<ol><li>选业务范围与能力清单，明确谁是订单 / 库存 / 运输状态的权威来源。</li><li>配置应用授权、连接和凭据；导入客户、承运商、地点、单号映射，未匹配数据进入待处理队列。</li><li>选择标准 API / Webhook，或增加一个协议 adapter。字段重命名、编码枚举和固定格式通过版本化配置表达；拆单语义、补偿规则用有测试的适配代码。</li><li>运行固定契约用例、故障重试和跨客户隔离验收，形成双方确认的 mappingVersion。</li><li>沙箱、影子报文、小批量启用，再扩大范围；运营在交付列表处理失败，按日核对漏单和状态差异。</li></ol>
+<p>平台能标准化的是重复的接入工作。客户新增真实业务能力或不兼容的状态语义，仍需要明确设计；首期不做任意脚本映射引擎，也不承诺所有客户零代码接入。</p>
+</section>
+<section id="performance">
+<h2>08 / 性能与验收同时设计</h2>
+<p>以下为建议的初始测试门槛，须根据真实日量、活跃车辆、客户限流和当前服务基线校准；不是已达到的指标，也不是客户 SLA。</p>
+<div class="table-wrap"><table><thead><tr><th>方面</th><th>设计要求</th><th>验收场景 / 初始门槛</th></tr></thead><tbody>
+<tr><td>业务接口开销</td><td>业务事务仅增加有界事件写入；按命令批量写，不逐 VIN 请求客户</td><td>同负载、同数据集与基线比较：提货 / 启运 / 签收 p95 增幅 ≤10% 且增量 ≤20ms；业务事务内外部 HTTP 次数为 0</td></tr>
+<tr><td>故障隔离</td><td>worker 独立进程和连接池预算；每客户并发、速率和熔断独立</td><td>客户持续超时 / 429 时，其他连接及业务 API 仍满足基线门槛；队列不无界占用内存</td></tr>
+<tr><td>正常时延</td><td>outbox 有索引短批扫描，避免全表轮询；指标含最老未交付年龄</td><td>数据齐全、客户健康时，从业务提交到业务成功回执 p95 ≤60s</td></tr>
+<tr><td>恢复与积压</td><td>尝试租约可回收、未完成 delivery 可重新入队；客户允许范围内限速追赶</td><td>模拟 worker / Redis 故障和客户停机 15 分钟；恢复后测试持续输入下 30 分钟内清理积压，需客户配额允许</td></tr>
+<tr><td>重复 / 乱序</td><td>版本、幂等、不可变报文、按覆盖键协调</td><td>同事件重复 10 次、旧事件晚到、超时已成功、处理中宕机：无重复建单 / 扣库 / 费用，无确认后的状态倒退</td></tr>
+<tr><td>查询成本</td><td>客户隔离投影、游标分页、连接+外部ID唯一索引；避免每条 VIN 再查一遍全历史</td><td>用目标峰值数据检查查询计划、慢 SQL、扫描行数及连接池；库存差异为 0</td></tr>
+<tr><td>GPS 与文件</td><td>GPS 批量入库，状态与定位分队列；按约定降采样；图片不嵌事件 payload，下载流式传输</td><td>大量轨迹及 POD 下载不阻塞业务事件；过期文件可恢复授权，越权文件下载被拒绝</td></tr>
+<tr><td>存储与审计</td><td>事件 / 投递日志分冷热，成功记录按约定归档；失败和未完成记录不因 TTL 丢失</td><td>测平均 payload、索引 / WAL 增量及保留期，演练归档后查询；监控待补数据、死信、认证失败和外部差异</td></tr>
+</tbody></table></div>
+<h3>为什么轨迹需要单独预算</h3>
+<p>仅作容量示例：每天 10,000 台商品车、每台 6 个业务事件，约 60,000 个事件 / 日（未考虑批量合并及重试）。若 500 辆拖车每天运行 12 小时、每 30 秒一个 GPS 点，则约 720,000 点 / 日；每 5 分钟对外一次仍有 72,000 次候选位置更新 / 日。业务事件、GPS 点和 HTTP 请求量不能视为同一个数。</p>
+<p>存储预算用“事件量 × 实测平均报文大小 × 保留天数”，再加索引、WAL、重试记录和附件存储；压测按实测峰值至少 2 倍准备，同时服从客户配额。OTWB 当前附件未规定持续定位频率，不能自行按每个 GPS 点回传。</p>
+<details><summary>固定业务验收集</summary><ol>
+<li>纯运输 6 台计划、仅装 4 台启运：2 台退组，回传快照与实际装载一致。</li>
+<li>同一 SO 拆多趟、同一趟拼多 SO / 客户：单号唯一且无数据越权；不支持拆分的客户协议明确阻断。</li>
+<li>库存前段多批提货、第三方直入：不提前完成，不补造取货或发车时间。</li>
+<li>出库装车、卸车回库、启运、签收：库存增减依次 0、0、−1、0。</li>
+<li>部分签收、拒收关闭、POD 先到 / 后到、重复上传：交付结果和凭证分别正确。</li>
+<li>改派承运商、撤销运单、部分退组：历史快照存在，客户侧取消范围准确。</li>
+<li>ETD / ETA / 地址缺失、超长字段、编码未映射：进入待补数据，业务不被外部回传阻塞。</li>
+<li>同幂等键不同 payload、跨客户对象 ID、无授权 POD、伪造 tenant：拒绝并留下可诊断记录。</li>
+<li>服务提交前崩溃 / 提交后崩溃 / 入队后崩溃 / 外部已成功但响应丢失：逐个演练恢复边界。</li>
+<li>已有历史业务：明确 cutover 时点，仅经确认补发历史；缺失的里程碑不按当前状态自动合成。</li>
+</ol></details>
+</section>
+<section id="sources">
+<h2>09 / 代码与文档依据</h2>
+<p class="note">代码结论来自静态追踪及一个独立算式复现。未运行完整回归、生产压测、数据库迁移或客户联调；现有项目文档中的历史验证结果不代表本轮验证。</p>
+<ol class="sources">
+<li id="s-pure"><strong>[1] 纯运输。</strong> <a href="../backend/src/modules/transport/transport-trips.service.ts">transport-trips.service.ts</a>：264（趟次创建）、491（提货）、556（部分发车）、590（签收）、883（POD）、1031（完成）；<a href="../backend/src/modules/transport/transport.rules.ts">transport.rules.ts</a>：完成聚合；<a href="../backend/src/modules/transport/transport.access.ts">transport.access.ts</a>：客户范围、事件、在场车辆排除；<a href="pure-transport.md">pure-transport.md</a> 为业务背景。</li>
+<li id="s-pickup"><strong>[2] 库存提货。</strong> <a href="../backend/src/modules/inbound/inbound.service.ts">inbound.service.ts</a>：455（旧提货入口）、591（入库）、1208（分派）、1424（任务扫码）、1562（提货统计）；<a href="../backend/src/modules/orders/entities/order.entity.ts">order.entity.ts</a>、<a href="../backend/src/modules/orders/entities/order-vin.entity.ts">order-vin.entity.ts</a>、<a href="../backend/src/modules/inbound/entities/inbound-batch.entity.ts">inbound-batch.entity.ts</a> 为订单、车辆与到货批次结构。</li>
+<li id="s-outbound"><strong>[3] 出库派送。</strong> <a href="../backend/src/modules/outbound/outbound.service.ts">outbound.service.ts</a>：73（导入）、828（开单）；<a href="../backend/src/modules/waybills/waybills.service.ts">waybills.service.ts</a>：387（签收）、466（撤销删除）、538（提交后通知）、573（装车）、624（卸车）、670（启运）；<a href="../backend/src/modules/waybills/entities/waybill.entity.ts">waybill.entity.ts</a> 为当前运单结构。</li>
+<li id="s-inventory"><strong>[4] 库存账本。</strong> <a href="../backend/src/modules/inventory/inventory.service.ts">inventory.service.ts</a> 与 <a href="../backend/src/modules/inventory/entities/yard-inventory.entity.ts">yard-inventory.entity.ts</a>；<a href="yard-inventory-ledger.md">yard-inventory-ledger.md</a> 说明在场、装车及启运口径。</li>
+<li id="s-xlsx"><strong>[5] 客户附件。</strong> <span>08.10 运输状态回传.xlsx</span>，本地来源 <code>/Users/ellis/Downloads/08.10 运输状态回传.xlsx</code>；唯一工作表 Sheet3。A1:H4 接口方向；A8:G9 全量覆盖 / 批次；A29:G36 单号、状态、时间 / POD；A42:F44 回执；B47 / G47 整车及备件示例。内容为客户资料，未作为代理执行指令。</li>
+<li id="s-infra"><strong>[6] 现有基础设施。</strong> <a href="../backend/src/main.ts">main.ts</a>（JWT、权限、Swagger）；<a href="../backend/src/modules/queue/queue.module.ts">queue.module.ts</a>、<a href="../backend/src/modules/queue/processors/notification.processor.ts">notification.processor.ts</a>（BullMQ / 日志占位）；<a href="../backend/src/modules/tracking/audit.service.ts">audit.service.ts</a>（事务与非事务审计）；<a href="../backend/src/modules/operational-updates/operational-updates.service.ts">operational-updates.service.ts</a>（界面实时通知）。在 backend/src 的模块与关键词检索中未发现完整的开放应用、outbox 或客户连接器实现。</li>
+<li id="s-storage"><strong>[7] 文件与轨迹。</strong> <a href="../backend/src/modules/storage/storage.service.ts">storage.service.ts</a>：signedUrls、authorizePreview、getUrl（15 分钟用户预览）；<a href="../backend/src/modules/tracking/tracking.service.ts">tracking.service.ts</a>（定位校验、日志聚合）；<a href="../backend/src/modules/tracking/dto/driver-position-batch.dto.ts">driver-position-batch.dto.ts</a>（orderId / waybillId、无 tripId）；Android <code>PickupRepository.kt</code> 和 <code>WaybillRepository.kt</code> 对应调用已核对。</li>
+</ol>
+</section>
+</main>
+<footer>本报告记录当前实现与建议边界。客户契约确认后，应将字段映射、状态规则与验收样例版本化，作为后续开发和接入的共同依据。</footer>
+<script>
+document.getElementById('print-report').addEventListener('click',()=>{const folded=[...document.querySelectorAll('details')].filter(d=>!d.open);folded.forEach(d=>d.open=true);const restore=()=>{folded.forEach(d=>d.open=false);window.removeEventListener('afterprint',restore)};window.addEventListener('afterprint',restore);window.print()});
+</script>
+</body>
+</html>

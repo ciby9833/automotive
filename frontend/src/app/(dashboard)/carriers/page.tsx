@@ -1,17 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Button, Drawer, Form, Input, Modal, Select, Space, Switch, Table, Tag, message } from 'antd';
-import { CarOutlined, EditOutlined, TeamOutlined } from '@ant-design/icons';
+import { useRouter } from 'next/navigation';
+import { Button, Drawer, Dropdown, Form, Input, Modal, Select, Space, Switch, Table, Tag, message } from 'antd';
+import type { MenuProps } from 'antd';
+import { CarOutlined, EditOutlined, LinkOutlined, MoreOutlined, TeamOutlined } from '@ant-design/icons';
 import { carriersApi, Carrier, PartnerStatus } from '@/lib/api/carriers';
 import { useAuthStore } from '@/lib/auth/store';
 import { useOrganizations } from '@/lib/organization/useOrganizations';
 import { useTranslation } from '@/i18n/useTranslation';
 import { localizedOrganizationName } from '@/i18n/organizationNames';
 import { orgNameFromRecord } from '@/lib/organization/nameFrom';
-import { GenerateInviteButton } from '@/components/invitations/GenerateInviteButton';
+import { InviteModal } from '@/components/invitations/GenerateInviteButton';
 import { CarrierUsersPanel } from '@/components/carriers/CarrierUsersPanel';
-import { CarrierFleetPanel } from '@/components/carriers/CarrierFleetPanel';
 import { Role } from '@/lib/auth/role';
 import { Permission, usePermission } from '@/lib/auth/permissions';
 import { OrgFilter } from '@/components/layout/OrgFilter';
@@ -22,7 +23,7 @@ export default function CarriersPage() {
   const [open, setOpen] = useState(false);
   const [orgFilter, setOrgFilter] = useState<string | undefined>();
   const [usersDrawer, setUsersDrawer] = useState<Carrier | null>(null);
-  const [fleetDrawer, setFleetDrawer] = useState<Carrier | null>(null);
+  const [inviting, setInviting] = useState<Carrier | null>(null);
   const [editing, setEditing] = useState<Carrier | null>(null);
   const [showInactive, setShowInactive] = useState(false);
   const [form] = Form.useForm();
@@ -36,6 +37,8 @@ export default function CarriersPage() {
   const canEditCarrier = usePermission(Permission.PARTNER_CARRIER_CRUD);
   const canManage = canEditCarrier && role === Role.ORG_ADMIN;
   const canViewUsers = usePermission(Permission.CARRIER_USER_VIEW);
+  const canInvite = usePermission(Permission.PARTNER_INVITE);
+  const router = useRouter();
 
   const load = async () => {
     setLoading(true);
@@ -56,6 +59,7 @@ export default function CarriersPage() {
   const onCreate = async (values: {
     organizationId: string;
     name: string;
+    shortName?: string;
     type: string;
     contactName?: string;
     contactPhone?: string;
@@ -67,8 +71,9 @@ export default function CarriersPage() {
       setOpen(false);
       form.resetFields();
       load();
-    } catch {
-      message.error(t('carriers.createFailed'));
+    } catch (err) {
+      const detail = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      message.error(detail || t('carriers.createFailed'));
     }
   };
 
@@ -76,6 +81,7 @@ export default function CarriersPage() {
     setEditing(c);
     editForm.setFieldsValue({
       name: c.name,
+      shortName: c.shortName,
       type: c.type,
       contactName: c.contactName,
       contactPhone: c.contactPhone,
@@ -89,6 +95,7 @@ export default function CarriersPage() {
     try {
       await carriersApi.update(editing.id, {
         name: values.name,
+        shortName: values.shortName?.trim() || null,
         type: values.type,
         contactName: values.contactName || null,
         contactPhone: values.contactPhone || null,
@@ -102,6 +109,34 @@ export default function CarriersPage() {
       message.error(detail || t('carriers.updateFailed'));
     }
   };
+
+  // 状态改动影响派车和导入匹配，先确认再生效
+  const confirmStatus = (carrier: Carrier, status: PartnerStatus) =>
+    Modal.confirm({
+      title: t('partners.statusConfirm', { name: carrier.name, status: t(`partners.status.${status}`) }),
+      okButtonProps: { danger: status === 'INACTIVE' },
+      onOk: () => changeStatus(carrier, status),
+    });
+
+  const rowMenu = (record: Carrier): MenuProps['items'] => [
+    { key: 'edit', icon: <EditOutlined />, label: t('common.edit'), disabled: !canManage, onClick: () => openEdit(record) },
+    { type: 'divider' as const },
+    ...(['ACTIVE', 'PAUSED', 'INACTIVE'] as PartnerStatus[])
+      .filter((s) => s !== record.status)
+      .map((s) => ({
+        key: s,
+        label: t('partners.setStatus', { status: t(`partners.status.${s}`) }),
+        danger: s === 'INACTIVE',
+        disabled: !canManage,
+        onClick: () => confirmStatus(record, s),
+      })),
+    ...(canInvite
+      ? [
+          { type: 'divider' as const },
+          { key: 'invite', icon: <LinkOutlined />, label: t('invitations.generate'), onClick: () => setInviting(record) },
+        ]
+      : []),
+  ];
 
   const changeStatus = async (carrier: Carrier, status: PartnerStatus) => {
     try {
@@ -148,6 +183,7 @@ export default function CarriersPage() {
         </Space>
       ),
     },
+    { title: t('carriers.shortName'), dataIndex: 'shortName', render: (v: string | null) => v || '-' },
     {
       title: t('carriers.type'),
       dataIndex: 'type',
@@ -163,24 +199,15 @@ export default function CarriersPage() {
     columns.push({
       title: t('carriers.action'),
       render: (_: unknown, record: Carrier) => (
-        <Space size={4}>
+        <Space size={0}>
           <Button
+            type="link"
             size="small"
-            icon={<EditOutlined />}
-            disabled={!canManage}
-            onClick={() => openEdit(record)}
-          />
-          <Select<PartnerStatus>
-            disabled={!canManage}
-            size="small"
-            value={record.status}
-            style={{ width: 110 }}
-            onChange={(status) => changeStatus(record, status)}
-            options={(['ACTIVE', 'PAUSED', 'INACTIVE'] as PartnerStatus[]).map((status) => ({
-              value: status,
-              label: t(`partners.status.${status}`),
-            }))}
-          />
+            icon={<CarOutlined />}
+            onClick={() => router.push(`/carriers/${record.id}/fleet`)}
+          >
+            {t('carriers.viewFleet')}
+          </Button>
           <Button
             type="link"
             size="small"
@@ -190,15 +217,9 @@ export default function CarriersPage() {
           >
             {t('carriers.viewUsers')}
           </Button>
-          <Button
-            type="link"
-            size="small"
-            icon={<CarOutlined />}
-            onClick={() => setFleetDrawer(record)}
-          >
-            {t('carriers.viewFleet')}
-          </Button>
-          <GenerateInviteButton targetType="CARRIER" targetId={record.id} />
+          <Dropdown trigger={['click']} menu={{ items: rowMenu(record) }}>
+            <Button type="text" size="small" icon={<MoreOutlined />} aria-label={t('common.more')} />
+          </Dropdown>
         </Space>
       ),
     } as never);
@@ -226,6 +247,7 @@ export default function CarriersPage() {
       <Table
         rowKey="id"
         loading={loading}
+        scroll={{ x: 'max-content' }}
         dataSource={showInactive ? carriers : carriers.filter((c) => c.status !== 'INACTIVE')}
         columns={columns}
       />
@@ -239,6 +261,9 @@ export default function CarriersPage() {
         <Form form={editForm} layout="vertical">
           <Form.Item label={t('carriers.name')} name="name" rules={[{ required: true }]}>
             <Input />
+          </Form.Item>
+          <Form.Item label={t('carriers.shortName')} name="shortName">
+            <Input maxLength={60} placeholder="IPP" />
           </Form.Item>
           <Form.Item label={t('carriers.type')} name="type" rules={[{ required: true }]}>
             <Select
@@ -287,6 +312,9 @@ export default function CarriersPage() {
           <Form.Item label={t('carriers.name')} name="name" rules={[{ required: true }]}>
             <Input />
           </Form.Item>
+          <Form.Item label={t('carriers.shortName')} name="shortName">
+            <Input maxLength={60} placeholder="IPP" />
+          </Form.Item>
           <Form.Item label={t('carriers.type')} name="type" rules={[{ required: true }]}>
             <Select
               options={[
@@ -320,8 +348,8 @@ export default function CarriersPage() {
         }
         open={!!usersDrawer}
         onClose={() => setUsersDrawer(null)}
-        width={960}
-        destroyOnClose
+        size="min(960px, 100vw)"
+        destroyOnHidden
       >
         {usersDrawer && (
           <CarrierUsersPanel
@@ -331,24 +359,9 @@ export default function CarriersPage() {
         )}
       </Drawer>
 
-      <Drawer
-        title={
-          fleetDrawer
-            ? `${t('carriers.fleetDrawerTitle')} · ${fleetDrawer.name}`
-            : t('carriers.fleetDrawerTitle')
-        }
-        open={!!fleetDrawer}
-        onClose={() => setFleetDrawer(null)}
-        width={960}
-        destroyOnClose
-      >
-        {fleetDrawer && (
-          <CarrierFleetPanel
-            carrierId={fleetDrawer.id}
-            carrierName={fleetDrawer.name}
-          />
-        )}
-      </Drawer>
+      {inviting && (
+        <InviteModal targetType="CARRIER" targetId={inviting.id} open onClose={() => setInviting(null)} />
+      )}
     </div>
   );
 }

@@ -106,7 +106,9 @@
     "statusUpdated": "Partner status updated",
     "pauseSuggestedTitle": "Unfinished business exists",
     "pauseInstead": "Pause new business",
-    "pausedWithInflight": "Paused; {n} unfinished records can continue"
+    "pausedWithInflight": "Paused; {n} unfinished records can continue",
+    "setStatus": "Set to {status}",
+    "statusConfirm": "Set \"{name}\" to {status}?"
   },
   "nav": {
     "transport": "Direct transport",
@@ -532,6 +534,7 @@
     "title": "Carriers",
     "addCarrier": "Add Carrier",
     "name": "Name",
+    "shortName": "Short name",
     "type": "Type",
     "contactName": "Contact",
     "contactPhone": "Phone",
@@ -648,7 +651,7 @@
     "plateNumber": "Plate #",
     "towType": "Tow Type",
     "capacity": "Capacity (cars)",
-    "capacityHint": "Blank = default by type: CC 6, TANSYA 4, DD 3, TOWING 1",
+    "capacityDefault": "Default {n}",
     "vehicleCreated": "Vehicle added",
     "vehicleUpdated": "Vehicle updated",
     "vehicleDisabled": "Vehicle disabled",
@@ -984,7 +987,8 @@
     "status": "Status",
     "action": "Actions",
     "edit": "Edit",
-    "delete": "Remove"
+    "delete": "Remove",
+    "more": "More"
   },
   "driverPicker": {
     "driver": "Driver",

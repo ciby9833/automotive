@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   InputNumber,
   Button,
@@ -15,6 +15,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Typography,
   message,
 } from 'antd';
 import {
@@ -27,11 +28,15 @@ import {
 import { carriersApi, type Driver, type Vehicle } from '@/lib/api/carriers';
 import { useTranslation } from '@/i18n/useTranslation';
 import { Permission, usePermission } from '@/lib/auth/permissions';
+import { TOW_TYPES, vehicleCapacity } from '@/lib/fleet/towTypes';
 
 interface Props {
   carrierId: string;
   carrierName?: string;
 }
+
+// 搜索忽略大小写和空格：车牌常见 "B 1234 XY" / "b1234xy" 两种写法
+const norm = (v: string | null | undefined) => (v ?? '').replace(/\s+/g, '').toLowerCase();
 
 // 承运商司机 / 车辆花名册管理
 // - HQ/ORG 侧从供应商列表打开
@@ -70,11 +75,17 @@ function DriversTab({ carrierId, carrierName }: Props) {
   const canManage = usePermission(Permission.PARTNER_CARRIER_CRUD);
   const [rows, setRows] = useState<Driver[]>([]);
   const [loading, setLoading] = useState(false);
+  // 默认只看启用的，停用的不混在日常列表里
   const [stateFilter, setStateFilter] = useState<
     'ALL' | 'ACTIVE' | 'DISABLED'
-  >('ALL');
+  >('ACTIVE');
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Driver | null>(null);
+  const [search, setSearch] = useState('');
+  const shown = useMemo(() => {
+    const q = norm(search);
+    return q ? rows.filter((d) => [d.name, d.phone, d.licenseNo].some((v) => norm(v).includes(q))) : rows;
+  }, [rows, search]);
   const [form] = Form.useForm();
 
   const load = () => {
@@ -195,6 +206,12 @@ function DriversTab({ carrierId, carrierName }: Props) {
               { label: t('carrierFleet.stateDisabled'), value: 'DISABLED' },
             ]}
           />
+          <Input.Search
+            allowClear
+            placeholder={`${t('carrierFleet.driverName')} / ${t('carrierFleet.phone')} / ${t('carrierFleet.licenseNo')}`}
+            style={{ width: 240 }}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} disabled={!canManage}>
@@ -205,7 +222,8 @@ function DriversTab({ carrierId, carrierName }: Props) {
         rowKey="id"
         size="small"
         loading={loading}
-        dataSource={rows}
+        dataSource={shown}
+        scroll={{ x: "max-content" }}
         pagination={{ pageSize: 20 }}
         locale={{ emptyText: <Empty description={t('carrierFleet.emptyDrivers')} /> }}
         columns={[
@@ -346,10 +364,16 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
   const [loading, setLoading] = useState(false);
   const [stateFilter, setStateFilter] = useState<
     'ALL' | 'ACTIVE' | 'DISABLED'
-  >('ALL');
+  >('ACTIVE');
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<Vehicle | null>(null);
+  const [search, setSearch] = useState('');
+  const shown = useMemo(() => {
+    const q = norm(search);
+    return q ? rows.filter((v) => norm(v.plateNumber).includes(q)) : rows;
+  }, [rows, search]);
   const [form] = Form.useForm();
+  const formTowType = Form.useWatch('towType', form) as string | undefined;
 
   const load = () => {
     setLoading(true);
@@ -389,14 +413,14 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
   const submit = async () => {
     const values = (await form.validateFields()) as {
       plateNumber: string;
-      towType?: string;
+      towType: string;
       capacity?: number | null;
     };
     try {
       if (editing) {
         await carriersApi.updateVehicle(carrierId, editing.id, {
           plateNumber: values.plateNumber,
-          towType: values.towType ?? null,
+          towType: values.towType,
           capacity: values.capacity ?? null,
         });
         message.success(t('carrierFleet.vehicleUpdated'));
@@ -464,6 +488,12 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
               { label: t('carrierFleet.stateDisabled'), value: 'DISABLED' },
             ]}
           />
+          <Input.Search
+            allowClear
+            placeholder={t('carrierFleet.plateNumber')}
+            style={{ width: 240 }}
+            onChange={(e) => setSearch(e.target.value)}
+          />
           <Button icon={<ReloadOutlined />} onClick={load} />
         </Space>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} disabled={!canManage}>
@@ -474,7 +504,8 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
         rowKey="id"
         size="small"
         loading={loading}
-        dataSource={rows}
+        dataSource={shown}
+        scroll={{ x: "max-content" }}
         pagination={{ pageSize: 20 }}
         locale={{ emptyText: <Empty description={t('carrierFleet.emptyVehicles')} /> }}
         columns={[
@@ -489,8 +520,11 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
             title: t('carrierFleet.capacity'),
             dataIndex: 'capacity',
             width: 110,
+            // 单独填了载量的正常显示，按类型默认的用灰色
             render: (v: number | null, r: Vehicle) =>
-              v ?? (r.towType ? { CC: 6, TANSYA: 4, DD: 3, TOWING: 1 }[r.towType] ?? '-' : '-'),
+              v ?? (
+                <Typography.Text type="secondary">{vehicleCapacity(r.towType, null) ?? '-'}</Typography.Text>
+              ),
           },
           {
             title: t('carrierFleet.state'),
@@ -577,23 +611,22 @@ function VehiclesTab({ carrierId, carrierName }: Props) {
           >
             <Input maxLength={30} />
           </Form.Item>
-          <Form.Item label={t('carrierFleet.towType')} name="towType">
-            <Select
-              allowClear
-              options={[
-                { value: 'CC', label: 'CC' },
-                { value: 'TOWING', label: 'TOWING' },
-                { value: 'TANSYA', label: 'TANSYA' },
-                { value: 'DD', label: 'DD (Double Drop)' },
-              ]}
-            />
+          <Form.Item label={t('carrierFleet.towType')} name="towType" rules={[{ required: true }]}>
+            <Select options={TOW_TYPES.map((v) => ({ value: v, label: v === 'DD' ? 'DD (Double Drop)' : v }))} />
           </Form.Item>
-          <Form.Item
-            label={t('carrierFleet.capacity')}
-            name="capacity"
-            extra={t('carrierFleet.capacityHint')}
-          >
-            <InputNumber min={1} max={20} precision={0} style={{ width: '100%' }} />
+          {/* 不填按类型默认；占位文字直接显示该类型的默认台数 */}
+          <Form.Item label={t('carrierFleet.capacity')} name="capacity">
+            <InputNumber
+              min={1}
+              max={20}
+              precision={0}
+              style={{ width: '100%' }}
+              placeholder={
+                formTowType
+                  ? t('carrierFleet.capacityDefault', { n: vehicleCapacity(formTowType, null) ?? '-' })
+                  : undefined
+              }
+            />
           </Form.Item>
         </Form>
       </Modal>

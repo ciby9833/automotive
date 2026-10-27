@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Form, Input, Modal, Select, Space, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { carriersApi, Driver, Vehicle } from '@/lib/api/carriers';
+import { TOW_TYPES } from '@/lib/fleet/towTypes';
 import { useTranslation } from '@/i18n/useTranslation';
 
 // 开单/分派场景通用：按承运商加载司机+拖车下拉，附"+新增"快捷入口
@@ -84,7 +85,7 @@ export function DriverVehiclePicker({
     if (!carrierId) return;
     const values = (await vehicleForm.validateFields()) as {
       plateNumber: string;
-      towType?: string;
+      towType: string;
     };
     setCreating(true);
     try {
@@ -223,16 +224,8 @@ export function DriverVehiclePicker({
           >
             <Input maxLength={30} />
           </Form.Item>
-          <Form.Item label={t('driverPicker.towType')} name="towType">
-            <Select
-              allowClear
-              options={[
-                { value: 'CC', label: 'CC' },
-                { value: 'TOWING', label: 'TOWING' },
-                { value: 'TANSYA', label: 'TANSYA' },
-                { value: 'DD', label: 'DD (Double Drop)' },
-              ]}
-            />
+          <Form.Item label={t('driverPicker.towType')} name="towType" rules={[{ required: true }]}>
+            <Select options={TOW_TYPES.map((v) => ({ value: v, label: v === 'DD' ? 'DD (Double Drop)' : v }))} />
           </Form.Item>
         </Form>
       </Modal>
